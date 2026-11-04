@@ -136,6 +136,9 @@ pub fn run() {
             #[cfg(debug_assertions)]
             agent_bridge::start(app.handle());
 
+            // GitHub sign-in: the token lives in the Keychain under this app's identifier
+            github::auth::init(&app.config().identifier);
+
             #[cfg(target_os = "macos")]
             commands::quit::install_terminate_hook(app.handle());
 

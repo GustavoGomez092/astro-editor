@@ -15,6 +15,17 @@ pub struct GitHubAuthStatus {
     pub avatar_url: Option<String>,
 }
 
+impl GitHubAuthStatus {
+    pub fn signed_out() -> Self {
+        Self {
+            signed_in: false,
+            login: None,
+            name: None,
+            avatar_url: None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceCode {
@@ -81,3 +92,6 @@ pub struct RepoSummary {
     /// ISO 8601, as GitHub returns it
     pub updated_at: String,
 }
+
+pub mod auth;
+pub mod http;
