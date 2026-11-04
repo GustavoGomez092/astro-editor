@@ -4,6 +4,7 @@
 use crate::git::{
     self, BranchInfo, CommitDetails, FileDiff, GitStatus, GraphCommit, PublishResult, SyncResult,
 };
+use crate::github::auth::{self, GitHubUser};
 use std::path::PathBuf;
 
 const NOT_IMPLEMENTED: &str = "not implemented";
@@ -17,6 +18,25 @@ where
     tokio::task::spawn_blocking(work)
         .await
         .map_err(|e| format!("The git operation stopped unexpectedly: {e}"))?
+}
+
+/// The signed-in GitHub profile, for the commit author when git config has no
+/// name and email. Only asks GitHub when it's needed.
+async fn author_fallback(project_path: &str) -> Option<GitHubUser> {
+    let path = PathBuf::from(project_path);
+    let has_identity = blocking(move || {
+        Ok(git::open(&path)?
+            .map(|repo| git::sync::has_config_identity(&repo))
+            .unwrap_or(true))
+    })
+    .await
+    .unwrap_or(true);
+    if has_identity {
+        return None;
+    }
+    let auth = auth::auth().ok()?;
+    let _ = auth.status().await;
+    auth.cached_user()
 }
 
 #[tauri::command]
@@ -35,30 +55,50 @@ pub async fn git_file_diff(project_path: String, path: String) -> Result<FileDif
 #[tauri::command]
 #[specta::specta]
 pub async fn git_fetch(project_path: String) -> Result<GitStatus, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    let token = auth::token();
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::remote::fetch(&repo, token.as_deref())?;
+        git::status::repo_status(&repo)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_sync(project_path: String) -> Result<SyncResult, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    let token = auth::token();
+    let user = author_fallback(&project_path).await;
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::sync::sync(&repo, token.as_deref(), user.as_ref())
+    })
+    .await
 }
 
 /// Commit everything, merge incoming changes, push
 #[tauri::command]
 #[specta::specta]
 pub async fn git_publish(project_path: String, message: String) -> Result<PublishResult, String> {
-    let _ = (project_path, message);
-    Err(NOT_IMPLEMENTED.to_string())
+    let token = auth::token();
+    let user = author_fallback(&project_path).await;
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::sync::publish(&repo, &message, token.as_deref(), user.as_ref())
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_push(project_path: String) -> Result<GitStatus, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    let token = auth::token();
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::remote::push_current_branch(&repo, token.as_deref())?;
+        git::status::repo_status(&repo)
+    })
+    .await
 }
 
 #[tauri::command]
@@ -110,8 +150,13 @@ pub async fn git_commit_file_diff(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_merge_default_branch(project_path: String) -> Result<SyncResult, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    let token = auth::token();
+    let user = author_fallback(&project_path).await;
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::sync::merge_default_branch(&repo, token.as_deref(), user.as_ref())
+    })
+    .await
 }
 
 /// Clone into a new folder inside `parent_dir`; returns the new project path

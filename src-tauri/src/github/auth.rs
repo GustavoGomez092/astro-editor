@@ -185,9 +185,13 @@ impl Auth {
     }
 
     /// The token, for git network operations and API calls
-    #[allow(dead_code)] // used by the git remote and GitHub API modules
     pub fn token(&self) -> Option<String> {
         self.store.get().ok().flatten()
+    }
+
+    /// The profile fetched by the last successful [`Auth::status`] or sign-in
+    pub fn cached_user(&self) -> Option<GitHubUser> {
+        lock(&self.user).clone()
     }
 
     /// Reads the token and, once, the profile. A revoked token signs out; when
@@ -365,7 +369,6 @@ pub fn auth() -> Result<&'static Auth, String> {
 }
 
 /// The signed-in token, for other modules (git network operations, the API)
-#[allow(dead_code)] // used by the git remote and GitHub API modules
 pub fn token() -> Option<String> {
     AUTH.get()?.token()
 }

@@ -158,3 +158,41 @@ pub fn clone_of(remote_dir: &Path) -> (TempDir, Repository) {
     set_identity(&repo);
     (dir, repo)
 }
+
+pub fn read(repo: &Repository, path: &str) -> String {
+    fs::read_to_string(repo.workdir().unwrap().join(path)).unwrap()
+}
+
+/// Another computer commits `path` on `branch` and pushes it to the remote
+pub fn push_from_elsewhere(remote_dir: &Path, branch: &str, path: &str, contents: &str) -> Oid {
+    let (_dir, other) = clone_of(remote_dir);
+    if branch != "main" {
+        let remote_branch = other
+            .find_reference(&format!("refs/remotes/origin/{branch}"))
+            .unwrap()
+            .peel_to_commit()
+            .unwrap();
+        other.branch(branch, &remote_branch, true).unwrap();
+        other.set_head(&format!("refs/heads/{branch}")).unwrap();
+        other
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+    }
+    write(&other, path, contents);
+    let oid = commit_all(&other, &format!("Change {path} elsewhere"));
+    let mut remote = other.find_remote("origin").unwrap();
+    let refspec = format!("refs/heads/{branch}:refs/heads/{branch}");
+    remote.push(&[refspec.as_str()], None).unwrap();
+    oid
+}
+
+/// The commit a branch points at in the bare remote
+pub fn remote_tip(remote_dir: &Path, branch: &str) -> Option<Oid> {
+    let bare = Repository::open_bare(remote_dir).unwrap();
+    let reference = bare.find_reference(&format!("refs/heads/{branch}")).ok()?;
+    reference.target()
+}
+
+pub fn head_id(repo: &Repository) -> Oid {
+    repo.head().unwrap().target().unwrap()
+}

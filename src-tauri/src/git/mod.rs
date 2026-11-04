@@ -173,7 +173,9 @@ pub struct CloneProgress {
 }
 
 pub mod diff;
+pub mod remote;
 pub mod status;
+pub mod sync;
 #[cfg(test)]
 pub(crate) mod test_support;
 
