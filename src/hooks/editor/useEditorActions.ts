@@ -162,6 +162,7 @@ async function saveCurrentFile(
       isFrontmatterDirty,
       rawFrontmatter,
       frontmatterBaseline,
+      fields: schemaFields ?? [],
     })
     const result = await commands.saveMarkdownContent(
       currentFile.path,

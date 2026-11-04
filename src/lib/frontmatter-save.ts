@@ -4,6 +4,8 @@
 // up as a change to publish. When the values are back to what was on disk,
 // the original text is written instead.
 
+import { FieldType, type SchemaField } from './schema'
+
 type Values = Record<string, unknown>
 
 /** The frontmatter on disk: its values and the exact text they came from. */
@@ -41,25 +43,97 @@ export function sameValues(a: unknown, b: unknown): boolean {
 }
 
 /**
+ * Whether a value the file didn't have is just the field's default, so
+ * writing it changes nothing for the site: a switch turned on and off again
+ * (false), an emptied list ([]) or an emptied text field (''). A value that
+ * differs from the schema's own default is a real choice.
+ */
+function isUnsetValue(field: SchemaField | undefined, value: unknown): boolean {
+  if (field && field.default !== undefined) {
+    // Older schemas give defaults as text ("false")
+    return (
+      sameValues(value, field.default) ||
+      (typeof field.default === 'string' &&
+        typeof value !== 'string' &&
+        JSON.stringify(value) === field.default)
+    )
+  }
+  if (value === '' || (Array.isArray(value) && value.length === 0)) return true
+  return value === false && field?.type === FieldType.Boolean
+}
+
+/**
+ * The values as they'd be written, minus keys the baseline doesn't have whose
+ * value is only the default (see `isUnsetValue`), nested ones included.
+ */
+function withoutUnsetKeys(
+  values: Values,
+  baseline: Values,
+  fields: SchemaField[],
+  prefix = ''
+): Values {
+  const result: Values = {}
+  for (const [key, value] of Object.entries(values)) {
+    const path = `${prefix}${key}`
+    const before = baseline[key]
+    if (!(key in baseline)) {
+      if (
+        isUnsetValue(
+          fields.find(f => f.name === path),
+          value
+        )
+      )
+        continue
+      result[key] = value
+    } else if (
+      value &&
+      before &&
+      typeof value === 'object' &&
+      typeof before === 'object' &&
+      !Array.isArray(value) &&
+      !Array.isArray(before)
+    ) {
+      result[key] = withoutUnsetKeys(
+        value as Values,
+        before as Values,
+        fields,
+        `${path}.`
+      )
+    } else {
+      result[key] = value
+    }
+  }
+  return result
+}
+
+/**
  * What a save passes for the frontmatter: the values to write, or the text to
  * keep. The text on disk is kept when the frontmatter wasn't edited, and the
- * baseline's text when the edits ended where they started.
+ * baseline's text when the edits ended where they started. A key the file
+ * didn't have counts as where it started while its value is only the
+ * default, so writing the baseline's text leaves it out again.
  */
 export function frontmatterToWrite({
   frontmatter,
   isFrontmatterDirty,
   rawFrontmatter,
   frontmatterBaseline,
+  fields = [],
 }: {
   frontmatter: Values
   isFrontmatterDirty: boolean
   rawFrontmatter: string
   frontmatterBaseline: FrontmatterBaseline | null
+  /** The collection's schema fields, for their defaults */
+  fields?: SchemaField[]
 }): { frontmatter: Values | null; rawFrontmatter: string | null } {
   if (!isFrontmatterDirty) return { frontmatter: null, rawFrontmatter }
   if (
     frontmatterBaseline &&
-    sameValues(frontmatter, frontmatterBaseline.values)
+    sameValues(
+      withoutUnsetKeys(frontmatter, frontmatterBaseline.values, fields),
+      frontmatterBaseline.values
+    )
   ) {
     return { frontmatter: null, rawFrontmatter: frontmatterBaseline.raw }
   }

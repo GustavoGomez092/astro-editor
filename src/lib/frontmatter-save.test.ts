@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { FieldType, type SchemaField } from './schema'
 import {
   frontmatterToWrite,
   nextFrontmatterBaseline,
@@ -80,5 +81,57 @@ describe('nextFrontmatterBaseline', () => {
     expect(nextFrontmatterBaseline(BASELINE, outside, ECHO.values)).toEqual(
       outside
     )
+  })
+})
+
+describe('frontmatterToWrite with keys the file never had', () => {
+  const RAW_NO_FEATURED = 'title: "Andrew Dyk"'
+  const BASE = { values: { title: 'Andrew Dyk' }, raw: RAW_NO_FEATURED }
+  const field = (
+    name: string,
+    type: FieldType,
+    extra: Partial<SchemaField> = {}
+  ): SchemaField =>
+    ({ name, label: name, type, required: false, ...extra }) as SchemaField
+  const FIELDS = [
+    field('title', FieldType.String),
+    field('featured', FieldType.Boolean),
+    field('pinned', FieldType.Boolean, { default: true }),
+    field('tags', FieldType.Array),
+    field('note', FieldType.String, { default: '' }),
+  ]
+  const write = (frontmatter: Record<string, unknown>) =>
+    frontmatterToWrite({
+      frontmatter,
+      isFrontmatterDirty: true,
+      rawFrontmatter: 'title: Andrew Dyk',
+      frontmatterBaseline: BASE,
+      fields: FIELDS,
+    })
+
+  it('a boolean switched on and off again is back to the file as it was', () => {
+    expect(write({ title: 'Andrew Dyk', featured: false })).toEqual({
+      frontmatter: null,
+      rawFrontmatter: RAW_NO_FEATURED,
+    })
+  })
+
+  it('an item added to a list and removed again leaves no change', () => {
+    expect(write({ title: 'Andrew Dyk', tags: [] })).toEqual({
+      frontmatter: null,
+      rawFrontmatter: RAW_NO_FEATURED,
+    })
+    expect(write({ title: 'Andrew Dyk', note: '' }).frontmatter).toBeNull()
+  })
+
+  it('a value that differs from the default is a real change', () => {
+    // pinned defaults to true, so false is a choice the writer made
+    expect(write({ title: 'Andrew Dyk', pinned: false }).frontmatter).toEqual({
+      title: 'Andrew Dyk',
+      pinned: false,
+    })
+    expect(
+      write({ title: 'Andrew Dyk', featured: true }).frontmatter
+    ).not.toBeNull()
   })
 })
