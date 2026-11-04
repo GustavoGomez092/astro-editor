@@ -13,12 +13,27 @@ use std::cell::RefCell;
 
 const SIGN_IN_NEEDED: &str = "Sign in with GitHub to sync this repository.";
 
-/// Whether a remote URL is github.com over HTTPS, where the token can be used
+/// Whether a remote URL is github.com over HTTPS, where the token can be used.
+/// The check is for this function's callers and the URL libgit2 hands the
+/// credentials callback alike.
 pub(crate) fn is_github_https(url: &str) -> bool {
-    // HTTPS only: over plain HTTP the token would go out in the clear. Parsed,
-    // not matched by hand, so `user@`, `\\` and port tricks can't fake the host
-    url::Url::parse(url.trim())
+    let url = url.trim();
+    // libgit2 reads the host after the last `@` (percent-decoding the user part)
+    // while URL parsers read `\\` as `/`, so `https://github.com\\@evil.example/`
+    // and `https://github.com%2F@evil.example/` look like github.com to one and
+    // connect to evil.example in the other. GitHub owner and repository names
+    // can't contain either character, so any URL with one is refused outright.
+    if url.contains(['@', '\\']) {
+        return false;
+    }
+    // HTTPS only: over plain HTTP the token would go out in the clear
+    url::Url::parse(url)
         .is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("github.com"))
+}
+
+/// The token to offer for `url`: only to github.com over HTTPS
+fn github_token<'a>(url: &str, token: Option<&'a str>) -> Option<&'a str> {
+    token.filter(|_| is_github_https(url))
 }
 
 /// Credentials for `origin`: the GitHub token for github.com, else git's credential
@@ -33,7 +48,7 @@ pub(crate) fn callbacks<'a>(
     callbacks.credentials(move |url, username, allowed| {
         attempts += 1;
         if is_github_https(url) {
-            return match token {
+            return match github_token(url, token) {
                 Some(token) if attempts == 1 => Cred::userpass_plaintext("x-access-token", token),
                 _ => Err(git2::Error::new(
                     ErrorCode::Auth,
@@ -288,9 +303,6 @@ mod tests {
     #[test]
     fn github_https_urls_are_recognised() {
         assert!(is_github_https("https://github.com/owner/repo.git"));
-        assert!(is_github_https(
-            "https://x-access-token@github.com/owner/repo"
-        ));
         assert!(is_github_https("https://GitHub.com/owner/repo"));
         assert!(!is_github_https("git@github.com:owner/repo.git"));
         assert!(!is_github_https("https://gitlab.com/owner/repo.git"));
@@ -311,6 +323,27 @@ mod tests {
         assert!(!is_github_https("https://api.github.com/owner/repo"));
         assert!(is_github_https("https://github.com:443/owner/repo"));
         assert!(!is_github_https("not a url"));
+    }
+
+    #[test]
+    fn the_token_never_goes_to_a_host_libgit2_reads_differently() {
+        // libgit2 takes the host after the last `@` (and percent-decodes the user
+        // part), while URL parsers read `\\` as `/`: both of these connect to
+        // evil.example
+        for url in [
+            "https://github.com\\@evil.example/o/r",
+            "https://github.com%2F@evil.example/o/r",
+            "https://github.com%2f@evil.example/o/r.git",
+            "https://x-access-token@github.com/o/r",
+        ] {
+            assert!(!is_github_https(url), "{url}");
+            assert_eq!(github_token(url, Some("gho_secret")), None, "{url}");
+        }
+        assert_eq!(
+            github_token("https://github.com/o/r.git", Some("gho_secret")),
+            Some("gho_secret")
+        );
+        assert_eq!(github_token("https://github.com/o/r.git", None), None);
     }
 
     #[test]
