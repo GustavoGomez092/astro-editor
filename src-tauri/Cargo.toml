@@ -83,6 +83,10 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
   "WKSnapshotConfiguration",
 ] }
 
+# Signals the dev server's process group (dev_server/process.rs)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3.27"
 toml = "1.1.8"

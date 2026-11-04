@@ -2,10 +2,8 @@
 //! project, started through the login shell in its own process group so it can
 //! always be stopped as a whole. See `docs/developer/dev-server.md`.
 
-// The process lifecycle that uses all of this comes in the next commit
-#![allow(dead_code)]
-
 pub mod detect;
+mod process;
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
@@ -62,6 +60,12 @@ pub(crate) struct Server {
 pub(crate) struct ServerInner {
     pub(crate) state: DevServerState,
     pub(crate) logs: VecDeque<String>,
+    /// Counts starts, so a finished run's threads can't change a newer run's state
+    pub(crate) run: u64,
+    pub(crate) stop_requested: bool,
+    /// The running process (install or server), which leads its process group
+    pub(crate) pgid: Option<u32>,
+    pub(crate) parser: detect::OutputParser,
 }
 
 impl Default for ServerInner {
@@ -69,7 +73,27 @@ impl Default for ServerInner {
         Self {
             state: DevServerState::stopped(),
             logs: VecDeque::new(),
+            run: 0,
+            stop_requested: false,
+            pgid: None,
+            parser: detect::OutputParser::default(),
         }
+    }
+}
+
+impl ServerInner {
+    pub(crate) fn push_log(&mut self, line: String) {
+        if self.logs.len() == LOG_LIMIT {
+            self.logs.pop_front();
+        }
+        self.logs.push_back(line);
+    }
+
+    pub(crate) fn is_active(&self) -> bool {
+        matches!(
+            self.state.status,
+            DevServerStatus::Installing | DevServerStatus::Starting | DevServerStatus::Running
+        )
     }
 }
 
@@ -82,14 +106,31 @@ pub struct DevServers {
 pub(crate) struct Shared {
     pub(crate) servers: Mutex<HashMap<String, Arc<Server>>>,
     pub(crate) listener: StateListener,
+    pub(crate) config: Config,
+}
+
+/// How servers are launched. The defaults suit the app; tests swap the shell
+/// for one that doesn't read the user's profile.
+#[derive(Default, Clone)]
+pub struct Config {
+    /// The shell to run commands with, called as `<shell> -lc <command>`.
+    /// `None` uses `$SHELL`, falling back to `/bin/zsh`.
+    pub shell: Option<std::path::PathBuf>,
+    /// Extra environment variables for the server
+    pub env: Vec<(String, String)>,
 }
 
 impl DevServers {
     pub fn new(listener: StateListener) -> Self {
+        Self::with_config(listener, Config::default())
+    }
+
+    pub fn with_config(listener: StateListener, config: Config) -> Self {
         Self {
             shared: Arc::new(Shared {
                 servers: Mutex::new(HashMap::new()),
                 listener,
+                config,
             }),
         }
     }
@@ -114,13 +155,17 @@ impl DevServers {
             .map(|server| server.inner.lock().unwrap().logs.iter().cloned().collect())
             .unwrap_or_default()
     }
+}
 
-    pub fn start(&self, project_path: &str, override_command: Option<&str>) -> DevServerState {
-        let _ = override_command;
-        self.state(project_path)
-    }
-
-    pub fn stop(&self, project_path: &str) -> DevServerState {
-        self.state(project_path)
+impl Drop for Shared {
+    /// A backstop for quitting without `stop_all`: kills any server still running
+    fn drop(&mut self) {
+        let servers = self.servers.get_mut().unwrap();
+        for server in servers.values() {
+            let inner = server.inner.lock().unwrap();
+            if let (true, Some(pgid)) = (inner.is_active(), inner.pgid) {
+                process::kill_group(pgid);
+            }
+        }
     }
 }
