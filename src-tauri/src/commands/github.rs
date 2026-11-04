@@ -69,6 +69,13 @@ pub async fn github_device_poll() -> Result<GitHubAuthStatus, String> {
     auth()?.device_poll().await
 }
 
+/// Stops waiting for a device-flow sign-in. A stored token is kept.
+#[tauri::command]
+#[specta::specta]
+pub async fn github_cancel_sign_in() -> Result<(), String> {
+    Err("Not available yet.".to_string())
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn github_sign_out() -> Result<(), String> {

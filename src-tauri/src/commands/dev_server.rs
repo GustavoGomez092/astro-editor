@@ -52,6 +52,19 @@ pub async fn dev_server_start(
     .map_err(|e| format!("Couldn't start the dev server: {e}"))
 }
 
+/// Installs dependencies if needed, then runs `astro sync` so the project's
+/// collection schemas exist. Returns `stopped` when done, or `error` with the
+/// output. With a server running, it only syncs.
+#[tauri::command]
+#[specta::specta]
+pub async fn dev_server_prepare(
+    servers: State<'_, DevServers>,
+    project_path: String,
+) -> Result<DevServerState, String> {
+    let _ = (servers, project_path);
+    Err("Not available yet.".to_string())
+}
+
 /// Stops the project's dev server and everything it started. Waits until it's
 /// gone (at most a few seconds).
 #[tauri::command]

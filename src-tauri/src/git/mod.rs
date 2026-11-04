@@ -167,6 +167,35 @@ pub struct CommitDetails {
     pub files: Vec<ChangedFile>,
 }
 
+/// A file that conflicts between the current branch and its upstream, with both
+/// whole-file versions for the writer to choose between
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictFile {
+    /// Path relative to the repository root, with forward slashes
+    pub path: String,
+    /// This computer's version; `None` if it was deleted here, or is binary
+    pub mine: Option<String>,
+    /// The upstream's version; `None` if it was deleted there, or is binary
+    pub theirs: Option<String>,
+    pub binary: bool,
+}
+
+/// Which whole-file version to keep for a conflicted file
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictChoice {
+    Mine,
+    Theirs,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ConflictResolution {
+    pub path: String,
+    pub choice: ConflictChoice,
+}
+
 /// Payload of the `git-clone-progress` event
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]

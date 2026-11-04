@@ -5,8 +5,8 @@
 //! The logic lives in `crate::git`.
 
 use crate::git::{
-    self, BranchInfo, CloneProgress, CommitDetails, FileDiff, GitStatus, GraphCommit,
-    PublishResult, SyncResult,
+    self, BranchInfo, CloneProgress, CommitDetails, ConflictFile, ConflictResolution, FileDiff,
+    GitStatus, GraphCommit, PublishResult, SyncResult,
 };
 use crate::github::auth::{self, GitHubUser};
 use std::path::PathBuf;
@@ -225,4 +225,43 @@ pub async fn git_clone(
         Ok(path.to_string_lossy().into_owned())
     })
     .await
+}
+
+/// The files that conflict between `HEAD` and its upstream, from an in-memory
+/// merge (nothing is written). Empty when nothing conflicts.
+#[tauri::command]
+#[specta::specta]
+pub async fn git_conflicts(project_path: String) -> Result<Vec<ConflictFile>, String> {
+    let _ = project_path;
+    Err("Not available yet.".to_string())
+}
+
+/// Merge the upstream taking the chosen whole-file version of each conflicted
+/// file, and commit it. Never pushes; the next Publish does.
+#[tauri::command]
+#[specta::specta]
+pub async fn git_resolve_conflicts(
+    project_path: String,
+    choices: Vec<ConflictResolution>,
+) -> Result<SyncResult, String> {
+    let _ = (project_path, choices);
+    Err("Not available yet.".to_string())
+}
+
+/// Throw away local changes to one file: restore it from `HEAD`, or delete it if
+/// it's untracked
+#[tauri::command]
+#[specta::specta]
+pub async fn git_discard_file(project_path: String, path: String) -> Result<GitStatus, String> {
+    let _ = (project_path, path);
+    Err("Not available yet.".to_string())
+}
+
+/// Commits on the current branch that the default branch (as last fetched)
+/// doesn't have
+#[tauri::command]
+#[specta::specta]
+pub async fn git_commits_ahead_of_default(project_path: String) -> Result<u32, String> {
+    let _ = project_path;
+    Err("Not available yet.".to_string())
 }

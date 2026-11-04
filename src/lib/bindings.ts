@@ -148,6 +148,12 @@ export const commands = {
 	devServerState: (projectPath: string) => typedError<DevServerState, string>(__TAURI_INVOKE("dev_server_state", { projectPath })),
 	/**  The server's recent output, oldest first */
 	devServerLogs: (projectPath: string) => typedError<string[], string>(__TAURI_INVOKE("dev_server_logs", { projectPath })),
+	/**
+	 *  Installs dependencies if needed, then runs `astro sync` so the project's
+	 *  collection schemas exist. Returns `stopped` when done, or `error` with the
+	 *  output. With a server running, it only syncs.
+	 */
+	devServerPrepare: (projectPath: string) => typedError<DevServerState, string>(__TAURI_INVOKE("dev_server_prepare", { projectPath })),
 	gitStatus: (projectPath: string) => typedError<GitStatus, string>(__TAURI_INVOKE("git_status", { projectPath })),
 	/**  Working tree vs `HEAD` for one file */
 	gitFileDiff: (projectPath: string, path: string) => typedError<FileDiff, string>(__TAURI_INVOKE("git_file_diff", { projectPath, path })),
@@ -173,11 +179,33 @@ export const commands = {
 	gitCommitsBehindDefault: (projectPath: string) => typedError<number, string>(__TAURI_INVOKE("git_commits_behind_default", { projectPath })),
 	/**  Clone into a new folder inside `parent_dir`; returns the new project path */
 	gitClone: (cloneUrl: string, parentDir: string) => typedError<string, string>(__TAURI_INVOKE("git_clone", { cloneUrl, parentDir })),
+	/**
+	 *  The files that conflict between `HEAD` and its upstream, from an in-memory
+	 *  merge (nothing is written). Empty when nothing conflicts.
+	 */
+	gitConflicts: (projectPath: string) => typedError<ConflictFile[], string>(__TAURI_INVOKE("git_conflicts", { projectPath })),
+	/**
+	 *  Merge the upstream taking the chosen whole-file version of each conflicted
+	 *  file, and commit it. Never pushes; the next Publish does.
+	 */
+	gitResolveConflicts: (projectPath: string, choices: ConflictResolution[]) => typedError<SyncResult, string>(__TAURI_INVOKE("git_resolve_conflicts", { projectPath, choices })),
+	/**
+	 *  Throw away local changes to one file: restore it from `HEAD`, or delete it if
+	 *  it's untracked
+	 */
+	gitDiscardFile: (projectPath: string, path: string) => typedError<GitStatus, string>(__TAURI_INVOKE("git_discard_file", { projectPath, path })),
+	/**
+	 *  Commits on the current branch that the default branch (as last fetched)
+	 *  doesn't have
+	 */
+	gitCommitsAheadOfDefault: (projectPath: string) => typedError<number, string>(__TAURI_INVOKE("git_commits_ahead_of_default", { projectPath })),
 	githubAuthStatus: () => typedError<GitHubAuthStatus, string>(__TAURI_INVOKE("github_auth_status")),
 	githubDeviceStart: () => typedError<DeviceCode, string>(__TAURI_INVOKE("github_device_start")),
 	/**  Resolves when signed in; fails with a readable message on expiry or denial */
 	githubDevicePoll: () => typedError<GitHubAuthStatus, string>(__TAURI_INVOKE("github_device_poll")),
 	githubSignOut: () => typedError<null, string>(__TAURI_INVOKE("github_sign_out")),
+	/**  Stops waiting for a device-flow sign-in. A stored token is kept. */
+	githubCancelSignIn: () => typedError<null, string>(__TAURI_INVOKE("github_cancel_sign_in")),
 	/**  `None` when `origin` isn't a github.com remote */
 	githubRepoInfo: (projectPath: string) => typedError<RepoInfo | null, string>(__TAURI_INVOKE("github_repo_info", { projectPath })),
 	githubListPullRequests: (projectPath: string) => typedError<PullRequest[], string>(__TAURI_INVOKE("github_list_pull_requests", { projectPath })),
@@ -231,6 +259,28 @@ export type CommitDetails = {
 } & GraphCommit;
 
 export type ComponentFramework = "astro" | "react" | "vue" | "svelte";
+
+/**  Which whole-file version to keep for a conflicted file */
+export type ConflictChoice = "mine" | "theirs";
+
+/**
+ *  A file that conflicts between the current branch and its upstream, with both
+ *  whole-file versions for the writer to choose between
+ */
+export type ConflictFile = {
+	/**  Path relative to the repository root, with forward slashes */
+	path: string,
+	/**  This computer's version; `None` if it was deleted here, or is binary */
+	mine: string | null,
+	/**  The upstream's version; `None` if it was deleted there, or is binary */
+	theirs: string | null,
+	binary: boolean,
+};
+
+export type ConflictResolution = {
+	path: string,
+	choice: ConflictChoice,
+};
 
 export type DevServerState = {
 	status: DevServerStatus,

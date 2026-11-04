@@ -158,6 +158,25 @@ export type {
    */
   DevServerStatus,
   /**
+   * A file that conflicts between the current branch and its upstream, from
+   * `gitConflicts` (an in-memory merge; nothing is written).
+   *
+   * Fields:
+   * - `path` - Relative to the repository root, with forward slashes
+   * - `mine` - This computer's whole file; `null` if deleted here or binary
+   * - `theirs` - The upstream's whole file; `null` if deleted there or binary
+   * - `binary` - Either side is binary (an image, say), so there's no text to show
+   */
+  ConflictFile,
+  /**
+   * Which whole-file version `gitResolveConflicts` keeps: `mine` or `theirs`.
+   */
+  ConflictChoice,
+  /**
+   * One conflicted file's choice, passed to `gitResolveConflicts`.
+   */
+  ConflictResolution,
+  /**
    * JSON-compatible value type (serde_json::Value).
    * Used for dynamic frontmatter data.
    */
