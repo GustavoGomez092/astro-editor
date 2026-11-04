@@ -171,6 +171,22 @@
     oklch(0.7123 0.1656 22.1776)
   );
 
+  /* Git: lines added and removed in a diff (a strong colour for the sign and
+     icon, a tint for the row), and the commit graph's lane colours, which
+     cycle in order (lane-0 is the first branch drawn, usually the current one) */
+  --git-add: light-dark(oklch(0.52 0.13 150), oklch(0.78 0.13 150));
+  --git-add-bg: light-dark(oklch(0.965 0.035 150), oklch(0.26 0.045 150));
+  --git-del: light-dark(oklch(0.55 0.17 27), oklch(0.75 0.13 25));
+  --git-del-bg: light-dark(oklch(0.96 0.03 25), oklch(0.26 0.05 25));
+  --git-lane-0: light-dark(oklch(0.56 0.14 250), oklch(0.74 0.12 250));
+  --git-lane-1: light-dark(oklch(0.58 0.14 150), oklch(0.76 0.13 150));
+  --git-lane-2: light-dark(oklch(0.62 0.14 65), oklch(0.79 0.13 70));
+  --git-lane-3: light-dark(oklch(0.56 0.17 340), oklch(0.74 0.13 340));
+  --git-lane-4: light-dark(oklch(0.58 0.1 200), oklch(0.77 0.1 200));
+  --git-lane-5: light-dark(oklch(0.54 0.15 295), oklch(0.74 0.12 295));
+  --git-lane-6: light-dark(oklch(0.58 0.16 30), oklch(0.74 0.13 30));
+  --git-lane-7: light-dark(oklch(0.6 0.12 115), oklch(0.78 0.12 115));
+
   /* Editor: the iA Writer palette, for the writing surface only. Keep all of
      it, used or not (see docs/developer/editor-styles.md) */
   --editor-color-carat: oklch(0.7646 0.1514 229.433);
@@ -299,6 +315,18 @@
   --color-window-close: var(--window-close);
   --color-window-close-foreground: var(--window-close-foreground);
   --color-editor-background: var(--editor-color-background);
+  --color-git-add: var(--git-add);
+  --color-git-add-bg: var(--git-add-bg);
+  --color-git-del: var(--git-del);
+  --color-git-del-bg: var(--git-del-bg);
+  --color-git-lane-0: var(--git-lane-0);
+  --color-git-lane-1: var(--git-lane-1);
+  --color-git-lane-2: var(--git-lane-2);
+  --color-git-lane-3: var(--git-lane-3);
+  --color-git-lane-4: var(--git-lane-4);
+  --color-git-lane-5: var(--git-lane-5);
+  --color-git-lane-6: var(--git-lane-6);
+  --color-git-lane-7: var(--git-lane-7);
 }
 
 @layer base {

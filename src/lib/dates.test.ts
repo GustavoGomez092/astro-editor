@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatDisplayDate,
   formatIsoDate,
+  formatRelativeTime,
   parseIsoDate,
   todayIsoDate,
 } from './dates'
@@ -229,5 +230,30 @@ describe('formatDisplayDate', () => {
     expect(formatted).toContain(monthName)
     expect(formatted).toContain('5')
     expect(formatted).toContain('2026')
+  })
+})
+
+describe('formatRelativeTime', () => {
+  const now = new Date(2026, 10, 3, 12, 0, 0)
+  const ago = (seconds: number) => new Date(now.getTime() - seconds * 1000)
+
+  it('says "just now" for the last minute', () => {
+    expect(formatRelativeTime(ago(20), now)).toBe('just now')
+  })
+
+  it('counts minutes, hours and days', () => {
+    expect(formatRelativeTime(ago(5 * 60), now)).toBe('5 minutes ago')
+    expect(formatRelativeTime(ago(3 * 3600), now)).toBe('3 hours ago')
+    expect(formatRelativeTime(ago(24 * 3600), now)).toBe('yesterday')
+    expect(formatRelativeTime(ago(4 * 86400), now)).toBe('4 days ago')
+  })
+
+  it('falls back to the date after a month', () => {
+    const old = ago(45 * 86400)
+    expect(formatRelativeTime(old, now)).toBe(formatDisplayDate(old))
+  })
+
+  it('treats a time slightly in the future as just now', () => {
+    expect(formatRelativeTime(ago(-30), now)).toBe('just now')
   })
 })

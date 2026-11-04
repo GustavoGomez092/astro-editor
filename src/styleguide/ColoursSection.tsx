@@ -56,6 +56,23 @@ const GROUPS: { title: string; tokens: string[] }[] = [
     tokens: ['draft', 'draft-bg', 'filter', 'filter-bg', 'required'],
   },
   {
+    title: 'Git',
+    tokens: [
+      'git-add',
+      'git-add-bg',
+      'git-del',
+      'git-del-bg',
+      'git-lane-0',
+      'git-lane-1',
+      'git-lane-2',
+      'git-lane-3',
+      'git-lane-4',
+      'git-lane-5',
+      'git-lane-6',
+      'git-lane-7',
+    ],
+  },
+  {
     title: 'Window controls',
     tokens: [
       'window-control-hover',

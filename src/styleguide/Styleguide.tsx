@@ -21,6 +21,7 @@ import {
 import { FieldsSection } from './FieldsSection'
 import { ColoursSection } from './ColoursSection'
 import { ComponentBuilderSection } from './ComponentBuilderSection'
+import { GitDiffSection, GitHistorySection } from './GitSection'
 
 interface Section {
   id: string
@@ -47,6 +48,8 @@ const SECTIONS: Section[] = [
   { id: 'frontmatter', title: 'Frontmatter fields', Component: FieldsSection },
   { id: 'sidebar', title: 'Sidebar and breadcrumb', Component: SidebarSection },
   { id: 'command', title: 'Command', Component: CommandSection },
+  { id: 'git-history', title: 'Git history', Component: GitHistorySection },
+  { id: 'git-diff', title: 'Git diffs', Component: GitDiffSection },
   { id: 'select', title: 'Select', Component: SelectSection, overlay: true },
   {
     id: 'date',
