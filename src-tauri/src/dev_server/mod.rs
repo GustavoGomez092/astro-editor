@@ -62,6 +62,8 @@ pub type StateListener = Arc<dyn Fn(&str, &DevServerState) + Send + Sync>;
 #[derive(Default)]
 pub(crate) struct Server {
     pub(crate) inner: Mutex<ServerInner>,
+    /// Held for the whole of a prepare, so two never overlap
+    pub(crate) preparing: Mutex<()>,
 }
 
 pub(crate) struct ServerInner {
@@ -72,6 +74,9 @@ pub(crate) struct ServerInner {
     pub(crate) stop_requested: bool,
     /// The running process (install or server), which leads its process group
     pub(crate) pgid: Option<u32>,
+    /// A prepare's `astro sync`, which leads its own process group. Stopping
+    /// (and quitting) ends it too.
+    pub(crate) sync_pgid: Option<u32>,
     pub(crate) parser: detect::OutputParser,
 }
 
@@ -83,6 +88,7 @@ impl Default for ServerInner {
             run: 0,
             stop_requested: false,
             pgid: None,
+            sync_pgid: None,
             parser: detect::OutputParser::default(),
         }
     }
@@ -174,6 +180,9 @@ impl Drop for Shared {
         for server in servers.values() {
             let inner = lock(&server.inner);
             if let (true, Some(pgid)) = (inner.is_active(), inner.pgid) {
+                process::kill_group(pgid);
+            }
+            if let Some(pgid) = inner.sync_pgid {
                 process::kill_group(pgid);
             }
         }

@@ -19,7 +19,7 @@ const SIGN_IN_NEEDED: &str = "Sign in with GitHub to sync this repository.";
 pub(crate) fn is_github_https(url: &str) -> bool {
     let url = url.trim();
     // libgit2 reads the host after the last `@` (percent-decoding the user part)
-    // while URL parsers read `\\` as `/`, so `https://github.com\\@evil.example/`
+    // while URL parsers read `\` as `/`, so `https://github.com\@evil.example/`
     // and `https://github.com%2F@evil.example/` look like github.com to one and
     // connect to evil.example in the other. GitHub owner and repository names
     // can't contain either character, so any URL with one is refused outright.

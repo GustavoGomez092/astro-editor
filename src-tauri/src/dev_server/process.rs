@@ -133,15 +133,22 @@ impl DevServers {
         let sync = detect::sync_command(pm);
         let command = detect::dev_command(root, override_command).ok();
         let notify = |state: &DevServerState| (self.shared.listener)(project_path, state);
+        // One prepare at a time; a second waits for the first, then runs
+        let _preparing = lock(&server.preparing);
+        let record_sync = |pgid: u32| lock(&server.inner).sync_pgid = Some(pgid);
+        // Whether the sync ended by itself, rather than a stop taking it
+        let finish_sync = || lock(&server.inner).sync_pgid.take().is_some();
 
-        let (run, install) = {
+        let (run, install, cleared) = {
             let mut inner = lock(&server.inner);
-            if inner.is_active() {
+            if inner.is_active() || inner.state.status == DevServerStatus::External {
                 drop(inner);
-                // The server (or its install) is already running: only sync
-                return match run_to_end(&self.shared.config, root, &sync, |_| {}) {
-                    Ok(_) => self.state(project_path),
-                    Err(error) => error_state(command, error),
+                // A server (or its install) is already running: only sync
+                let result = run_to_end(&self.shared.config, root, &sync, record_sync, |_| {});
+                let ended_by_itself = finish_sync();
+                return match result {
+                    Err(error) if ended_by_itself => error_state(command, error),
+                    _ => self.state(project_path),
                 };
             }
             inner.run += 1;
@@ -149,10 +156,18 @@ impl DevServers {
             inner.pgid = None;
             inner.logs.clear();
             inner.parser = detect::OutputParser::default();
+            // An earlier error no longer applies
+            let cleared = (inner.state.status != DevServerStatus::Stopped).then(|| {
+                inner.state = stopped_state(&inner.state);
+                inner.state.clone()
+            });
             let install =
                 detect::needs_install(root, pm).then(|| detect::install_command(root, pm));
-            (inner.run, install)
+            (inner.run, install, cleared)
         };
+        if let Some(state) = cleared {
+            notify(&state);
+        }
         let push_log = |line: String| {
             let mut inner = lock(&server.inner);
             if inner.run == run {
@@ -219,12 +234,15 @@ impl DevServers {
         }
 
         log::info!("Astro Editor [DEV_SERVER] Running `{sync}` in {project_path}");
-        let result = run_to_end(&self.shared.config, root, &sync, push_log);
+        let result = run_to_end(&self.shared.config, root, &sync, record_sync, push_log);
+        let ended_by_itself = finish_sync();
         let mut inner = lock(&server.inner);
         match result {
             Ok(()) => inner.state.clone(),
-            // A start or stop since then owns the state now
-            Err(_) if inner.run != run || inner.is_active() => inner.state.clone(),
+            // Stopped, or a start since then owns the state now
+            Err(_) if !ended_by_itself || inner.run != run || inner.is_active() => {
+                inner.state.clone()
+            }
             Err(error) => {
                 inner.state = error_state(command, error);
                 let state = inner.state.clone();
@@ -248,6 +266,13 @@ impl DevServers {
             return DevServerState::stopped();
         };
         let listener = &self.shared.listener;
+
+        // A prepare's sync, whether or not a server is running beside it
+        let sync = lock(&server.inner).sync_pgid.take();
+        if let Some(pgid) = sync {
+            log::info!("Astro Editor [DEV_SERVER] Stopping `astro sync` in {project_path}");
+            terminate_group(&server, pgid);
+        }
 
         let (run, pgid) = {
             let mut inner = lock(&server.inner);
@@ -698,17 +723,19 @@ fn with_last_lines(message: &str, logs: &std::collections::VecDeque<String>) -> 
 /// How long `astro sync` gets before it's stopped
 const SYNC_TIMEOUT: Duration = Duration::from_secs(180);
 
-/// Runs `command` (`astro sync`) to the end, passing each output line to
-/// `on_line`. The error says what failed and ends with the last output lines.
+/// Runs `command` (`astro sync`) to the end, passing its process group to
+/// `on_spawn` and each output line to `on_line`. The error says what failed and ends with the last output lines.
 fn run_to_end(
     config: &Config,
     root: &Path,
     command: &str,
+    on_spawn: impl FnOnce(u32),
     on_line: impl Fn(String),
 ) -> Result<(), String> {
     let child = spawn(config, root, command)
         .map_err(|e| format!("Couldn't prepare the site ({command}): {e}"))?;
     let pgid = child.id();
+    on_spawn(pgid);
     let rx = watch(child);
     let mut output = std::collections::VecDeque::new();
     let exit = wait_for_exit(
@@ -1548,5 +1575,82 @@ echo 'Synced content'"#,
         assert_eq!(state.status, DevServerStatus::Stopped);
         assert_eq!(fx.read("npm-calls.txt"), None);
         assert_eq!(fx.read("synced.txt"), None);
+    }
+
+    #[test]
+    fn prepare_after_an_error_ends_stopped() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.installed();
+        fx.bin("npx", "echo 'broken' >&2\nexit 1");
+        assert_eq!(
+            fx.servers.prepare(fx.path(), None).status,
+            DevServerStatus::Error
+        );
+        fx.bin("npx", "echo synced");
+        let state = fx.servers.prepare(fx.path(), None);
+        assert_eq!(state.status, DevServerStatus::Stopped, "{state:?}");
+        assert_eq!(state.error, None);
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Stopped);
+        assert_eq!(fx.statuses().last(), Some(&DevServerStatus::Stopped));
+    }
+
+    #[test]
+    fn stop_ends_a_running_sync() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.installed();
+        fx.bin("npx", "echo $$ > sync.pid\nsleep 60");
+        let servers = fx.servers.clone();
+        let path = fx.path().to_string();
+        let preparing = std::thread::spawn(move || servers.prepare(&path, None));
+        let sync = fx.read_pid("sync.pid");
+
+        let started = Instant::now();
+        fx.servers.stop(fx.path());
+        let state = preparing.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert_eq!(state.status, DevServerStatus::Stopped, "{state:?}");
+        assert!(is_gone(sync), "the sync is still running");
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Stopped);
+    }
+
+    #[test]
+    fn quitting_ends_a_sync_beside_a_running_server() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.installed();
+        fx.bin("npx", "echo $$ > sync.pid\nsleep 60");
+        let command = fx.script("server.sh", "echo http://localhost:4321/\nsleep 60");
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        let servers = fx.servers.clone();
+        let path = fx.path().to_string();
+        let preparing = std::thread::spawn(move || servers.prepare(&path, None));
+        let sync = fx.read_pid("sync.pid");
+
+        let started = Instant::now();
+        fx.servers.stop_all();
+        preparing.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(5));
+        assert!(is_gone(sync), "the sync is still running");
+    }
+
+    #[test]
+    fn overlapping_prepares_take_turns() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.installed();
+        fx.bin("npx", "echo start >> calls\nsleep 0.3\necho end >> calls");
+        let both: Vec<_> = (0..2)
+            .map(|_| {
+                let servers = fx.servers.clone();
+                let path = fx.path().to_string();
+                std::thread::spawn(move || servers.prepare(&path, None))
+            })
+            .collect();
+        for prepare in both {
+            assert_eq!(prepare.join().unwrap().status, DevServerStatus::Stopped);
+        }
+        assert_eq!(
+            fx.read("calls").as_deref(),
+            Some("start\nend\nstart\nend\n")
+        );
     }
 }
