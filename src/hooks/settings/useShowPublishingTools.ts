@@ -8,6 +8,6 @@ import { PUBLISHING_TOOLS_DEFAULT } from '../../lib/project-registry/defaults'
 export const useShowPublishingTools = (): boolean =>
   useProjectStore(
     state =>
-      state.globalSettings?.general.showPublishingTools ??
+      state.globalSettings?.general?.showPublishingTools ??
       PUBLISHING_TOOLS_DEFAULT
   )

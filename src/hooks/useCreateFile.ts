@@ -19,12 +19,17 @@ import {
   newFileName,
   newFileTitlePlaceholder,
 } from '../lib/files/new-file'
+import {
+  BODY_EDITOR_ATTRIBUTE,
+  focusNewFile,
+} from '../lib/files/focus-new-file'
 
 /**
  * Creates a file named after `title` (or today's date when there's none) in
  * the folder open in the sidebar, with frontmatter from the collection's
  * schema (see `lib/files/new-file.ts`), then opens it and focuses the editor,
- * or the title field when no title was given. Plain function rather than
+ * the title field when no title was given, or the first field when the
+ * collection hides the body editor (`focusNewFile`). Plain function rather than
  * inline in the hook so the React Compiler can compile the hook (it can't
  * handle `throw` inside `try`).
  */
@@ -128,26 +133,19 @@ async function createFileInCurrentFolder(
       toggleFrontmatterPanel()
     }
 
-    // Focus the appropriate element after a delay to allow UI to update
+    // Focus where the writer types next, once the entry and its form show.
+    // A collection without body text is edited in the frontmatter panel, so
+    // that's shown first
     setTimeout(() => {
-      if (hasTitleField && !title) {
-        // Try to find and focus the title field by ID
-        const titleField = document.getElementById(
-          'frontmatter-title-field'
-        ) as HTMLTextAreaElement
-        if (titleField) {
-          titleField.focus()
-          titleField.select()
-        }
-      } else {
-        // Otherwise, the editor
-        const cmEditor = document.querySelector(
-          '.cm-editor .cm-content'
-        ) as HTMLElement
-        if (cmEditor) {
-          cmEditor.focus()
-        }
+      const ui = useUIStore.getState()
+      const bodyHidden =
+        document.querySelector(`[${BODY_EDITOR_ATTRIBUTE}="hidden"]`) !== null
+      if (bodyHidden && !ui.frontmatterPanelVisible) {
+        ui.setFrontmatterPanelVisible(true)
+        setTimeout(() => focusNewFile({ titleGiven: !!title }), 100)
+        return
       }
+      focusNewFile({ titleGiven: !!title })
     }, 200)
   }
 }

@@ -118,7 +118,8 @@ export const FrontmatterPanel: React.FC = () => {
   }, [allFields])
 
   return (
-    <div className="flex h-full flex-col">
+    // data-frontmatter-panel: where focusNewFile finds a new entry's fields
+    <div className="flex h-full flex-col" data-frontmatter-panel="">
       <div className="flex-1 overflow-y-auto p-4">
         {currentFile ? (
           allFields.length > 0 ? (

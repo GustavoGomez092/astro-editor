@@ -83,7 +83,11 @@ export const MainEditor: React.FC = () => {
         {hasCurrentFile ? (
           <>
             {/* Hidden rather than unmounted, to keep the editor's state */}
-            <div className={bodyHidden ? 'hidden' : 'h-full'}>
+            <div
+              className={bodyHidden ? 'hidden' : 'h-full'}
+              // Read by focusNewFile (lib/files/focus-new-file.ts)
+              data-body-editor={bodyHidden ? 'hidden' : 'shown'}
+            >
               <Editor />
             </div>
             {bodyHidden && <NoBodyText />}

@@ -2,7 +2,7 @@ import React from 'react'
 import { ExternalLink, Play, Square } from 'lucide-react'
 import type { DevServerState } from '@/lib/bindings'
 import { useProjectStore } from '../../store/projectStore'
-import { PUBLISHING_TOOLS_DEFAULT } from '../../lib/project-registry/defaults'
+import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
 import { useDevServer, useDevServerLogs } from '../../hooks/useDevServer'
 import { Button } from '../ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '../ui/popover'
@@ -30,11 +30,7 @@ const iconButton =
  */
 export const PreviewButton: React.FC = () => {
   const projectPath = useProjectStore(state => state.projectPath)
-  const enabled = useProjectStore(
-    state =>
-      state.globalSettings?.general?.showPublishingTools ??
-      PUBLISHING_TOOLS_DEFAULT
-  )
+  const enabled = useShowPublishingTools()
   const [outputOpen, setOutputOpen] = React.useState(false)
   const activePath = enabled ? projectPath : null
   const state = useDevServer(activePath)
