@@ -26,15 +26,25 @@ function explain({
   fields = BLOG_FIELDS,
   path = `${PROJECT}/src/content/blog`,
   loaderBase = null,
+  automaticPath = null,
+  missingFolder = null,
 }: {
   settings?: CollectionSpecificSettings
   project?: ProjectSettings
   fields?: SchemaField[] | null
   path?: string
   loaderBase?: string | null
+  automaticPath?: string | null
+  missingFolder?: string | null
 } = {}) {
   return explainCollectionSettings({
-    collection: { name: 'blog', path, loader_base: loaderBase },
+    collection: {
+      name: 'blog',
+      path,
+      loader_base: loaderBase,
+      automatic_path: automaticPath,
+      missing_folder: missingFolder,
+    },
     projectPath: PROJECT,
     projectSettings: {
       ...project,
@@ -72,6 +82,40 @@ describe('explainCollectionSettings: content folder', () => {
       explain({ settings: { pathOverrides: { contentDirectory: 'posts/' } } })
         .contentFolder
     ).toMatchObject({ state: 'set', value: 'posts' })
+  })
+})
+
+describe("explainCollectionSettings: a content folder that can't be used", () => {
+  it('warns when the folder set for the collection is missing', () => {
+    expect(
+      explain({
+        settings: { pathOverrides: { contentDirectory: 'writing/blog/' } },
+        missingFolder: 'writing/blog',
+      }).contentFolder
+    ).toEqual({
+      state: 'set',
+      value: 'writing/blog',
+      reason: 'set for this collection',
+      warning: 'Folder not found: `writing/blog` — using `src/content/blog`.',
+    })
+  })
+
+  it('warns when the folder set is the content folder itself', () => {
+    const { contentFolder } = explain({
+      settings: { pathOverrides: { contentDirectory: 'src/content' } },
+    })
+    expect(contentFolder.state).toBe('set')
+    expect(contentFolder.warning).toMatch(/the content folder itself/)
+    expect(contentFolder.warning).toMatch(/using `src\/content\/blog`\.$/)
+  })
+
+  it('shows the automatic folder, not the one set, as what clearing gives', () => {
+    expect(
+      explain({
+        path: `${PROJECT}/elsewhere`,
+        automaticPath: `${PROJECT}/src/content/blog`,
+      }).contentFolder
+    ).toMatchObject({ state: 'inferred', value: 'src/content/blog' })
   })
 })
 

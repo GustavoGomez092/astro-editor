@@ -8,6 +8,10 @@
 import { FieldType, type SchemaField } from '../schema'
 import { ASTRO_PATHS } from '../constants'
 import { DEFAULT_PUBLISHED_DATE_FIELDS } from './defaults'
+import {
+  checkCollectionFolder,
+  getEffectiveContentDirectory,
+} from './path-resolution'
 import type { CollectionSort, GlobalSettings, ProjectSettings } from './types'
 
 export interface SettingExplanation {
@@ -32,7 +36,15 @@ export interface CollectionSettingsExplained {
 }
 
 export interface ExplainInput {
-  collection: { name: string; path: string; loader_base?: string | null }
+  collection: {
+    name: string
+    path: string
+    loader_base?: string | null
+    /** The automatic folder, when a folder set for the collection is in use */
+    automatic_path?: string | null
+    /** A folder set for the collection that isn't there */
+    missing_folder?: string | null
+  }
   projectPath: string
   projectSettings: ProjectSettings | null | undefined
   globalSettings: GlobalSettings | null | undefined
@@ -96,28 +108,45 @@ export function explainCollectionSettings(
 }
 
 function explainContentFolder(
-  { collection, projectPath }: ExplainInput,
+  { collection, projectPath, projectSettings }: ExplainInput,
   paths: { contentDirectory?: string } | undefined
 ): SettingExplanation {
+  const automatic = relativeTo(
+    projectPath,
+    collection.automatic_path ?? collection.path
+  )
   if (paths?.contentDirectory) {
+    const set = tidyFolder(paths.contentDirectory)
+    const problem = collection.missing_folder
+      ? `Folder not found: \`${set}\` — using \`${automatic}\`.`
+      : unusableFolder(paths.contentDirectory, projectSettings, automatic)
     return {
       state: 'set',
-      value: tidyFolder(paths.contentDirectory),
+      value: set,
       reason: SET,
-    }
-  }
-  if (collection.loader_base) {
-    return {
-      state: 'inferred',
-      value: tidyFolder(collection.loader_base),
-      reason: 'from the glob loader',
+      ...(problem && { warning: problem }),
     }
   }
   return {
     state: 'inferred',
-    value: relativeTo(projectPath, collection.path),
-    reason: "the content folder and the collection's name",
+    value: automatic,
+    reason: collection.loader_base
+      ? 'from the glob loader'
+      : "the content folder and the collection's name",
   }
+}
+
+/** Why a set content folder isn't used, with the folder used instead */
+function unusableFolder(
+  folder: string,
+  projectSettings: ProjectSettings | null | undefined,
+  automatic: string
+): string | null {
+  const reason = checkCollectionFolder(
+    folder,
+    getEffectiveContentDirectory(projectSettings)
+  )
+  return reason ? `${reason} For now, using \`${automatic}\`.` : null
 }
 
 function explainAssetsFolder(
