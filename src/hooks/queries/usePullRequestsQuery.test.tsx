@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { commands, type PullRequest } from '@/lib/bindings'
+import { queryKeys } from '@/lib/query-keys'
 import { useProjectStore } from '../../store/projectStore'
 import {
   PULL_REQUEST_POLL_MS,
@@ -37,7 +38,10 @@ function render() {
   const wrapper = ({ children }: { children: React.ReactNode }) => (
     <QueryClientProvider client={client}>{children}</QueryClientProvider>
   )
-  return renderHook(() => usePullRequestsQuery('/site'), { wrapper })
+  return {
+    client,
+    ...renderHook(() => usePullRequestsQuery('/site'), { wrapper }),
+  }
 }
 
 const calls = () => vi.mocked(commands.githubListPullRequests).mock.calls.length
@@ -103,6 +107,23 @@ describe('usePullRequestsQuery polling', () => {
     const { result } = render()
     await vi.waitFor(() => expect(result.current.data).toEqual([PR]))
     focused = false
+    await tick()
+    await tick()
+    expect(calls()).toBe(1)
+  })
+
+  it('stops after signing out', async () => {
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([PR]))
+    const { result, client } = render()
+    await vi.waitFor(() => expect(result.current.data).toEqual([PR]))
+    vi.mocked(commands.githubAuthStatus).mockResolvedValue(
+      ok({ signedIn: false, login: null, name: null, avatarUrl: null })
+    )
+    await act(() =>
+      client.invalidateQueries({ queryKey: queryKeys.githubAuth })
+    )
+    // TanStack tells components on a (real) timer
+    await act(() => new Promise(resolve => setTimeout(resolve, 20)))
     await tick()
     await tick()
     expect(calls()).toBe(1)

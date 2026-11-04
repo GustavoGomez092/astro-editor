@@ -26,14 +26,16 @@ export const usePullRequestsQuery = (projectPath: string | null) => {
   const toolsOn = useShowPublishingTools()
   const signedIn = useGitHubAuthQuery().data?.signedIn ?? false
   const repo = useGitHubRepoInfoQuery(projectPath).data
+  const enabled = toolsOn && signedIn && !!repo && !!projectPath
   const query = useQuery({
     queryKey: queryKeys.pullRequests(projectPath || ''),
     queryFn: () => unwrap(commands.githubListPullRequests(projectPath!)),
-    enabled: toolsOn && signedIn && !!repo && !!projectPath,
+    enabled,
     staleTime: 60 * 1000,
   })
 
-  const polling = checksRunning(query.data)
+  // The cached list outlives signing out; polling doesn't
+  const polling = enabled && checksRunning(query.data)
   const { refetch } = query
   useEffect(() => {
     if (!polling) return
