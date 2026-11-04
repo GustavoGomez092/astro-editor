@@ -207,7 +207,7 @@ jobs:
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: 'Astro Editor+ ${{ env.RELEASE_TAG }}'
-          releaseBody: 'Astro Editor+ ${{ env.RELEASE_TAG }}.${{ steps.signing.outputs.mode == ''self-signed'' && '' On first launch, approve the app under System Settings, Privacy & Security, Open Anyway.'' || '''' }}'
+          releaseBody: "Astro Editor+ ${{ env.RELEASE_TAG }}.${{ steps.signing.outputs.mode == 'self-signed' && ' On first launch, approve the app under System Settings, Privacy & Security, Open Anyway.' || '' }}"
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
