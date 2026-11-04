@@ -66,6 +66,9 @@ export function withSlugField(
   frontmatter: Record<string, unknown>,
   newFileNameValue: string
 ): Record<string, unknown> {
-  if (typeof frontmatter.slug !== 'string') return frontmatter
-  return { ...frontmatter, slug: stemOf(newFileNameValue) }
+  const slug = stemOf(newFileNameValue)
+  if (typeof frontmatter.slug !== 'string' || frontmatter.slug === slug) {
+    return frontmatter
+  }
+  return { ...frontmatter, slug }
 }

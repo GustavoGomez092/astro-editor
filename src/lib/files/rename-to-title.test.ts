@@ -90,6 +90,11 @@ describe('withSlugField', () => {
     })
   })
 
+  it('returns the same object when the slug already matches', () => {
+    const fm = { slug: 'new-name' }
+    expect(withSlugField(fm, 'new-name.md')).toBe(fm)
+  })
+
   it('leaves frontmatter without a slug alone', () => {
     const fm = { title: 'T' }
     expect(withSlugField(fm, 'new-name.md')).toBe(fm)

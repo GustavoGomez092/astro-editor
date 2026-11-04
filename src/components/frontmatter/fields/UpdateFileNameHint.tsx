@@ -1,5 +1,6 @@
 import React from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useGitBusy } from '../../../hooks/useGitBusy'
 import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '../../../store/projectStore'
 import { queryKeys } from '../../../lib/query-keys'
@@ -9,6 +10,7 @@ import {
   canRenameToTitle,
   fullName,
   nameForTitle,
+  GIT_BUSY_MESSAGE,
   renameCurrentFileToTitle,
   siblingNames,
   titleOf,
@@ -24,6 +26,7 @@ export const UpdateFileNameHint: React.FC = () => {
   const title = useEditorStore(state =>
     state.currentFile ? titleOf(state.currentFile, state.frontmatter) : ''
   )
+  const gitBusy = useGitBusy()
   const show = file !== null && canRenameToTitle(file, title)
   const projectPath = useProjectStore(state => state.projectPath)
   const directory = file?.path.substring(0, file.path.lastIndexOf('/')) ?? ''
@@ -53,8 +56,10 @@ export const UpdateFileNameHint: React.FC = () => {
       File name: <span className="font-mono">{fullName(file)}</span> ·{' '}
       <button
         type="button"
+        disabled={gitBusy}
+        title={gitBusy ? GIT_BUSY_MESSAGE : undefined}
         onClick={() => void renameCurrentFileToTitle()}
-        className="text-foreground underline underline-offset-2 hover:text-primary"
+        className="text-foreground underline underline-offset-2 hover:text-primary disabled:no-underline disabled:opacity-50"
       >
         Update to <span className="font-mono">{newName}</span>
       </button>

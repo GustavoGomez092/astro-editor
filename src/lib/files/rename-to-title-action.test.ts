@@ -122,7 +122,7 @@ describe('renameCurrentFileToTitle', () => {
     )
   })
 
-  it('saves unsaved edits with the new slug, then renames', async () => {
+  it('saves unsaved edits without the slug, renames, then saves the slug at the new path', async () => {
     scanDirectory.mockResolvedValue(siblings('old-name'))
     useEditorStore.setState({
       frontmatter: { title: 'Fresh Title', slug: 'old-name' },
@@ -130,7 +130,8 @@ describe('renameCurrentFileToTitle', () => {
     })
     const order: string[] = []
     save.mockImplementation(() => {
-      order.push(`save:${String(useEditorStore.getState().frontmatter.slug)}`)
+      const { frontmatter, currentFile } = useEditorStore.getState()
+      order.push(`save:${String(frontmatter.slug)}@${currentFile?.name}`)
       useEditorStore.setState({ isDirty: false })
       return Promise.resolve()
     })
@@ -141,7 +142,49 @@ describe('renameCurrentFileToTitle', () => {
 
     await renameCurrentFileToTitle()
 
-    expect(order).toEqual(['save:fresh-title', 'rename'])
+    expect(order).toEqual([
+      'save:old-name@old-name',
+      'rename',
+      'save:fresh-title@fresh-title',
+    ])
+    expect(toast.success).toHaveBeenCalledWith('Renamed to fresh-title.md')
+  })
+
+  it('keeps the new slug unsaved, and says so, when its save fails', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({
+      frontmatter: { title: 'Fresh Title', slug: 'old-name' },
+    })
+    save.mockImplementation(() => {
+      useEditorStore.setState({ saveFailures: 1 })
+      return Promise.resolve()
+    })
+
+    await renameCurrentFileToTitle()
+
+    expect(renameFile).toHaveBeenCalled()
+    expect(useEditorStore.getState().currentFile?.name).toBe('fresh-title')
+    expect(useEditorStore.getState().frontmatter.slug).toBe('fresh-title')
+    expect(toast.warning).toHaveBeenCalledWith(
+      'Renamed to fresh-title.md',
+      expect.objectContaining({
+        description: expect.stringContaining('slug'),
+      })
+    )
+  })
+
+  it('leaves the slug alone when the rename fails', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({
+      frontmatter: { title: 'Fresh Title', slug: 'old-name' },
+    })
+    renameFile.mockResolvedValue({ status: 'error', error: 'exists' })
+
+    await renameCurrentFileToTitle()
+
+    expect(useEditorStore.getState().frontmatter.slug).toBe('old-name')
+    expect(save).not.toHaveBeenCalled()
+    expect(toast.error).toHaveBeenCalled()
   })
 
   it('does not add a slug to an entry that has none', async () => {
@@ -216,27 +259,6 @@ describe('renameCurrentFileToTitle', () => {
     queryClient.getMutationCache().clear()
   })
 
-  it('puts the slug back when the rename fails after it was saved', async () => {
-    scanDirectory.mockResolvedValue(siblings('old-name'))
-    useEditorStore.setState({
-      frontmatter: { title: 'Fresh Title', slug: 'old-name' },
-      isDirty: true,
-    })
-    const saved: unknown[] = []
-    save.mockImplementation(() => {
-      saved.push(useEditorStore.getState().frontmatter.slug)
-      useEditorStore.setState({ isDirty: false })
-      return Promise.resolve()
-    })
-    renameFile.mockResolvedValue({ status: 'error', error: 'exists' })
-
-    await renameCurrentFileToTitle()
-
-    expect(saved).toEqual(['fresh-title', 'old-name'])
-    expect(useEditorStore.getState().frontmatter.slug).toBe('old-name')
-    expect(toast.error).toHaveBeenCalled()
-  })
-
   it('uses the title as it is after the save, not before', async () => {
     scanDirectory.mockResolvedValue(siblings('old-name'))
     useEditorStore.setState({
@@ -272,6 +294,43 @@ describe('renameCurrentFileToTitle', () => {
 
     expect(renameFile).not.toHaveBeenCalled()
     expect(toast.warning).toHaveBeenCalled()
+  })
+
+  it('leaves the slug alone when it stops before renaming', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({
+      frontmatter: { title: 'Fresh Title', slug: 'old-name' },
+      isDirty: true,
+    })
+    save.mockImplementation(() => {
+      useEditorStore.setState({ saveFailures: 1 })
+      return Promise.resolve()
+    })
+
+    await renameCurrentFileToTitle()
+
+    expect(renameFile).not.toHaveBeenCalled()
+    expect(useEditorStore.getState().frontmatter.slug).toBe('old-name')
+  })
+
+  it('stops when git becomes busy during the save, before renaming', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({ isDirty: true })
+    save.mockImplementation(() => {
+      const mutation = queryClient.getMutationCache().build(queryClient, {
+        mutationKey: GIT_CHANGE_MUTATION_KEY,
+        mutationFn: () => new Promise(() => {}),
+      })
+      void mutation.execute(undefined).catch(() => {})
+      useEditorStore.setState({ isDirty: false })
+      return Promise.resolve()
+    })
+
+    await renameCurrentFileToTitle()
+
+    expect(renameFile).not.toHaveBeenCalled()
+    expect(toast.warning).toHaveBeenCalled()
+    queryClient.getMutationCache().clear()
   })
 
   it('forgets the old id’s cached content after the rename', async () => {

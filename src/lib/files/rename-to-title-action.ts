@@ -113,63 +113,46 @@ async function run(): Promise<void> {
   const currentName = fullName(file)
   const directory = file.path.substring(0, file.path.lastIndexOf('/'))
   const titleField = titleFieldName(file.collection)
-  const otherEntryOpened = () => {
-    toast.warning('The file name was not changed', {
-      description: 'Another entry was opened first.',
-    })
+  const stopped = (description: string) => {
+    toast.warning('The file name was not changed', { description })
   }
 
   // A save that is running now would write the old path again after the rename
   await waitForSaves()
   const names = await siblingNames(file)
 
-  // The title may change while saving, so the name is worked out again after
-  // each save until it holds still
-  const originalSlug = useEditorStore.getState().frontmatter.slug
+  // Save what's unsaved (the slug is left alone: nothing about it is written
+  // until the file has its new name). The title may change while saving, so
+  // the name is worked out again after each save until it holds still
   let newName: string | null = null
-  let slugChanged = false
   for (let attempt = 0; attempt < 3; attempt++) {
-    if (!openFileState(file.path)) return otherEntryOpened()
-    const { frontmatter } = useEditorStore.getState()
+    if (!openFileState(file.path))
+      return stopped('Another entry was opened first.')
+    const { frontmatter, isDirty } = useEditorStore.getState()
     const target = renameTargetFor(frontmatter[titleField], currentName, names)
     if (!target) {
-      if (newName) break
+      if (newName) return stopped('The title changed back.')
       toast.info('The file name already matches the title')
       return
     }
-    if (target === newName && !useEditorStore.getState().isDirty) break
+    if (target === newName && !isDirty) break
     newName = target
+    if (!isDirty) break
 
-    const withSlug = withSlugField(frontmatter, target)
-    if (withSlug !== frontmatter) {
-      useEditorStore.getState().updateFrontmatterField('slug', withSlug.slug)
-      slugChanged = true
-    }
-    if (useEditorStore.getState().isDirty) {
-      const failuresBefore = useEditorStore.getState().saveFailures
-      await useEditorStore.getState().saveFile(false)
-      await waitForSaves()
-      // A failed save has told the writer why; the file keeps its name
-      if (useEditorStore.getState().saveFailures !== failuresBefore) return
-    } else {
-      break
-    }
+    const failuresBefore = useEditorStore.getState().saveFailures
+    await useEditorStore.getState().saveFile(false)
+    await waitForSaves()
+    // A failed save has told the writer why; the file keeps its name
+    if (useEditorStore.getState().saveFailures !== failuresBefore) return
   }
   if (!newName) return
-  if (!openFileState(file.path)) return otherEntryOpened()
+  if (!openFileState(file.path))
+    return stopped('Another entry was opened first.')
+  if (isGitBusy()) return stopped(GIT_BUSY_MESSAGE)
 
   const newPath = `${directory}/${newName}`
   const result = await commands.renameFile(file.path, newPath, projectPath)
-  if (result.status === 'error') {
-    const restored = slugChanged
-      ? await restoreSlug(originalSlug, file.path)
-      : true
-    throw new Error(
-      restored
-        ? result.error
-        : `${result.error} The slug was changed and could not be put back.`
-    )
-  }
+  if (result.status === 'error') throw new Error(result.error)
 
   useEditorStore.getState().updateCurrentFileAfterRename(newPath)
   // The old id has no entry any more; A to B and back to A must not show B's
@@ -183,20 +166,26 @@ async function run(): Promise<void> {
   void queryClient.invalidateQueries({
     queryKey: queryKeys.collectionFiles(projectPath, file.collection),
   })
-  toast.success(`Renamed to ${newName}`)
-}
 
-/** Puts the slug back and saves it, after a rename that failed */
-async function restoreSlug(
-  originalSlug: unknown,
-  path: string
-): Promise<boolean> {
-  if (!openFileState(path)) return false
-  useEditorStore.getState().updateFrontmatterField('slug', originalSlug)
+  // Now the slug, saved at the new path. If that save fails the form keeps
+  // the new slug unsaved, and auto-save tries again
+  const { frontmatter } = useEditorStore.getState()
+  const withSlug = withSlugField(frontmatter, newName)
+  if (withSlug === frontmatter) {
+    toast.success(`Renamed to ${newName}`)
+    return
+  }
+  useEditorStore.getState().updateFrontmatterField('slug', withSlug.slug)
   const failuresBefore = useEditorStore.getState().saveFailures
   await useEditorStore.getState().saveFile(false)
   await waitForSaves()
-  return useEditorStore.getState().saveFailures === failuresBefore
+  if (useEditorStore.getState().saveFailures !== failuresBefore) {
+    toast.warning(`Renamed to ${newName}`, {
+      description: 'The slug was not saved yet. It will be saved again soon.',
+    })
+  } else {
+    toast.success(`Renamed to ${newName}`)
+  }
 }
 
 /**

@@ -936,6 +936,30 @@ mod tests {
     }
 
     #[test]
+    fn rename_refuses_a_different_file_whose_name_differs_only_in_case() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join("foo.md");
+        let taken = dir.path().join("contact.md");
+        fs::write(&old, "foo").unwrap();
+        fs::write(&taken, "contact").unwrap();
+
+        // On a case-insensitive disk this is the file that is there; on a
+        // case-sensitive one it is another spelling of a name that is free.
+        // Either way, `contact.md` must survive when the target is `Contact.md`
+        let result = rename_without_overwriting(&old, &dir.path().join("Contact.md"));
+
+        let case_insensitive = dir.path().join("CONTACT.MD").exists();
+        if case_insensitive {
+            assert!(result.unwrap_err().contains("already exists"));
+            assert_eq!(fs::read_to_string(&taken).unwrap(), "contact");
+            assert!(old.exists());
+        } else {
+            assert!(result.is_ok());
+            assert_eq!(fs::read_to_string(&taken).unwrap(), "contact");
+        }
+    }
+
+    #[test]
     fn rename_allows_a_case_only_change_of_the_same_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let old = dir.path().join("foo.md");
