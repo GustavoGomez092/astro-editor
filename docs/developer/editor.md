@@ -31,6 +31,18 @@ Highlighting runs through custom tags rather than `@lezer/highlight`'s built-in 
 
 Colours and type come from `editor-styles.md` and the `--editor-color-*` tokens in `App.css` (see `color-system.md`).
 
+## Grammar and spelling
+
+Harper (`harper-core`, pinned to an exact version in `src-tauri/Cargo.toml`) checks the body text in Rust; `extensions/grammar.ts` shows the results through `@codemirror/lint`, and `lib/grammar/` maps them to underlines, popup buttons and ignored issues.
+
+- **Rust, not harper.js.** The WASM build is a 94 MB npm package (about 18 MB of WASM to bundle), needs `wasm-unsafe-eval` in the CSP and had never been tried in WKWebView. Natively, 5,000 words take about 50 ms once warm (about 0.4 s for the first check of a file in a release build).
+- **One worker thread** (`commands/grammar.rs`) runs every check, and only the newest of several waiting; the others get `null` and the editor keeps what it shows. Harper builds its spelling automaton once per thread, which took seconds on fresh blocking-pool threads. The checker is rebuilt (a few hundred ms) only when the dialect or the dictionary changes.
+- **Offsets:** Harper counts in Unicode chars and CodeMirror in UTF-16 code units, so Rust converts at the boundary. Anything that moves issue ranges must keep `utf16_offsets_after_emoji_and_accent` passing.
+- **What's skipped:** frontmatter and the MDX import block never reach the editor; Harper's Markdown parser skips code, URLs and HTML. For MDX, `mask_mdx` blanks `import`/`export` lines, component tags (including multi-line ones) and `{expressions}` with spaces before parsing, so offsets don't move and the text inside a component is still checked. Issues touching a blanked range are dropped.
+- **Rules:** Harper's curated set, minus `UseTitleCase` and `LongSentences` (`RULES_OFF`), which underline a whole heading or sentence for house style. Overlapping issues keep one: a misspelling first, then the shorter range, so a broad issue can't hide a typo.
+- **Settings** are read with `getState()` on every check; `useGrammarRefresh` re-checks when they change. Ignore is per file and lasts until the app quits. Add to dictionary writes `grammar.dictionary` in global settings (see `app-data.md`).
+- **Dev builds** optimise Harper's crates (`[profile.dev.package.*]` in `Cargo.toml`); unoptimised they're 10 to 20 times slower. `cargo test --lib grammar::tests::timing -- --ignored --nocapture` prints timings for a 5,000-word file.
+
 ## Auto-save and data safety
 
 Never losing work is a product principle, and most of these rules were written after a data-loss bug.

@@ -63,9 +63,11 @@ git2 = { version = "0.20", default-features = false, features = [
   "vendored-openssl",
   "https",
 ] }
-# The GitHub token lives in the OS credential store (the Keychain on macOS)
 # Grammar and spell checking (src/grammar). Exact version: lint output can change between releases
-harper-core = { version = "=3.0.0", default-features = false, features = ["concurrent"] }
+harper-core = { version = "=3.0.0", default-features = false, features = [
+  "concurrent",
+] }
+# The GitHub token lives in the OS credential store (the Keychain on macOS)
 keyring = { version = "3", features = [
   "apple-native",
   "windows-native",

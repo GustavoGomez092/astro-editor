@@ -14,7 +14,7 @@ Dev builds use `is.gustavogomez.astroeditorplus.dev` instead, so they never read
 
 Inside it:
 
-- `preferences/global-settings.json`: app-wide settings (theme, IDE command, auto-save delay, appearance and so on).
+- `preferences/global-settings.json`: app-wide settings (theme, IDE command, auto-save delay, appearance and so on). `grammar` holds spelling and grammar checking: on/off, the dialect and the personal dictionary, so a writer's words follow them across projects and never land in a project's files. It's optional and resolved by `resolveGrammarSettings` (`lib/grammar/settings.ts`); global settings replace it whole on update rather than merging it, so callers send the full object.
 - `preferences/project-registry.json`: every project ever opened (ID, name, path, dates) and which was open last.
 - `preferences/projects/{id}.json`: one project's settings, including its collection overrides.
 - `recovery/` and `crash-reports/`: see [Recovery Files](#recovery-files).
