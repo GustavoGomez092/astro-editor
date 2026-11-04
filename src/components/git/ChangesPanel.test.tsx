@@ -505,6 +505,134 @@ describe('ChangesPanel', () => {
       )
     })
 
+    const published = (status: GitStatus) =>
+      ok({
+        commitId: 'p',
+        pushed: true,
+        outcome: 'upToDate' as const,
+        message: 'Published to main.',
+        status,
+      })
+    const conflicted = (status: GitStatus) =>
+      ok({
+        commitId: 'c',
+        pushed: false,
+        outcome: 'conflict' as const,
+        message: `Your changes and the changes on the remote both edited ${ABOUT}.`,
+        status,
+      })
+    const EDITED = {
+      ...CONFLICT,
+      mine: '---\ntitle: About me\n---\nMine, edited since',
+    }
+
+    it('commits edits made after the conflict, so "Your version" has them, then combines', async () => {
+      // An edit since the conflict: About me is changed again
+      withStatus({
+        ...DIVERGED,
+        files: [{ path: ABOUT, oldPath: null, change: 'modified' }],
+      })
+      const COMMITTED = { ...DIVERGED, ahead: 2 }
+      vi.mocked(commands.gitPublish)
+        // The commit step: committed, stopped on the conflict
+        .mockImplementationOnce(() => {
+          withStatus(COMMITTED)
+          return Promise.resolve(conflicted(COMMITTED))
+        })
+        .mockResolvedValueOnce(published(CLEAN))
+      renderWithProviders(<ChangesPanel />)
+      await screen.findByText(/both changed/)
+      vi.mocked(commands.gitConflicts).mockResolvedValue(ok([EDITED]))
+      await userEvent.click(screen.getByRole('button', { name: /^Publish$/ }))
+
+      const entry = await screen.findByRole('group', { name: 'About me' })
+      await vi.waitFor(() =>
+        expect(
+          within(entry).getByRole('row', { name: /The text/ })
+        ).toHaveTextContent('Mine, edited since')
+      )
+      expect(commands.gitPublish).toHaveBeenCalledTimes(1)
+      await userEvent.click(
+        within(entry).getByRole('button', { name: 'Keep mine' })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Combine and publish' })
+      )
+      await vi.waitFor(() =>
+        expect(commands.gitResolveConflicts).toHaveBeenCalledWith(SITE, [
+          { path: ABOUT, choice: 'mine' },
+        ])
+      )
+      await vi.waitFor(() =>
+        expect(commands.gitPublish).toHaveBeenCalledTimes(2)
+      )
+      await vi.waitFor(() =>
+        expect(screen.queryByRole('group', { name: 'About me' })).toBeNull()
+      )
+    })
+
+    it('shows fresh choices when publishing after combining conflicts again', async () => {
+      vi.mocked(commands.gitPublish).mockResolvedValueOnce(
+        conflicted({ ...DIVERGED, ahead: 2 })
+      )
+      renderWithProviders(<ChangesPanel />)
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Choose which to keep' })
+      )
+      const entry = await screen.findByRole('group', { name: 'About me' })
+      await userEvent.click(
+        within(entry).getByRole('button', { name: "Use GitHub's" })
+      )
+      const AGAIN = {
+        ...CONFLICT,
+        theirs: '---\ntitle: About me\n---\nTheirs, newer',
+      }
+      vi.mocked(commands.gitConflicts).mockResolvedValue(ok([AGAIN]))
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Combine and publish' })
+      )
+
+      const alert = await within(await screen.findByRole('dialog')).findByRole(
+        'alert'
+      )
+      expect(alert).toHaveTextContent('Choose again for what changed.')
+      const fresh = await screen.findByRole('group', { name: 'About me' })
+      await vi.waitFor(() =>
+        expect(
+          within(fresh).getByRole('row', { name: /The text/ })
+        ).toHaveTextContent('Theirs, newer')
+      )
+      expect(
+        within(fresh).getByRole('button', { name: "Use GitHub's" })
+      ).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('shows a blocked combine inside the dialog', async () => {
+      vi.mocked(commands.gitResolveConflicts).mockResolvedValue(
+        ok({
+          outcome: 'blockedByLocalChanges',
+          message: `You have edits to ${ABOUT} that aren't published yet, so nothing was changed.`,
+          status: DIVERGED,
+        })
+      )
+      renderWithProviders(<ChangesPanel />)
+      await userEvent.click(
+        await screen.findByRole('button', { name: 'Choose which to keep' })
+      )
+      const entry = await screen.findByRole('group', { name: 'About me' })
+      await userEvent.click(
+        within(entry).getByRole('button', { name: 'Keep mine' })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Combine and publish' })
+      )
+      const dialog = screen.getByRole('dialog')
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        "You have edits to “About me” that aren't published yet"
+      )
+      expect(commands.gitPublish).not.toHaveBeenCalled()
+    })
+
     it('while a conflict stands, Publish and Sync open the Resolve view instead of trying again', async () => {
       renderWithProviders(<ChangesPanel />)
       await screen.findByText(/Choose which version to keep|both changed/)

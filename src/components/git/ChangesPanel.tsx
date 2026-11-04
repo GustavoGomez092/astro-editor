@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { GitPullRequest } from 'lucide-react'
 import type {
+  ConflictFile,
   ConflictResolution,
   GitStatus,
   PullRequest,
@@ -27,6 +28,7 @@ import { GIT_CHANGE_MUTATION_KEY, needsAttention } from '@/lib/git/repo-change'
 import { applyFetchedStatus } from '@/lib/git/cache'
 import { fetchIfStale } from '@/lib/git/status'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
+import { queryKeys } from '@/lib/query-keys'
 import { toast } from '@/lib/toast'
 import { useProjectStore } from '../../store/projectStore'
 import { useGitStore } from '../../store/gitStore'
@@ -102,6 +104,21 @@ function unsavedFilePath(projectPath: string): string | null {
   return currentFile.path.slice(root.length)
 }
 
+/** Whether two conflict lists hold the same files with the same versions. */
+function sameConflicts(a: ConflictFile[], b: ConflictFile[]): boolean {
+  return (
+    a.length === b.length &&
+    a.every((file, index) => {
+      const other = b[index]
+      return (
+        other?.path === file.path &&
+        other.mine === file.mine &&
+        other.theirs === file.theirs
+      )
+    })
+  )
+}
+
 /** Shows the Changes tab, opening the sidebar if it's closed. */
 function showChanges() {
   useUIStore.getState().setSidebarVisible(true)
@@ -168,6 +185,12 @@ export function ChangesPanel() {
   const conflicts = diverged ? (conflictsQuery.data ?? []) : []
   const hasConflicts = conflicts.length > 0
   const [resolveOpen, setResolveOpen] = useState(false)
+  // What stopped the last step, shown in the dialog itself
+  const [resolveMessage, setResolveMessage] = useState<string | null>(null)
+  // Committing the latest edits and reading the conflicts again
+  const [resolveWorking, setResolveWorking] = useState(false)
+  // When the dialog opened: only a list read since then can close it
+  const [resolveSince, setResolveSince] = useState(0)
   // While there are conflicts to resolve, Publish and Sync open the Resolve
   // view instead, so they're never held back
   const heldBack =
@@ -249,6 +272,7 @@ export function ChangesPanel() {
       // A conflict with GitHub's copy has a way out: the Resolve view, once
       // the conflicts are listed (refreshGit reloads them)
       if (result.outcome === 'conflict' && action !== 'bringIn') {
+        setResolveSince(Date.now())
         setResolveOpen(true)
       }
     }
@@ -279,6 +303,22 @@ export function ChangesPanel() {
 
   const guard = { status, busy, heldBack }
 
+  // A list read since the dialog opened that has nothing in it: nothing is
+  // left to resolve, so the dialog closes (it would otherwise reopen empty)
+  const resolvePending =
+    resolveWorking || resolveConflicts.isPending || publish.isPending
+  if (
+    resolveOpen &&
+    !resolvePending &&
+    resolveMessage === null &&
+    !conflictsQuery.isFetching &&
+    conflictsQuery.dataUpdatedAt >= resolveSince &&
+    resolveSince > 0 &&
+    conflicts.length === 0
+  ) {
+    setResolveOpen(false)
+  }
+
   /** Clears a notice once the same action has gone through. */
   const settled = (outcome: SyncOutcome) => {
     if (!needsAttention(outcome)) setStored(null)
@@ -291,7 +331,7 @@ export function ChangesPanel() {
       return
     }
     if (hasConflicts && !busy) {
-      setResolveOpen(true)
+      openResolve()
       return
     }
     const reason = syncBlocker(guard)
@@ -305,6 +345,14 @@ export function ChangesPanel() {
       .catch(() => {})
   }
 
+  /** The commit message, from the status read just after saving. */
+  const commitMessage = (fresh: GitStatus) => {
+    if (draft !== null && draft.trim()) return draft.trim()
+    // With no changed files there's nothing to commit, only earlier commits
+    // to push, but the engine still asks for a message
+    return messageFor(fresh.files) || 'Publish'
+  }
+
   /** Publishes, with the message written from the status read after saving. */
   const runPublish = () => {
     if (!projectPath) return
@@ -315,12 +363,7 @@ export function ChangesPanel() {
     void publish
       .mutateAsync({
         projectPath,
-        message: fresh => {
-          if (draft !== null && draft.trim()) return draft.trim()
-          // With no changed files there's nothing to commit, only earlier
-          // commits to push, but the engine still asks for a message
-          return messageFor(fresh.files) || 'Publish'
-        },
+        message: commitMessage,
       })
       .then(result => {
         setDraft(null)
@@ -340,7 +383,7 @@ export function ChangesPanel() {
       return
     }
     if (hasConflicts && !busy) {
-      setResolveOpen(true)
+      openResolve()
       return
     }
     const unsaved = unsavedFilePath(projectPath)
@@ -378,22 +421,113 @@ export function ChangesPanel() {
       })
   }
 
-  /** Combines with the chosen versions, then publishes straight away. */
-  const handleCombine = (choices: ConflictResolution[]) => {
-    if (!projectPath) return
-    void resolveConflicts
-      .mutateAsync({ projectPath, choices })
+  /** Edits on this computer that aren't committed yet, saved or not. */
+  const hasLocalEdits = () => {
+    if (!projectPath) return false
+    const fresh = queryClient.getQueryData<GitStatus>(
+      queryKeys.gitStatus(projectPath)
+    )
+    return (
+      (fresh?.files.length ?? 0) > 0 || unsavedFilePath(projectPath) !== null
+    )
+  }
+
+  /** The Resolve view is done: the changes went through. */
+  const finishResolve = () => {
+    setResolveOpen(false)
+    setResolveMessage(null)
+    setStored(null)
+    setDraft(null)
+  }
+
+  /**
+   * Publish's commit step, for edits made since the conflict: it commits
+   * everything, tries to combine, and stops on the conflict with the commit
+   * kept. The conflicts are then read again, so "Your version" includes the
+   * edits. Resolves to the fresh list, or null when something else happened
+   * (it's said in the dialog, or it all went through and the dialog closed).
+   */
+  const commitLatestEdits = () => {
+    setResolveWorking(true)
+    return publish
+      .mutateAsync({ projectPath: projectPath!, message: commitMessage })
       .then(result => {
+        if (result.outcome === 'conflict') {
+          return conflictsQuery.refetch().then(fresh => fresh.data ?? [])
+        }
         if (needsAttention(result.outcome)) {
-          // GitHub moved again meanwhile: the fresh list is shown
-          keepNotice('publish')(result)
+          setResolveMessage(present(result.message))
+        } else {
+          // Nothing conflicts any more: it was published
+          finishResolve()
+        }
+        return null
+      })
+      .catch((error: Error) => {
+        setResolveMessage(present(error.message))
+        return null
+      })
+      .finally(() => setResolveWorking(false))
+  }
+
+  /** Opens the Resolve view with what's on both sides now. */
+  const openResolve = () => {
+    if (!projectPath) return
+    setResolveMessage(null)
+    setResolveSince(Date.now())
+    setResolveOpen(true)
+    if (hasLocalEdits()) void commitLatestEdits()
+    else void conflictsQuery.refetch()
+  }
+
+  /** Combines with the chosen versions, then publishes straight away. */
+  const applyChoices = (choices: ConflictResolution[]) => {
+    void resolveConflicts
+      .mutateAsync({ projectPath: projectPath!, choices })
+      .then(result => {
+        if (result.outcome !== 'merged' && result.outcome !== 'fastForwarded') {
+          setResolveMessage(present(result.message))
+          void conflictsQuery.refetch()
           return
         }
-        setResolveOpen(false)
-        setStored(null)
-        runPublish()
+        return publish
+          .mutateAsync({ projectPath: projectPath!, message: commitMessage })
+          .then(published => {
+            if (published.outcome === 'conflict') {
+              // GitHub moved again meanwhile: choose again for the fresh list
+              setResolveMessage(
+                `${present(published.message)} Choose again for what changed.`
+              )
+              setResolveOpen(true)
+              void conflictsQuery.refetch()
+            } else if (needsAttention(published.outcome)) {
+              setResolveMessage(present(published.message))
+            } else {
+              finishResolve()
+            }
+          })
       })
-      .catch(() => {})
+      .catch((error: Error) => setResolveMessage(present(error.message)))
+  }
+
+  const handleCombine = (choices: ConflictResolution[]) => {
+    if (!projectPath) return
+    setResolveMessage(null)
+    if (!hasLocalEdits()) {
+      applyChoices(choices)
+      return
+    }
+    // Edits since the list was read: commit them first, and only use the
+    // choices if the list they were made for still stands
+    void commitLatestEdits().then(fresh => {
+      if (!fresh) return
+      if (sameConflicts(fresh, conflicts)) applyChoices(choices)
+      else {
+        setResolveMessage(
+          'Your latest edits are in “Your version” now. Check your choices again.'
+        )
+      }
+    })
   }
 
   const handleBringIn = () => {
@@ -550,7 +684,7 @@ export function ChangesPanel() {
             : null
         }
         conflictCount={conflicts.length}
-        onResolve={() => setResolveOpen(true)}
+        onResolve={openResolve}
         onDismissNotice={() => setStored(null)}
         busy={busy}
         heldBack={heldBack}
@@ -567,13 +701,20 @@ export function ChangesPanel() {
         publishing={publish.isPending || checking}
       />
       <ResolveConflictsDialog
-        open={resolveOpen && hasConflicts}
-        onOpenChange={setResolveOpen}
+        open={
+          resolveOpen &&
+          (hasConflicts || resolvePending || resolveMessage !== null)
+        }
+        onOpenChange={open => {
+          setResolveOpen(open)
+          if (!open) setResolveMessage(null)
+        }}
         files={conflicts}
         titles={titles}
         onGitHub={onGitHub}
         onCombine={handleCombine}
-        pending={resolveConflicts.isPending || publish.isPending}
+        pending={resolvePending}
+        message={resolveMessage}
       />
       <AlertDialog
         open={checked !== null}
