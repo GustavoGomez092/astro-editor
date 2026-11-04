@@ -18,6 +18,7 @@ import {
 } from '../lib/project-registry'
 import { useEditorStore } from './editorStore'
 import { getCollectionFolderOverrides } from '../lib/project-registry/path-resolution'
+import { collectionPathsChanged } from '../lib/project-registry/collection-settings'
 import { queryClient } from '../lib/query-client'
 import { queryKeys } from '../lib/query-keys'
 import { wasStartupClaimedByDeepLink } from '../lib/deep-link'
@@ -433,8 +434,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const optimisticSettings = get().currentProjectSettings
 
     try {
-      // Check if path overrides are changing
-      const pathOverridesChanged = !!settings.pathOverrides
+      // Check if path overrides are changing, the project's or a collection's
+      const pathOverridesChanged =
+        !!settings.pathOverrides ||
+        ('collections' in settings &&
+          collectionPathsChanged(
+            previousSettings?.collections,
+            settings.collections
+          ))
 
       // If path overrides are changing and a file is open, handle gracefully
       if (pathOverridesChanged) {
@@ -474,7 +481,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       // Invalidate queries when settings change
       if (projectPath) {
         // If path overrides changed, invalidate collection-related queries
-        if (settings.pathOverrides) {
+        if (pathOverridesChanged) {
           await queryClient.invalidateQueries({
             queryKey: queryKeys.collections(projectPath),
           })

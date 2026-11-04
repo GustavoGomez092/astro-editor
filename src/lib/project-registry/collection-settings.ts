@@ -206,3 +206,29 @@ export function withCollectionSort(
 
   return updated.filter(c => hasCollectionSettings(c.settings))
 }
+
+/**
+ * Whether any collection's content or assets folder differs between two
+ * versions of the collection settings. Changing one moves files out from
+ * under the open file and the watcher, like a project path override does
+ */
+export function collectionPathsChanged(
+  before: CollectionSettings[] | undefined,
+  after: CollectionSettings[] | undefined
+): boolean {
+  const paths = (collections: CollectionSettings[] | undefined) =>
+    new Map(
+      (collections ?? []).map(c => [
+        c.name,
+        `${c.settings.pathOverrides?.contentDirectory ?? ''}\n${
+          c.settings.pathOverrides?.assetsDirectory ?? ''
+        }`,
+      ])
+    )
+  const a = paths(before)
+  const b = paths(after)
+  const empty = '\n'
+  return [...new Set([...a.keys(), ...b.keys()])].some(
+    name => (a.get(name) ?? empty) !== (b.get(name) ?? empty)
+  )
+}

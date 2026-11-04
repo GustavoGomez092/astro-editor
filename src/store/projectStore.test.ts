@@ -6,6 +6,8 @@ import {
   withCollectionSort,
 } from '../lib/project-registry/collection-settings'
 import { projectRegistryManager } from '../lib/project-registry'
+import { queryClient } from '../lib/query-client'
+import { useEditorStore } from './editorStore'
 import type { ProjectSettings } from '../lib/project-registry/types'
 
 vi.mock('../lib/query-client', () => ({
@@ -161,5 +163,81 @@ describe('projectStore.updateProjectSettings', () => {
     await toggleSortDirection()
 
     expect(useProjectStore.getState().currentProjectSettings).toBe(settings)
+  })
+})
+
+describe('projectStore.updateProjectSettings with collection folders', () => {
+  const okNull = { status: 'ok' as const, data: null }
+  beforeEach(() => {
+    globalThis.mockTauri.reset()
+    globalThis.mockTauri.invoke.mockResolvedValue(undefined)
+    globalThis.mockTauri.listen.mockResolvedValue(() => {})
+    vi.restoreAllMocks()
+    vi.mocked(queryClient.invalidateQueries).mockClear()
+    useProjectStore.setState({
+      currentProjectId: 'project',
+      projectPath: '/project',
+      currentProjectSettings: settings,
+    })
+  })
+
+  const setWorkFolder = (contentDirectory: string) =>
+    useProjectStore.getState().updateProjectSettings({
+      collections: [
+        {
+          name: 'work',
+          settings: {
+            sort: { mode: 'order', direction: 'asc' },
+            pathOverrides: { contentDirectory },
+          },
+        },
+      ],
+    })
+
+  it("restarts the watcher and reloads collections when a collection's folder changes", async () => {
+    const stop = vi
+      .spyOn(commands, 'stopWatchingProject')
+      .mockResolvedValue(okNull)
+    const start = vi
+      .spyOn(commands, 'startWatchingProjectWithContentDir')
+      .mockResolvedValue(okNull)
+
+    await setWorkFolder('writing/work')
+
+    expect(stop).toHaveBeenCalledWith('/project')
+    expect(start).toHaveBeenCalled()
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['project', '/project', 'collections'],
+    })
+  })
+
+  it('saves and closes the open file when a collection folder changes', async () => {
+    vi.spyOn(commands, 'stopWatchingProject').mockResolvedValue(okNull)
+    vi.spyOn(commands, 'startWatchingProjectWithContentDir').mockResolvedValue(
+      okNull
+    )
+    const save = vi.fn().mockResolvedValue(undefined)
+    const close = vi.fn()
+    useEditorStore.setState({
+      currentFile: { id: 'work/a', path: '/project/src/content/work/a.md' },
+      saveFile: save,
+      closeCurrentFile: close,
+    } as never)
+
+    await setWorkFolder('writing/work')
+
+    expect(save).toHaveBeenCalled()
+    expect(close).toHaveBeenCalled()
+    useEditorStore.setState({ currentFile: null } as never)
+  })
+
+  it('leaves the watcher alone when only the sort changes', async () => {
+    const stop = vi
+      .spyOn(commands, 'stopWatchingProject')
+      .mockResolvedValue(okNull)
+
+    await toggleSortDirection()
+
+    expect(stop).not.toHaveBeenCalled()
   })
 })
