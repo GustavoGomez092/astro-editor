@@ -11,6 +11,9 @@
 //! - Windows and Linux: closing the main window, or the Quit menu item, calls
 //!   `request_quit`.
 //!
+//! Quitting also stops every dev server (`commands/dev_server.rs`), which can
+//! take a few seconds, so it happens on a thread of its own before the reply.
+//!
 //! If the frontend doesn't answer within `QUIT_TIMEOUT` (the webview hung, or
 //! the page hasn't loaded yet), the app quits anyway, and if that doesn't end
 //! the process either, it exits outright: a hang is worse than losing edits.
@@ -67,6 +70,7 @@ pub fn request_quit(app: &AppHandle) {
             *pending = None;
         }
         log::warn!("The frontend didn't answer the quit request, quitting anyway");
+        super::dev_server::stop_dev_servers(&app);
         finish(&app, true, true);
 
         // Still running means the main thread is stuck
@@ -81,7 +85,12 @@ pub fn request_quit(app: &AppHandle) {
 #[tauri::command]
 #[specta::specta]
 pub fn quit_app(app: AppHandle) {
-    finish(&app, true, take_pending_request());
+    let was_pending = take_pending_request();
+    // Off the main thread: stopping waits for the servers to exit
+    std::thread::spawn(move || {
+        super::dev_server::stop_dev_servers(&app);
+        finish(&app, true, was_pending);
+    });
 }
 
 /// Stays open: the save failed and the writer is being asked what to do.

@@ -473,6 +473,8 @@ pub fn run() {
             // Teardown goes here, not in ExitRequested, which doesn't fire for Cmd+Q on macOS
             tauri::RunEvent::Exit => {
                 log::info!("Application exiting");
+                // Normally already done by the quit flow
+                commands::dev_server::stop_dev_servers(app_handle);
                 #[cfg(debug_assertions)]
                 agent_bridge::stop(app_handle);
             }

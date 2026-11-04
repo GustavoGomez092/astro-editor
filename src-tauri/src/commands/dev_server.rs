@@ -6,6 +6,15 @@ use crate::dev_server::{detect, DevServerState, DevServers};
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
+/// Stops every project's dev server, waiting until they're gone. Quitting
+/// calls it (`commands/quit.rs` and `RunEvent::Exit`), so no server outlives
+/// the app.
+pub fn stop_dev_servers(app: &AppHandle) {
+    if let Some(servers) = app.try_state::<DevServers>() {
+        servers.stop_all();
+    }
+}
+
 /// The event sent with a `DevServerState` whenever a server's state changes
 pub const STATE_EVENT: &str = "dev-server-state";
 

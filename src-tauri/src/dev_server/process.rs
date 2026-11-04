@@ -149,8 +149,6 @@ impl DevServers {
     }
 
     /// Stops every project's server at once, for quitting
-    // The quit flow calls it from the next commit
-    #[allow(dead_code)]
     pub fn stop_all(&self) {
         let paths: Vec<String> = self
             .shared
