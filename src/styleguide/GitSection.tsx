@@ -7,7 +7,7 @@ import type {
   CommitDetails as Details,
   FileDiff,
   GraphCommit,
-} from '../lib/git/types'
+} from '../lib/bindings'
 
 /** Fixed, so relative dates don't change between shots. */
 const NOW = new Date(2026, 10, 3, 12, 0, 0)

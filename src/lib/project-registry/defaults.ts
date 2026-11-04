@@ -42,6 +42,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
     },
     autoSaveDelay: 2,
     defaultFileType: 'md',
+    showPublishingTools: false,
   },
   appearance: {
     headingColor: {

@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils'
-import type { ChangedFile } from '@/lib/git/types'
+import type { ChangedFile } from '@/lib/bindings'
 import { FileChangeIcon, fileChangeLabel } from './FileChangeIcon'
 
 /**

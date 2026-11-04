@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CommitDetails } from './CommitDetails'
-import type { CommitDetails as Details } from '@/lib/git/types'
+import type { CommitDetails as Details } from '@/lib/bindings'
 
 const DETAILS: Details = {
   id: 'a1b2c3d4e5f6',

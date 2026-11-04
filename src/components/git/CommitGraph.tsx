@@ -7,7 +7,7 @@ import {
   type GraphEdge,
   type GraphRow,
 } from '@/lib/git/graph-layout'
-import type { GraphCommit, RefKind } from '@/lib/git/types'
+import type { GraphCommit, RefKind } from '@/lib/bindings'
 
 interface CommitGraphProps {
   /** Newest first, in topological order, as `gitLogGraph` returns them. */

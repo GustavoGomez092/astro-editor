@@ -1,5 +1,5 @@
 import { formatDisplayDate } from '@/lib/dates'
-import type { CommitDetails as Details } from '@/lib/git/types'
+import type { CommitDetails as Details } from '@/lib/bindings'
 import { ChangedFileRow } from './ChangedFileRow'
 
 interface CommitDetailsProps {

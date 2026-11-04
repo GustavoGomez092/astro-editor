@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CommitGraph } from './CommitGraph'
-import type { GraphCommit } from '@/lib/git/types'
+import type { GraphCommit } from '@/lib/bindings'
 
 const NOW = new Date(2026, 10, 3, 12, 0, 0)
 const HOUR = 3600

@@ -1,4 +1,4 @@
-import type { GraphCommit } from './types'
+import type { GraphCommit } from '@/lib/bindings'
 
 /** Number of lane colour tokens (`--git-lane-0` … `--git-lane-7`). */
 export const LANE_COLOR_COUNT = 8

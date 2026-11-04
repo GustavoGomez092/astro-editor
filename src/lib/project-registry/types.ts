@@ -94,6 +94,8 @@ export interface GlobalSettings {
     }
     autoSaveDelay: number
     defaultFileType: 'md' | 'mdx'
+    // The Git panel, Publish and Preview. Off by default
+    showPublishingTools: boolean
   }
   appearance: {
     headingColor: {

@@ -7,7 +7,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { FileChange } from '@/lib/git/types'
+import type { FileChange } from '@/lib/bindings'
 
 const CHANGES: Record<
   FileChange,

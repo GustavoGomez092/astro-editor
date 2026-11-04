@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { DiffView } from './DiffView'
-import type { FileDiff } from '@/lib/git/types'
+import type { FileDiff } from '@/lib/bindings'
 
 const TEXT_DIFF: FileDiff = {
   path: 'src/content/articles/first-post.md',

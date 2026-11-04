@@ -171,4 +171,10 @@ describe('Project Registry System', () => {
       'test-project'
     )
   })
+
+  it('hides the preview and publishing tools by default', async () => {
+    setupInitializationMocks(mockInvoke)
+    await manager.initialize()
+    expect(manager.getGlobalSettings().general.showPublishingTools).toBe(false)
+  })
 })

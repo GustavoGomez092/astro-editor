@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { layoutGraph, LANE_COLOR_COUNT } from './graph-layout'
-import type { GraphCommit } from './types'
+import type { GraphCommit } from '@/lib/bindings'
 
 function commit(id: string, parents: string[] = []): GraphCommit {
   return {

@@ -1,11 +1,6 @@
 import { ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type {
-  DiffHunk,
-  DiffLine,
-  FileChange,
-  FileDiff,
-} from '@/lib/git/types'
+import type { DiffHunk, DiffLine, FileChange, FileDiff } from '@/lib/bindings'
 
 interface DiffViewProps {
   diff: FileDiff
