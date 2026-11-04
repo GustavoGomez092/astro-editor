@@ -67,6 +67,8 @@ export interface ChangesViewProps {
   heldBack: GitAction | null
   selectedPath: string | null
   onSelectFile: (path: string) => void
+  /** Asks to throw away one file's changes (the caller confirms) */
+  onDiscardFile?: (path: string) => void
   /** Entry titles of changed content files, by repository-relative path */
   titles?: Map<string, string>
   message: string
@@ -145,6 +147,7 @@ function RepoChanges({
   heldBack,
   selectedPath,
   onSelectFile,
+  onDiscardFile,
   titles,
   message,
   onMessageChange,
@@ -273,6 +276,8 @@ function RepoChanges({
                   title={titles?.get(file.path)}
                   selected={file.path === selectedPath}
                   onSelect={onSelectFile}
+                  onDiscard={onDiscardFile}
+                  discardDisabled={busy}
                 />
               ))}
             </div>

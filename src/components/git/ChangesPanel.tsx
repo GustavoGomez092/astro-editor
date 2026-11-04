@@ -45,6 +45,7 @@ import { useGitCheckoutMutation } from '../../hooks/mutations/useGitCheckoutMuta
 import { useCreatePullRequestMutation } from '../../hooks/mutations/useCreatePullRequestMutation'
 import { useMergePullRequestMutation } from '../../hooks/mutations/useMergePullRequestMutation'
 import { useMergeDefaultBranchMutation } from '../../hooks/mutations/useMergeDefaultBranchMutation'
+import { useGitDiscardFileMutation } from '../../hooks/mutations/useGitDiscardFileMutation'
 import { Button } from '../ui/button'
 import {
   AlertDialog,
@@ -233,6 +234,13 @@ export function ChangesPanel() {
     onNeedsAttention: keepNotice('bringIn'),
   })
   const checkout = useGitCheckoutMutation({ present })
+  const discardFile = useGitDiscardFileMutation({ present })
+  // The file whose changes the writer asked to throw away, while confirming
+  const [discarding, setDiscarding] = useState<string | null>(null)
+  const discardingName = discarding
+    ? (titles.get(discarding) ??
+      discarding.slice(discarding.lastIndexOf('/') + 1))
+    : ''
   const createPullRequest = useCreatePullRequestMutation()
   const mergePullRequest = useMergePullRequestMutation()
 
@@ -467,6 +475,9 @@ export function ChangesPanel() {
         heldBack={heldBack}
         selectedPath={selectedDiffPath}
         onSelectFile={path => useGitStore.getState().openDiff(path)}
+        onDiscardFile={path => {
+          if (!busy) setDiscarding(path)
+        }}
         titles={titles}
         message={message}
         onMessageChange={setDraft}
@@ -504,6 +515,44 @@ export function ChangesPanel() {
               }}
             >
               Publish anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={discarding !== null}
+        onOpenChange={open => {
+          if (!open) setDiscarding(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              Throw away your changes to “{discardingName}”?
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              This can't be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const path = discarding
+                setDiscarding(null)
+                if (!projectPath || !path) return
+                void discardFile
+                  .mutateAsync({ projectPath, path })
+                  .then(() => {
+                    // Its diff would show a change that's gone
+                    if (useGitStore.getState().selectedDiffPath === path) {
+                      useGitStore.getState().closeMainView()
+                    }
+                  })
+                  .catch(() => {})
+              }}
+            >
+              Discard changes
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

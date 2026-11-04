@@ -20,6 +20,7 @@ import { useGitCheckoutMutation } from './useGitCheckoutMutation'
 import { useCreatePullRequestMutation } from './useCreatePullRequestMutation'
 import { useMergePullRequestMutation } from './useMergePullRequestMutation'
 import { useMergeDefaultBranchMutation } from './useMergeDefaultBranchMutation'
+import { useGitDiscardFileMutation } from './useGitDiscardFileMutation'
 
 vi.mock('@/lib/bindings', () => ({
   commands: {
@@ -31,6 +32,8 @@ vi.mock('@/lib/bindings', () => ({
     githubCreatePullRequest: vi.fn(),
     githubMergePullRequest: vi.fn(),
     gitMergeDefaultBranch: vi.fn(),
+    gitDiscardFile: vi.fn(),
+    gitResolveConflicts: vi.fn(),
     readFileContent: vi.fn(),
   },
 }))
@@ -425,6 +428,31 @@ describe('git mutations', () => {
       )
       expect(order).toEqual(['save', 'status'])
       expect(commands.gitPublish).toHaveBeenCalledWith(P, 'Update 1 entry')
+    })
+
+    it('discarding saves first, then reloads the open file', async () => {
+      const order: string[] = []
+      dirtyEditor(order)
+      vi.mocked(commands.gitDiscardFile).mockImplementation(() => {
+        order.push('discard')
+        return Promise.resolve(ok(STATUS))
+      })
+      const { client, result } = setup(useGitDiscardFileMutation)
+      const content = queryKeys.fileContent(P, OPEN_FILE.id)
+      client.setQueryData(content, {})
+      await act(() =>
+        result.current.mutateAsync({
+          projectPath: P,
+          path: 'src/content/pages/about.md',
+        })
+      )
+      expect(order).toEqual(['save', 'discard'])
+      expect(commands.gitDiscardFile).toHaveBeenCalledWith(
+        P,
+        'src/content/pages/about.md'
+      )
+      expectGitRefreshed(client)
+      expect(client.getQueryState(content)?.isInvalidated).toBe(true)
     })
 
     it('reloads the open file and the file lists after a checkout', async () => {

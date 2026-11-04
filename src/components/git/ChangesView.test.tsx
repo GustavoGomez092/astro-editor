@@ -224,4 +224,23 @@ describe('PullRequestCard', () => {
     )
     expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled()
   })
+
+  it('offers to discard each changed file, named by its title', async () => {
+    const onDiscardFile = vi.fn()
+    renderView({
+      onDiscardFile,
+      titles: new Map([['src/content/pages/about.md', 'Andrew Dyk']]),
+    })
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Discard changes to Andrew Dyk' })
+    )
+    expect(onDiscardFile).toHaveBeenCalledWith('src/content/pages/about.md')
+  })
+
+  it("doesn't offer to discard while git is busy", () => {
+    renderView({ onDiscardFile: vi.fn(), busy: true })
+    expect(
+      screen.getByRole('button', { name: /Discard changes to/ })
+    ).toBeDisabled()
+  })
 })

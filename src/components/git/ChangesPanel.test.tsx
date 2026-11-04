@@ -24,6 +24,7 @@ vi.mock('@/lib/bindings', () => ({
     gitCommitsAheadOfDefault: vi.fn(),
     gitLogGraph: vi.fn(),
     gitConflicts: vi.fn(),
+    gitDiscardFile: vi.fn(),
     gitPublish: vi.fn(),
     gitSync: vi.fn(),
     scanProject: vi.fn(),
@@ -66,6 +67,7 @@ describe('ChangesPanel', () => {
       globalSettings: { general: { showPublishingTools: true } } as never,
     })
     useEditorStore.setState({ currentFile: null, isDirty: false })
+    useGitStore.setState({ panelTab: 'files', checkedAt: {} })
     vi.mocked(commands.githubAuthStatus).mockResolvedValue(
       ok({ signedIn: true, login: 'kr', name: null, avatarUrl: null })
     )
@@ -380,5 +382,30 @@ describe('ChangesPanel', () => {
       expect(await screen.findByText('Checked just now')).toBeInTheDocument()
       now.mockRestore()
     })
+  })
+
+  it('discards a file after confirming, naming the entry', async () => {
+    const changed = {
+      ...CLEAN,
+      files: [{ path: ABOUT, oldPath: null, change: 'modified' as const }],
+    }
+    withStatus(changed)
+    vi.mocked(commands.gitDiscardFile).mockResolvedValue(ok(CLEAN))
+    renderWithProviders(<ChangesPanel />)
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: 'Discard changes to About me',
+      })
+    )
+    const dialog = await screen.findByRole('alertdialog')
+    expect(dialog).toHaveTextContent('Throw away your changes to “About me”?')
+    expect(dialog).toHaveTextContent("This can't be undone.")
+    expect(commands.gitDiscardFile).not.toHaveBeenCalled()
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Discard changes' })
+    )
+    await vi.waitFor(() =>
+      expect(commands.gitDiscardFile).toHaveBeenCalledWith(SITE, ABOUT)
+    )
   })
 })
