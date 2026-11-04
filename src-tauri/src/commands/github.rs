@@ -1,11 +1,35 @@
 //! GitHub commands: device-flow sign-in, repository info, pull requests and the
 //! repository list for cloning. The logic lives in `crate::github`.
 
+use crate::git;
 use crate::github::auth::{auth, resolve_client_id};
+use crate::github::pulls::{self, RepoRef};
+use crate::github::repos;
 use crate::github::{DeviceCode, GitHubAuthStatus, PullRequest, RepoInfo, RepoSummary};
+use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-const NOT_IMPLEMENTED: &str = "not implemented";
+fn signed_in_token() -> Result<String, String> {
+    auth()?
+        .token()
+        .ok_or_else(|| "Sign in with GitHub first.".to_string())
+}
+
+async fn repo_info_for(project_path: String) -> Result<Option<RepoInfo>, String> {
+    tokio::task::spawn_blocking(move || {
+        Ok(git::open(&PathBuf::from(project_path))?.and_then(|repo| repos::repo_info(&repo)))
+    })
+    .await
+    .map_err(|e| format!("Reading the repository stopped unexpectedly: {e}"))?
+}
+
+/// The project's GitHub repository and a token, or a readable reason there isn't one
+async fn github_repo(project_path: String) -> Result<(RepoInfo, String), String> {
+    let info = repo_info_for(project_path)
+        .await?
+        .ok_or_else(|| "This project isn't connected to a GitHub repository.".to_string())?;
+    Ok((info, signed_in_token()?))
+}
 
 /// The OAuth App client ID: Preferences → Advanced, else the one compiled in
 fn client_id(app: &AppHandle) -> Result<String, String> {
@@ -52,15 +76,18 @@ pub async fn github_sign_out() -> Result<(), String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn github_repo_info(project_path: String) -> Result<Option<RepoInfo>, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    repo_info_for(project_path).await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn github_list_pull_requests(project_path: String) -> Result<Vec<PullRequest>, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    let (info, token) = github_repo(project_path).await?;
+    let repo = RepoRef {
+        owner: &info.owner,
+        repo: &info.repo,
+    };
+    pulls::list_pull_requests(auth()?.client(), &token, &repo).await
 }
 
 #[tauri::command]
@@ -72,8 +99,12 @@ pub async fn github_create_pull_request(
     base: String,
     head: String,
 ) -> Result<PullRequest, String> {
-    let _ = (project_path, title, body, base, head);
-    Err(NOT_IMPLEMENTED.to_string())
+    let (info, token) = github_repo(project_path).await?;
+    let repo = RepoRef {
+        owner: &info.owner,
+        repo: &info.repo,
+    };
+    pulls::create_pull_request(auth()?.client(), &token, &repo, &title, &body, &base, &head).await
 }
 
 /// Merges with a merge commit
@@ -83,13 +114,18 @@ pub async fn github_merge_pull_request(
     project_path: String,
     number: u32,
 ) -> Result<PullRequest, String> {
-    let _ = (project_path, number);
-    Err(NOT_IMPLEMENTED.to_string())
+    let (info, token) = github_repo(project_path).await?;
+    let repo = RepoRef {
+        owner: &info.owner,
+        repo: &info.repo,
+    };
+    pulls::merge_pull_request(auth()?.client(), &token, &repo, number).await
 }
 
 /// Repositories the signed-in user owns or collaborates on, most recently updated first
 #[tauri::command]
 #[specta::specta]
 pub async fn github_list_repos() -> Result<Vec<RepoSummary>, String> {
-    Err(NOT_IMPLEMENTED.to_string())
+    let token = signed_in_token()?;
+    repos::list_repos(auth()?.client(), &token).await
 }

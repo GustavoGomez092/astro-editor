@@ -173,6 +173,7 @@ pub struct CloneProgress {
 }
 
 pub mod branches;
+pub mod clone;
 pub mod diff;
 pub mod log;
 pub mod remote;

@@ -184,6 +184,10 @@ impl Auth {
         }
     }
 
+    pub fn client(&self) -> &GitHubClient {
+        &self.client
+    }
+
     /// The token, for git network operations and API calls
     pub fn token(&self) -> Option<String> {
         self.store.get().ok().flatten()

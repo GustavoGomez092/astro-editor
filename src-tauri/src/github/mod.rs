@@ -95,3 +95,5 @@ pub struct RepoSummary {
 
 pub mod auth;
 pub mod http;
+pub mod pulls;
+pub mod repos;

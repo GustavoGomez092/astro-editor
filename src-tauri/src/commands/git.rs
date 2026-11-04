@@ -2,12 +2,12 @@
 //! thread so the UI never waits on disk or network. The logic lives in `crate::git`.
 
 use crate::git::{
-    self, BranchInfo, CommitDetails, FileDiff, GitStatus, GraphCommit, PublishResult, SyncResult,
+    self, BranchInfo, CloneProgress, CommitDetails, FileDiff, GitStatus, GraphCommit,
+    PublishResult, SyncResult,
 };
 use crate::github::auth::{self, GitHubUser};
 use std::path::PathBuf;
-
-const NOT_IMPLEMENTED: &str = "not implemented";
+use tauri::{AppHandle, Emitter};
 
 /// Run libgit2 work on a blocking thread
 async fn blocking<T, F>(work: F) -> Result<T, String>
@@ -174,7 +174,22 @@ pub async fn git_merge_default_branch(project_path: String) -> Result<SyncResult
 /// Clone into a new folder inside `parent_dir`; returns the new project path
 #[tauri::command]
 #[specta::specta]
-pub async fn git_clone(clone_url: String, parent_dir: String) -> Result<String, String> {
-    let _ = (clone_url, parent_dir);
-    Err(NOT_IMPLEMENTED.to_string())
+pub async fn git_clone(
+    app: AppHandle,
+    clone_url: String,
+    parent_dir: String,
+) -> Result<String, String> {
+    let token = auth::token();
+    blocking(move || {
+        let path = git::clone::clone_into(
+            &clone_url,
+            &PathBuf::from(parent_dir),
+            token.as_deref(),
+            |received, total| {
+                let _ = app.emit("git-clone-progress", CloneProgress { received, total });
+            },
+        )?;
+        Ok(path.to_string_lossy().into_owned())
+    })
+    .await
 }

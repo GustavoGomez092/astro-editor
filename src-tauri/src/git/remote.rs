@@ -28,8 +28,10 @@ pub(crate) fn is_github_https(url: &str) -> bool {
 /// Credentials for `origin`: the GitHub token for github.com, else git's credential
 /// helper or the default (Kerberos/NTLM) credential. Each is offered once, so a
 /// rejected credential fails instead of looping.
-fn callbacks<'a>(repo: &Repository, token: Option<&'a str>) -> RemoteCallbacks<'a> {
-    let config = repo.config().ok();
+pub(crate) fn callbacks<'a>(
+    config: Option<git2::Config>,
+    token: Option<&'a str>,
+) -> RemoteCallbacks<'a> {
     let mut attempts = 0;
     let mut callbacks = RemoteCallbacks::new();
     callbacks.credentials(move |url, username, allowed| {
@@ -64,7 +66,7 @@ fn callbacks<'a>(repo: &Repository, token: Option<&'a str>) -> RemoteCallbacks<'
 }
 
 /// A plain-language message for a failed network operation
-fn network_error(e: &git2::Error, url: &str, token: Option<&str>) -> String {
+pub(crate) fn network_error(e: &git2::Error, url: &str, token: Option<&str>) -> String {
     let github = is_github_https(url);
     let place = if github { "GitHub" } else { "the remote" };
     log::warn!(
@@ -116,7 +118,7 @@ pub fn fetch(repo: &Repository, token: Option<&str>) -> Result<(), String> {
         .map_err(|e| super::describe("Couldn't read the remote", &e))?;
     let mut options = FetchOptions::new();
     options
-        .remote_callbacks(callbacks(repo, token))
+        .remote_callbacks(callbacks(repo.config().ok(), token))
         .prune(FetchPrune::On);
     remote
         .fetch::<&str>(&[], Some(&mut options), None)
@@ -152,7 +154,7 @@ pub fn push_current_branch(repo: &Repository, token: Option<&str>) -> Result<(),
         .map_err(|e| super::describe("Couldn't read the remote", &e))?;
 
     let rejection = RefCell::new(None::<String>);
-    let mut push_callbacks = callbacks(repo, token);
+    let mut push_callbacks = callbacks(repo.config().ok(), token);
     push_callbacks.push_update_reference(|_refname, status| {
         if let Some(status) = status {
             *rejection.borrow_mut() = Some(status.to_string());
