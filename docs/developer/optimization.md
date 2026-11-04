@@ -12,7 +12,7 @@ The production frontend build is `bun run build` (`tsc && vite build`), which `t
 
 ## Rust build
 
-The release profile in `src-tauri/Cargo.toml` favours a small binary over build speed: `opt-level = "s"`, LTO, one codegen unit, `panic = "abort"` and `strip`. That makes release builds slow, by design. With `panic = "abort"`, a panic in any command closes the app; nothing catches it.
+The release profile in `src-tauri/Cargo.toml` favours a small binary over build speed: `opt-level = "s"`, LTO, one codegen unit and `strip`. That makes release builds slow, by design. It keeps `panic = "unwind"` (not `"abort"`, which would be a little smaller) so the grammar checker can catch a panic in Harper on its own thread rather than closing the app with unsaved work (`commands/grammar.rs`). Nothing else catches panics on purpose, so don't rely on unwinding elsewhere.
 
 CI's `build` job turns LTO off and raises codegen units to save time; `release.yml` keeps the full profile. See `releases.md`.
 

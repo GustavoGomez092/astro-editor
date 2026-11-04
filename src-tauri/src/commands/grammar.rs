@@ -1,5 +1,9 @@
 //! Grammar and spell checking for the editor's body text. See `crate::grammar`.
 
+use std::any::Any;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::{mpsc, Mutex};
 
 use tauri::State;
@@ -20,28 +24,91 @@ struct Request {
 #[derive(Default)]
 pub struct GrammarState(Mutex<Option<mpsc::Sender<Request>>>);
 
+/// What the worker runs checks with: `Checker`, or a stand-in in tests
+trait Engine {
+    fn matches(&self, dialect: GrammarDialect, words: &[String]) -> bool;
+    fn check(&mut self, text: &str, file_type: GrammarFileType) -> Vec<GrammarIssue>;
+}
+
+impl Engine for Checker {
+    fn matches(&self, dialect: GrammarDialect, words: &[String]) -> bool {
+        Checker::matches(self, dialect, words)
+    }
+
+    fn check(&mut self, text: &str, file_type: GrammarFileType) -> Vec<GrammarIssue> {
+        Checker::check(self, text, file_type)
+    }
+}
+
+fn run_worker(requests: mpsc::Receiver<Request>) {
+    run_worker_with(requests, Checker::new);
+}
+
+fn text_hash(text: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    text.hash(&mut hasher);
+    hasher.finish()
+}
+
+fn panic_message(panic: &(dyn Any + Send)) -> &str {
+    panic
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| panic.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown panic")
+}
+
 /// Runs checks one at a time until every sender is gone. When several are
 /// waiting, only the newest runs: the others were for text that has since
-/// changed. The checker is kept between checks and rebuilt when the dialect or
+/// changed. The engine is kept between checks and rebuilt when the dialect or
 /// the dictionary changes.
-fn run_worker(requests: mpsc::Receiver<Request>) {
-    let mut checker: Option<Checker> = None;
+///
+/// A panic in Harper is caught (the release profile unwinds for this): the
+/// check returns no issues, the engine is rebuilt, and that exact text isn't
+/// checked again until it changes, so a text that trips Harper can't make
+/// every pause in typing fail the same way
+fn run_worker_with<E: Engine>(
+    requests: mpsc::Receiver<Request>,
+    build: impl Fn(GrammarDialect, Vec<String>) -> E,
+) {
+    let mut engine: Option<E> = None;
+    let mut failed_text: Option<u64> = None;
     while let Ok(mut request) = requests.recv() {
         while let Ok(newer) = requests.try_recv() {
             let _ = request.reply.send(None);
             request = newer;
         }
-        if !checker
-            .as_ref()
-            .is_some_and(|c| c.matches(request.dialect, &request.dictionary))
-        {
-            checker = Some(Checker::new(request.dialect, request.dictionary));
+        let hash = text_hash(&request.text);
+        if failed_text == Some(hash) {
+            let _ = request.reply.send(Some(Vec::new()));
+            continue;
         }
-        if let Some(checker) = checker.as_mut() {
-            let issues = checker.check(&request.text, request.file_type);
-            // The caller may have stopped waiting; nothing to do then
-            let _ = request.reply.send(Some(issues));
-        }
+        let outcome = catch_unwind(AssertUnwindSafe(|| {
+            if !engine
+                .as_ref()
+                .is_some_and(|e| e.matches(request.dialect, &request.dictionary))
+            {
+                engine = Some(build(request.dialect, request.dictionary.clone()));
+            }
+            engine
+                .as_mut()
+                .map(|e| e.check(&request.text, request.file_type))
+                .unwrap_or_default()
+        }));
+        let issues = match outcome {
+            Ok(issues) => issues,
+            Err(panic) => {
+                engine = None;
+                failed_text = Some(hash);
+                log::error!(
+                    "Astro Editor [GRAMMAR] Harper failed on this text ({}), so it won't be checked until it changes",
+                    panic_message(&*panic)
+                );
+                Vec::new()
+            }
+        };
+        // The caller may have stopped waiting; nothing to do then
+        let _ = request.reply.send(Some(issues));
     }
 }
 
@@ -129,6 +196,73 @@ mod tests {
         assert_eq!(second_reply.blocking_recv().unwrap(), None);
         let issues = third_reply.blocking_recv().unwrap().expect("newest ran");
         assert!(issues.iter().any(|i| i.problem == "teh"));
+    }
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// Panics on any text containing "boom", and counts builds and checks
+    struct FakeEngine {
+        checks: Arc<AtomicUsize>,
+    }
+
+    impl Engine for FakeEngine {
+        fn matches(&self, _: GrammarDialect, _: &[String]) -> bool {
+            true
+        }
+
+        fn check(&mut self, text: &str, _: GrammarFileType) -> Vec<GrammarIssue> {
+            self.checks.fetch_add(1, Ordering::SeqCst);
+            assert!(!text.contains("boom"), "injected panic");
+            vec![GrammarIssue {
+                from: 0,
+                to: 1,
+                rule: "Fake".into(),
+                kind: crate::grammar::GrammarIssueKind::Grammar,
+                problem: "x".into(),
+                message: String::new(),
+                suggestions: vec![],
+            }]
+        }
+    }
+
+    #[test]
+    fn a_panic_gives_no_issues_and_the_same_text_is_not_checked_again() {
+        let builds = Arc::new(AtomicUsize::new(0));
+        let checks = Arc::new(AtomicUsize::new(0));
+        let (tx, rx) = mpsc::channel();
+        let worker = {
+            let (builds, checks) = (builds.clone(), checks.clone());
+            std::thread::spawn(move || {
+                run_worker_with(rx, move |_, _| {
+                    builds.fetch_add(1, Ordering::SeqCst);
+                    FakeEngine {
+                        checks: checks.clone(),
+                    }
+                })
+            })
+        };
+        let send = |text: &str| {
+            let (r, reply) = request(text);
+            tx.send(r).unwrap();
+            reply.blocking_recv().unwrap()
+        };
+
+        assert_eq!(send("it goes boom"), Some(vec![]));
+        assert_eq!(checks.load(Ordering::SeqCst), 1);
+        assert_eq!(send("it goes boom"), Some(vec![]));
+        assert_eq!(
+            checks.load(Ordering::SeqCst),
+            1,
+            "failed text checked again"
+        );
+
+        let issues = send("it's fine now").expect("checked");
+        assert_eq!(issues.len(), 1);
+        assert_eq!(builds.load(Ordering::SeqCst), 2, "checker not rebuilt");
+
+        drop(tx);
+        worker.join().unwrap();
     }
 
     #[test]

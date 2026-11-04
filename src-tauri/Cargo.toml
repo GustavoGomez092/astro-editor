@@ -120,7 +120,9 @@ tauri-plugin-updater = "2"
 codegen-units = 1 # Better LLVM optimization
 lto = true # Link-time optimizations
 opt-level = "s" # Prioritize small binary size
-panic = "abort" # Disable panic handlers
+# Unwind rather than abort, so a panic in the grammar checker (Harper) is caught
+# on its thread (commands/grammar.rs) instead of closing the app with unsaved work
+panic = "unwind"
 strip = true # Remove debug symbols
 
 # Harper and its part-of-speech tagger are 10 to 20 times slower unoptimised, which
