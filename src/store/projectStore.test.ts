@@ -194,7 +194,7 @@ describe('projectStore.updateProjectSettings with collection folders', () => {
       ],
     })
 
-  it("restarts the watcher and reloads collections when a collection's folder changes", async () => {
+  it("restarts the watcher and reloads the project's files when a collection's folder changes", async () => {
     const stop = vi
       .spyOn(commands, 'stopWatchingProject')
       .mockResolvedValue(okNull)
@@ -206,9 +206,14 @@ describe('projectStore.updateProjectSettings with collection folders', () => {
 
     expect(stop).toHaveBeenCalledWith('/project')
     expect(start).toHaveBeenCalled()
-    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
-      queryKey: ['project', '/project', 'collections'],
-    })
+    const invalidated = vi
+      .mocked(queryClient.invalidateQueries)
+      .mock.calls.map(([filters]) => filters?.queryKey)
+    // The collections first, as the other queries read their folders
+    expect(invalidated).toEqual([
+      ['project', '/project', 'collections'],
+      ['project', '/project'],
+    ])
   })
 
   it('saves and closes the open file when a collection folder changes', async () => {
