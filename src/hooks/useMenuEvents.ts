@@ -65,7 +65,7 @@ export function useMenuEvents(
           // A saved file isn't written again (see saveCurrentFile)
           const { currentFile, saveFile } = useEditorStore.getState()
           if (currentFile) {
-            void saveFile()
+            void saveFile(true, true)
           }
         }),
         listen('menu-new-file', () => {

@@ -47,7 +47,7 @@ export function useKeyboardShortcuts(
     'mod+s',
     () => {
       if (useEditorStore.getState().currentFile) {
-        void saveFileRef.current()
+        void saveFileRef.current(true, true)
       }
     },
     DEFAULT_HOTKEY_OPTS

@@ -180,7 +180,7 @@ describe('useEditorActions.saveFile with fields that need attention', () => {
   it('saves, warns how many fields need attention and shows their messages', async () => {
     const { saveFile } = renderWithSchema()
 
-    await saveFile(true)
+    await saveFile(true, true)
 
     const saved = globalThis.mockTauri.invoke.mock.calls.some(
       ([cmd]) => cmd === 'save_markdown_content'
@@ -211,7 +211,7 @@ describe('useEditorActions.saveFile with fields that need attention', () => {
     })
     const { saveFile } = renderWithSchema()
 
-    await saveFile(true)
+    await saveFile(true, true)
 
     expect(toast.warning).not.toHaveBeenCalled()
     expect(toast.success).toHaveBeenCalledWith('File saved successfully')
@@ -222,7 +222,7 @@ describe('useEditorActions.saveFile with fields that need attention', () => {
     useEditorStore.setState({ isDirty: false, isFrontmatterDirty: false })
     const { saveFile } = renderWithSchema()
 
-    await saveFile(true)
+    await saveFile(true, true)
 
     const wrote = globalThis.mockTauri.invoke.mock.calls.some(
       ([cmd]) => cmd === 'save_markdown_content'
@@ -244,9 +244,21 @@ describe('useEditorActions.saveFile with fields that need attention', () => {
     })
     const { saveFile } = renderWithSchema()
 
-    await saveFile(true)
+    await saveFile(true, true)
 
     expect(toast.warning).not.toHaveBeenCalled()
     expect(toast.success).not.toHaveBeenCalled()
+  })
+
+  // The body editor saves when it loses focus, and the project store saves
+  // before a path change: neither is the writer asking to save
+  it('says nothing about fields on a save that only shows the usual toast', async () => {
+    const { saveFile } = renderWithSchema()
+
+    await saveFile(true)
+
+    expect(toast.warning).not.toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledWith('File saved successfully')
+    expect(useEditorStore.getState().shownFieldErrors).toEqual({})
   })
 })

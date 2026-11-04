@@ -109,15 +109,18 @@ function reportFieldsNeedingAttention(
  * Saves the open file: writes its body, imports and frontmatter (in the
  * schema's field order), marks it clean if nothing changed meanwhile, and
  * refreshes the queries that show it. On failure, writes recovery data and a
- * crash report and keeps the file dirty. An explicit save (`showToast`) also
- * reports the fields that need attention, even when there's nothing to write,
- * because auto-save has usually saved the file by the time the writer presses
- * Cmd+S. Plain function rather than inline in the hook so the React Compiler
- * can compile the hook (it can't handle `throw` inside `try`).
+ * crash report and keeps the file dirty. When the writer asked to save
+ * (`reportFields`: Cmd+S, File → Save, the toolbar) it also reports the fields
+ * that need attention, even when there's nothing to write, because auto-save
+ * has usually saved the file by then. Other saves (auto-save, leaving the
+ * editor, before a path change) don't, so fields the writer hasn't reached
+ * yet don't light up. Plain function rather than inline in the hook so the
+ * React Compiler can compile the hook (it can't handle `throw` inside `try`).
  */
 async function saveCurrentFile(
   queryClient: QueryClient,
-  showToast: boolean
+  showToast: boolean,
+  reportFields: boolean
 ): Promise<void> {
   const {
     currentFile,
@@ -144,7 +147,7 @@ async function saveCurrentFile(
     currentFile.collection
   )
 
-  if (!isDirty && showToast) {
+  if (!isDirty && reportFields) {
     reportFieldsNeedingAttention(schemaFields, frontmatter, currentFile.id)
     return
   }
@@ -221,13 +224,10 @@ async function saveCurrentFile(
       }
     }
 
-    // An explicit save says which fields need attention; an auto-save stays
-    // quiet, so fields the writer hasn't reached yet don't light up while
-    // they type
-    if (
-      showToast &&
-      !reportFieldsNeedingAttention(schemaFields, frontmatter, currentFile.id)
-    ) {
+    const reported =
+      reportFields &&
+      reportFieldsNeedingAttention(schemaFields, frontmatter, currentFile.id)
+    if (showToast && !reported) {
       toast.success('File saved successfully')
     }
   } catch (error) {
@@ -287,7 +287,8 @@ export function useEditorActions() {
   const queryClient = useQueryClient()
 
   const saveFile = useCallback(
-    (showToast = true) => saveCurrentFile(queryClient, showToast),
+    (showToast = true, reportFields = false) =>
+      saveCurrentFile(queryClient, showToast, reportFields),
     [queryClient]
   )
 

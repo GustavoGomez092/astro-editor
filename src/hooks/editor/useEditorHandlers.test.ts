@@ -189,6 +189,8 @@ describe('useEditorHandlers', () => {
 
       expect(mockGetState).toHaveBeenCalled()
       expect(mockStoreState.saveFile).toHaveBeenCalledTimes(1)
+      // Leaving the editor isn't asking to save, so fields aren't reported
+      expect(mockStoreState.saveFile).toHaveBeenCalledWith()
     })
 
     it('should not save file when no current file', () => {

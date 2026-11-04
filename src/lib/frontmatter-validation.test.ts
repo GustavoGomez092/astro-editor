@@ -44,6 +44,7 @@ describe('fieldError', () => {
         parentPath: 'author',
       })
       expect(fieldError(name, {})).toBeNull()
+      expect(fieldError(name, { author: null })).toBeNull()
       expect(fieldError(name, { author: { bio: 'x' } })).toBe('Required')
       expect(fieldError(name, { author: { name: 'Ann' } })).toBeNull()
     })

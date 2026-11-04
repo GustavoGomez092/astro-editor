@@ -47,7 +47,7 @@ describe('answerQuitRequest', () => {
 
     await answerQuitRequest()
 
-    expect(succeedingSave).toHaveBeenCalledWith(false)
+    expect(succeedingSave).toHaveBeenCalledWith(false, false)
     expect(commands.quitApp).toHaveBeenCalledOnce()
     expect(ask).not.toHaveBeenCalled()
   })

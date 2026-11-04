@@ -21,7 +21,9 @@ interface EditorState {
   isFrontmatterDirty: boolean // True if frontmatter was modified (vs content-only edits)
   autoSaveTimeoutId: ReturnType<typeof setTimeout> | null // Auto-save timeout ID
   lastSaveTimestamp: number | null // Timestamp of last successful save
-  autoSaveCallback: ((showToast?: boolean) => Promise<void>) | null // Hook-provided save callback
+  autoSaveCallback:
+    | ((showToast?: boolean, reportFields?: boolean) => Promise<void>)
+    | null // Hook-provided save callback
   // Frontmatter fields whose validation message is shown: those the writer
   // has left, and those that needed attention at the last save
   shownFieldErrors: Record<string, true>
@@ -29,14 +31,18 @@ interface EditorState {
   // Actions
   openFile: (file: FileEntry) => void
   closeCurrentFile: () => void
-  saveFile: (showToast?: boolean) => Promise<void>
+  // reportFields: the writer asked to save (Cmd+S, File → Save, the toolbar),
+  // so say which frontmatter fields need attention
+  saveFile: (showToast?: boolean, reportFields?: boolean) => Promise<void>
   setEditorContent: (content: string) => void
   setImports: (imports: string) => void
   updateFrontmatter: (frontmatter: Record<string, unknown>) => void
   updateFrontmatterField: (key: string, value: unknown) => void
   scheduleAutoSave: () => void
   setAutoSaveCallback: (
-    callback: ((showToast?: boolean) => Promise<void>) | null
+    callback:
+      | ((showToast?: boolean, reportFields?: boolean) => Promise<void>)
+      | null
   ) => void
   updateCurrentFileAfterRename: (newPath: string) => void
   showFieldErrors: (names: string[]) => void
@@ -124,12 +130,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })
   },
 
-  saveFile: async (showToast = true) => {
+  saveFile: async (showToast = true, reportFields = false) => {
     // Delegate to hook-provided callback (Hybrid Action Hooks pattern)
     // This allows stores to trigger saves without having direct access to React hooks
     const { autoSaveCallback } = get()
     if (autoSaveCallback) {
-      await autoSaveCallback(showToast)
+      await autoSaveCallback(showToast, reportFields)
     } else {
       void logWarn('saveFile called but no callback registered')
     }
@@ -214,7 +220,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   setAutoSaveCallback: (
-    callback: ((showToast?: boolean) => Promise<void>) | null
+    callback:
+      | ((showToast?: boolean, reportFields?: boolean) => Promise<void>)
+      | null
   ) => {
     set({ autoSaveCallback: callback })
   },

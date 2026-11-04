@@ -85,3 +85,18 @@ describe('editorStore field validation messages', () => {
     })
   })
 })
+
+describe('editorStore.saveFile', () => {
+  it('passes on whether the writer asked to save', async () => {
+    const save = vi.fn((_showToast?: boolean, _reportFields?: boolean) =>
+      Promise.resolve()
+    )
+    useEditorStore.setState({ autoSaveCallback: save })
+
+    await useEditorStore.getState().saveFile()
+    await useEditorStore.getState().saveFile(true, true)
+
+    expect(save).toHaveBeenNthCalledWith(1, true, false)
+    expect(save).toHaveBeenNthCalledWith(2, true, true)
+  })
+})

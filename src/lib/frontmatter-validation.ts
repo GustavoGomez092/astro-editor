@@ -89,7 +89,7 @@ export function fieldError(
   if (isEmpty(value)) {
     const parentMissing =
       field.parentPath !== undefined &&
-      getNestedValue(frontmatter, field.parentPath) === undefined
+      getNestedValue(frontmatter, field.parentPath) == null
     return field.required && !parentMissing ? 'Required' : null
   }
 
