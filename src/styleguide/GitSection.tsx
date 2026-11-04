@@ -26,6 +26,7 @@ import type {
   PullRequest,
   RepoSummary,
 } from '../lib/bindings'
+import { ResolveConflictsDialog } from '../components/git/ResolveConflictsDialog'
 
 /** Fixed, so relative dates don't change between shots. */
 const NOW = new Date(2026, 10, 3, 12, 0, 0)
@@ -487,4 +488,33 @@ if (
 /** Open from GitHub, signed in, with a few repositories. */
 export function GitOpenFromGitHubSection() {
   return <OpenFromGitHubDialog />
+}
+
+/** Choosing versions after Publish stopped on a conflict with GitHub. */
+export function GitResolveSection() {
+  return (
+    <ResolveConflictsDialog
+      open
+      onOpenChange={noop}
+      files={[
+        {
+          path: 'src/content/team/andrew-dyk.md',
+          mine: '---\ntitle: Andrew Dyk\nrole: Founder and director\nfeatured: true\n---\n\nAndrew started the studio in 2009.\n',
+          theirs:
+            '---\ntitle: Andrew Dyk\nrole: Creative director\nfeatured: true\n---\n\nAndrew started the studio in 2009 and still leads every project.\n',
+          binary: false,
+        },
+        {
+          path: 'src/assets/team/andrew-dyk.jpg',
+          mine: null,
+          theirs: null,
+          binary: true,
+        },
+      ]}
+      titles={new Map([['src/content/team/andrew-dyk.md', 'Andrew Dyk']])}
+      onGitHub
+      onCombine={noop}
+      pending={false}
+    />
+  )
 }

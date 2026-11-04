@@ -29,6 +29,7 @@ import {
   GitHistorySection,
   GitOpenFromGitHubSection,
   GitOpenPullRequestSection,
+  GitResolveSection,
   GitSignInSection,
 } from './GitSection'
 
@@ -86,6 +87,12 @@ const SECTIONS: Section[] = [
     id: 'git-open-pull-request',
     title: 'Open pull request',
     Component: GitOpenPullRequestSection,
+    overlay: true,
+  },
+  {
+    id: 'git-resolve',
+    title: 'Resolve conflicts',
+    Component: GitResolveSection,
     overlay: true,
   },
   { id: 'select', title: 'Select', Component: SelectSection, overlay: true },
