@@ -2,7 +2,7 @@
 //! `crate::dev_server`; these commands find the project's settings and keep
 //! waiting off the main thread.
 
-use crate::dev_server::{detect, DevServerState, DevServers};
+use crate::dev_server::{detect, env_path, DevServerState, DevServers};
 use std::path::Path;
 use tauri::{AppHandle, Manager, State};
 
@@ -42,6 +42,7 @@ pub async fn dev_server_start(
     project_path: String,
 ) -> Result<DevServerState, String> {
     check_project(&project_path)?;
+    env_path::warm_up();
     let override_command = dev_command_override(&app, &project_path);
     let servers = servers.inner().clone();
     // The first start waits for the user's PATH (env_path.rs), up to 8 s
@@ -58,11 +59,21 @@ pub async fn dev_server_start(
 #[tauri::command]
 #[specta::specta]
 pub async fn dev_server_prepare(
+    app: AppHandle,
     servers: State<'_, DevServers>,
     project_path: String,
 ) -> Result<DevServerState, String> {
-    let _ = (servers, project_path);
-    Err("Not available yet.".to_string())
+    check_project(&project_path)?;
+    env_path::warm_up();
+    let override_command = dev_command_override(&app, &project_path);
+    let servers = servers.inner().clone();
+    // Waits for the user's PATH (env_path.rs) the first time, then for the
+    // install and `astro sync`
+    tauri::async_runtime::spawn_blocking(move || {
+        servers.prepare(&project_path, override_command.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Couldn't prepare the site: {e}"))
 }
 
 /// Stops the project's dev server and everything it started. Waits until it's
@@ -85,6 +96,9 @@ pub async fn dev_server_state(
     servers: State<'_, DevServers>,
     project_path: String,
 ) -> Result<DevServerState, String> {
+    // The Preview control asks for this first, so the user's PATH starts
+    // resolving only once the tools are in use
+    env_path::warm_up();
     Ok(servers.state(&project_path))
 }
 

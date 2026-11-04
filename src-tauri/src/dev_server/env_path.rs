@@ -8,6 +8,7 @@
 //! that hangs or fails.
 
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 /// How long the user's shell gets to print its `PATH`
@@ -53,6 +54,27 @@ pub fn user_path() -> String {
             current
         })
         .clone()
+}
+
+/// Starts resolving the user's `PATH` on a thread of its own, the first time
+/// it's called, so it's ready (or nearly) by the time a server starts. The
+/// dev-server commands call it; nothing does at launch, so the user's shell
+/// never runs unless the Preview tools are used.
+pub fn warm_up() {
+    static STARTED: AtomicBool = AtomicBool::new(false);
+    start_once(&STARTED, || {
+        user_path();
+    });
+}
+
+/// Runs `work` on a new thread unless `started` says it already ran. Returns
+/// whether it started it.
+fn start_once(started: &AtomicBool, work: impl FnOnce() + Send + 'static) -> bool {
+    if started.swap(true, Ordering::SeqCst) {
+        return false;
+    }
+    std::thread::spawn(work);
+    true
 }
 
 /// What the shell printed between the markers. Prompts, greetings and
@@ -216,6 +238,17 @@ mod tests {
 
     fn no_vars(_: &str) -> Option<String> {
         None
+    }
+
+    #[test]
+    fn warm_up_work_starts_only_once() {
+        let started = AtomicBool::new(false);
+        let (tx, rx) = std::sync::mpsc::channel();
+        let first = tx.clone();
+        assert!(start_once(&started, move || first.send(1).unwrap()));
+        assert!(!start_once(&started, move || tx.send(2).unwrap()));
+        assert_eq!(rx.recv_timeout(Duration::from_secs(2)).unwrap(), 1);
+        assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
     }
 
     #[test]

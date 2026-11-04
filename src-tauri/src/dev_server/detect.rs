@@ -109,6 +109,30 @@ pub fn install_command(root: &Path, pm: PackageManager) -> String {
     }
 }
 
+/// The command that runs `astro sync` (which writes the collection schemas
+/// into `.astro/`) through the project's package manager
+pub fn sync_command(pm: PackageManager) -> String {
+    match pm {
+        PackageManager::Npm => "npx astro sync",
+        PackageManager::Pnpm => "pnpm exec astro sync",
+        PackageManager::Yarn => "yarn astro sync",
+        PackageManager::Bun => "bunx astro sync",
+    }
+    .to_string()
+}
+
+/// Whether package.json lists `astro` as a dependency
+pub fn uses_astro(root: &Path) -> bool {
+    std::fs::read_to_string(root.join("package.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .is_some_and(|json| {
+            ["dependencies", "devDependencies"]
+                .iter()
+                .any(|list| json.get(list).and_then(|l| l.get("astro")).is_some())
+        })
+}
+
 /// Dependencies need installing when `node_modules` is missing, or the lockfile
 /// changed since the last install (a pull brought in new dependencies)
 pub fn needs_install(root: &Path, pm: PackageManager) -> bool {
@@ -245,6 +269,33 @@ mod tests {
     use std::fs;
     use std::time::Duration;
     use tempfile::TempDir;
+
+    #[test]
+    fn sync_runs_through_the_package_manager() {
+        assert_eq!(sync_command(PackageManager::Npm), "npx astro sync");
+        assert_eq!(sync_command(PackageManager::Pnpm), "pnpm exec astro sync");
+        assert_eq!(sync_command(PackageManager::Yarn), "yarn astro sync");
+        assert_eq!(sync_command(PackageManager::Bun), "bunx astro sync");
+    }
+
+    #[test]
+    fn astro_is_found_in_either_dependency_list() {
+        let dir = TempDir::new().unwrap();
+        assert!(!uses_astro(dir.path()));
+        for json in [
+            r#"{ "dependencies": { "astro": "^5" } }"#,
+            r#"{ "devDependencies": { "astro": "^5" } }"#,
+        ] {
+            fs::write(dir.path().join("package.json"), json).unwrap();
+            assert!(uses_astro(dir.path()), "{json}");
+        }
+        fs::write(
+            dir.path().join("package.json"),
+            r#"{ "dependencies": { "astro-icon": "1" }, "scripts": { "dev": "astro dev" } }"#,
+        )
+        .unwrap();
+        assert!(!uses_astro(dir.path()));
+    }
 
     fn project(files: &[&str]) -> TempDir {
         let dir = TempDir::new().unwrap();

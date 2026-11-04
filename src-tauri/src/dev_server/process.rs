@@ -111,6 +111,135 @@ impl DevServers {
         state
     }
 
+    /// Gets a project ready to edit: installs dependencies if they're missing or
+    /// out of date (status `installing` meanwhile), then runs `astro sync`, which
+    /// writes the collection schemas. Blocks until done and returns `stopped`, or
+    /// `error` with the output. With a server running it only syncs and returns
+    /// the server's state; a project that doesn't use Astro is left alone.
+    pub fn prepare(&self, project_path: &str, override_command: Option<&str>) -> DevServerState {
+        let root = Path::new(project_path);
+        if !detect::uses_astro(root) {
+            return self.state(project_path);
+        }
+        let server = self
+            .shared
+            .servers
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .entry(project_path.to_string())
+            .or_default()
+            .clone();
+        let pm = detect::detect_package_manager(root);
+        let sync = detect::sync_command(pm);
+        let command = detect::dev_command(root, override_command).ok();
+        let notify = |state: &DevServerState| (self.shared.listener)(project_path, state);
+
+        let (run, install) = {
+            let mut inner = lock(&server.inner);
+            if inner.is_active() {
+                drop(inner);
+                // The server (or its install) is already running: only sync
+                return match run_to_end(&self.shared.config, root, &sync, |_| {}) {
+                    Ok(_) => self.state(project_path),
+                    Err(error) => error_state(command, error),
+                };
+            }
+            inner.run += 1;
+            inner.stop_requested = false;
+            inner.pgid = None;
+            inner.logs.clear();
+            inner.parser = detect::OutputParser::default();
+            let install =
+                detect::needs_install(root, pm).then(|| detect::install_command(root, pm));
+            (inner.run, install)
+        };
+        let push_log = |line: String| {
+            let mut inner = lock(&server.inner);
+            if inner.run == run {
+                inner.push_log(line);
+            }
+        };
+
+        if let Some(install) = install {
+            log::info!("Astro Editor [DEV_SERVER] Running `{install}` in {project_path}");
+            let rx = {
+                let mut inner = lock(&server.inner);
+                match spawn(&self.shared.config, root, &install) {
+                    Err(e) => {
+                        inner.state = error_state(
+                            command,
+                            format!("Couldn't install the project's dependencies: {e}"),
+                        );
+                        let state = inner.state.clone();
+                        drop(inner);
+                        notify(&state);
+                        return state;
+                    }
+                    Ok(child) => {
+                        inner.pgid = Some(child.id());
+                        inner.state = DevServerState {
+                            status: DevServerStatus::Installing,
+                            command: command.clone(),
+                            pid: Some(child.id()),
+                            ..DevServerState::stopped()
+                        };
+                        let state = inner.state.clone();
+                        drop(inner);
+                        notify(&state);
+                        watch(child)
+                    }
+                }
+            };
+            let code = wait_for_exit(&rx, None, &mut |line| push_log(line)).flatten();
+            let mut inner = lock(&server.inner);
+            if inner.run != run {
+                return inner.state.clone();
+            }
+            inner.pgid = None;
+            if inner.stop_requested {
+                inner.state = stopped_state(&inner.state);
+            } else if code == Some(0) {
+                detect::mark_installed(root, pm);
+                inner.state = stopped_state(&inner.state);
+            } else {
+                let error = not_found_error(code, &install, &inner.logs).unwrap_or_else(|| {
+                    with_last_lines(
+                        &format!("Couldn't install the project's dependencies ({install})."),
+                        &inner.logs,
+                    )
+                });
+                inner.state = error_state(command.clone(), error);
+            }
+            let state = inner.state.clone();
+            drop(inner);
+            notify(&state);
+            if state.status != DevServerStatus::Stopped || self.stop_was_requested(&server, run) {
+                return state;
+            }
+        }
+
+        log::info!("Astro Editor [DEV_SERVER] Running `{sync}` in {project_path}");
+        let result = run_to_end(&self.shared.config, root, &sync, push_log);
+        let mut inner = lock(&server.inner);
+        match result {
+            Ok(()) => inner.state.clone(),
+            // A start or stop since then owns the state now
+            Err(_) if inner.run != run || inner.is_active() => inner.state.clone(),
+            Err(error) => {
+                inner.state = error_state(command, error);
+                let state = inner.state.clone();
+                drop(inner);
+                notify(&state);
+                state
+            }
+        }
+    }
+
+    fn stop_was_requested(&self, server: &Server, run: u64) -> bool {
+        let inner = lock(&server.inner);
+        inner.run != run || inner.stop_requested
+    }
+
     /// Stops the project's server and everything it started: SIGTERM to its
     /// process group, then SIGKILL if it's still there after 3 seconds.
     /// Clears an error or an external server's state too.
@@ -564,6 +693,81 @@ fn with_last_lines(message: &str, logs: &std::collections::VecDeque<String>) -> 
     } else {
         format!("{message}\n\n{}", lines.join("\n"))
     }
+}
+
+/// How long `astro sync` gets before it's stopped
+const SYNC_TIMEOUT: Duration = Duration::from_secs(180);
+
+/// Runs `command` (`astro sync`) to the end, passing each output line to
+/// `on_line`. The error says what failed and ends with the last output lines.
+fn run_to_end(
+    config: &Config,
+    root: &Path,
+    command: &str,
+    on_line: impl Fn(String),
+) -> Result<(), String> {
+    let child = spawn(config, root, command)
+        .map_err(|e| format!("Couldn't prepare the site ({command}): {e}"))?;
+    let pgid = child.id();
+    let rx = watch(child);
+    let mut output = std::collections::VecDeque::new();
+    let exit = wait_for_exit(
+        &rx,
+        Some(Instant::now() + SYNC_TIMEOUT),
+        &mut |line: String| {
+            on_line(line.clone());
+            if output.len() == super::LOG_LIMIT {
+                output.pop_front();
+            }
+            output.push_back(line);
+        },
+    );
+    // Whatever the shell left behind goes with it
+    kill_group(pgid);
+    let failed = |message: &str, code: Option<i32>| {
+        not_found_error(code, command, &output).unwrap_or_else(|| with_last_lines(message, &output))
+    };
+    match exit {
+        Some(Some(0)) => Ok(()),
+        None => Err(failed(
+            &format!("Preparing the site ({command}) took too long, so it was stopped."),
+            None,
+        )),
+        Some(code) => Err(failed(
+            &format!("Couldn't prepare the site ({command})."),
+            code,
+        )),
+    }
+}
+
+/// Passes output lines to `on_line` until the process exits and its pipes are
+/// read. Returns its exit code (`Some(None)` if a signal ended it), or `None`
+/// if `deadline` came first.
+fn wait_for_exit(
+    rx: &Receiver<Message>,
+    deadline: Option<Instant>,
+    on_line: &mut dyn FnMut(String),
+) -> Option<Option<i32>> {
+    let mut eofs = 0;
+    let mut exit: Option<(Option<i32>, Instant)> = None;
+    loop {
+        let wait = match (exit, deadline) {
+            (Some((_, at)), _) => DRAIN_TIMEOUT.saturating_sub(at.elapsed()),
+            (None, Some(deadline)) => deadline.saturating_duration_since(Instant::now()),
+            (None, None) => Duration::from_secs(3600),
+        };
+        match rx.recv_timeout(wait) {
+            Ok(Message::Line(line)) => on_line(line),
+            Ok(Message::Eof) => eofs += 1,
+            Ok(Message::Exit(code)) => exit = Some((code, Instant::now())),
+            Err(mpsc::RecvTimeoutError::Timeout) if exit.is_none() && deadline.is_none() => {}
+            Err(_) => break,
+        }
+        if exit.is_some() && eofs == 2 {
+            break;
+        }
+    }
+    exit.map(|(code, _)| code)
 }
 
 /// SIGTERM, a grace period, then SIGKILL
@@ -1207,5 +1411,142 @@ esac"#,
             first.servers.state(&other_path).status,
             DevServerStatus::Stopped
         );
+    }
+
+    const ASTRO_PACKAGE: &str =
+        r#"{ "scripts": { "dev": "astro dev" }, "dependencies": { "astro": "^5" } }"#;
+
+    impl Fixture {
+        fn read(&self, name: &str) -> Option<String> {
+            fs::read_to_string(self.dir.path().join(name)).ok()
+        }
+
+        /// node_modules as an up-to-date npm install leaves it
+        fn installed(&self) {
+            fs::write(self.dir.path().join("package-lock.json"), "{}").unwrap();
+            fs::create_dir_all(self.dir.path().join("node_modules")).unwrap();
+            fs::write(
+                self.dir.path().join("node_modules/.package-lock.json"),
+                "{}",
+            )
+            .unwrap();
+        }
+
+        fn statuses(&self) -> Vec<DevServerStatus> {
+            self.states
+                .lock()
+                .unwrap()
+                .iter()
+                .map(|s| s.status)
+                .collect()
+        }
+    }
+
+    #[test]
+    fn prepare_installs_then_syncs() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fs::write(fx.dir.path().join("package-lock.json"), "{}").unwrap();
+        fx.bin(
+            "npm",
+            r#"case "$1" in
+  ci) echo installing; sleep 0.2; mkdir -p node_modules; touch node_modules/.package-lock.json ;;
+esac"#,
+        );
+        fx.bin(
+            "npx",
+            r#"[ -d node_modules ] && echo "$@" > synced.txt
+echo 'Synced content'"#,
+        );
+        let state = fx.servers.prepare(fx.path(), None);
+        assert_eq!(state.status, DevServerStatus::Stopped, "{state:?}");
+        assert_eq!(fx.read("synced.txt").as_deref(), Some("astro sync\n"));
+        assert_eq!(
+            fx.statuses(),
+            [DevServerStatus::Installing, DevServerStatus::Stopped]
+        );
+        let logs = fx.servers.logs(fx.path());
+        assert!(logs.iter().any(|l| l == "installing"), "{logs:?}");
+        assert!(logs.iter().any(|l| l == "Synced content"), "{logs:?}");
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Stopped);
+    }
+
+    #[test]
+    fn prepare_with_dependencies_installed_only_syncs() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.installed();
+        fx.bin("npm", r#"echo "$@" >> npm-calls.txt"#);
+        fx.bin("npx", r#"echo "$@" > synced.txt"#);
+        let state = fx.servers.prepare(fx.path(), None);
+        assert_eq!(state.status, DevServerStatus::Stopped, "{state:?}");
+        assert_eq!(fx.read("synced.txt").as_deref(), Some("astro sync\n"));
+        assert_eq!(fx.read("npm-calls.txt"), None);
+        assert!(!fx.statuses().contains(&DevServerStatus::Installing));
+    }
+
+    #[test]
+    fn prepare_while_running_only_syncs_and_keeps_the_server() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.installed();
+        fx.bin("npm", r#"echo "$@" >> npm-calls.txt"#);
+        fx.bin("npx", r#"echo "$@" > synced.txt"#);
+        let command = fx.script("server.sh", "echo http://localhost:4321/\nsleep 30");
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        // Even with dependencies out of date, a running server isn't disturbed
+        fs::remove_dir_all(fx.dir.path().join("node_modules")).unwrap();
+
+        let state = fx.servers.prepare(fx.path(), None);
+        assert_eq!(state.status, DevServerStatus::Running, "{state:?}");
+        assert_eq!(fx.read("synced.txt").as_deref(), Some("astro sync\n"));
+        assert_eq!(fx.read("npm-calls.txt"), None);
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+    }
+
+    #[test]
+    fn prepare_reports_a_failed_sync_with_its_output() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.installed();
+        fx.bin(
+            "npx",
+            "echo '[InvalidContentEntryDataError] team → jordan data does not match' >&2\nexit 1",
+        );
+        let state = fx.servers.prepare(fx.path(), None);
+        assert_eq!(state.status, DevServerStatus::Error);
+        let error = state.error.unwrap();
+        assert!(
+            error.starts_with("Couldn't prepare the site (npx astro sync)."),
+            "{error}"
+        );
+        assert!(error.contains("InvalidContentEntryDataError"), "{error}");
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Error);
+        // Start is available again
+        assert_ne!(fx.start(Some("true")).status, DevServerStatus::Error);
+    }
+
+    #[test]
+    fn prepare_stops_at_a_failed_install() {
+        let fx = Fixture::new(Some(ASTRO_PACKAGE));
+        fx.bin("npm", "echo 'npm ERR! network unreachable' >&2\nexit 1");
+        fx.bin("npx", r#"echo "$@" > synced.txt"#);
+        let state = fx.servers.prepare(fx.path(), None);
+        assert_eq!(state.status, DevServerStatus::Error);
+        let error = state.error.unwrap();
+        assert!(
+            error.starts_with("Couldn't install the project's dependencies (npm install)."),
+            "{error}"
+        );
+        assert!(error.contains("network unreachable"), "{error}");
+        assert_eq!(fx.read("synced.txt"), None);
+    }
+
+    #[test]
+    fn prepare_leaves_a_project_without_astro_alone() {
+        let fx = Fixture::new(Some(DEV_PACKAGE));
+        fx.bin("npm", r#"echo "$@" >> npm-calls.txt"#);
+        fx.bin("npx", r#"echo "$@" > synced.txt"#);
+        let state = fx.servers.prepare(fx.path(), None);
+        assert_eq!(state.status, DevServerStatus::Stopped);
+        assert_eq!(fx.read("npm-calls.txt"), None);
+        assert_eq!(fx.read("synced.txt"), None);
     }
 }

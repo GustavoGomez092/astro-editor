@@ -191,12 +191,13 @@ export const commands = {
 	gitResolveConflicts: (projectPath: string, choices: ConflictResolution[]) => typedError<SyncResult, string>(__TAURI_INVOKE("git_resolve_conflicts", { projectPath, choices })),
 	/**
 	 *  Throw away local changes to one file: restore it from `HEAD`, or delete it if
-	 *  it's untracked
+	 *  it's untracked. Refuses paths outside the repository.
 	 */
 	gitDiscardFile: (projectPath: string, path: string) => typedError<GitStatus, string>(__TAURI_INVOKE("git_discard_file", { projectPath, path })),
 	/**
 	 *  Commits on the current branch that the default branch (as last fetched)
-	 *  doesn't have
+	 *  doesn't have: whether there's anything for a pull request. 0 on the default
+	 *  branch itself.
 	 */
 	gitCommitsAheadOfDefault: (projectPath: string) => typedError<number, string>(__TAURI_INVOKE("git_commits_ahead_of_default", { projectPath })),
 	githubAuthStatus: () => typedError<GitHubAuthStatus, string>(__TAURI_INVOKE("github_auth_status")),
