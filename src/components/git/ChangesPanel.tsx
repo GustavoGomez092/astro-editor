@@ -1,24 +1,30 @@
 import { useEffect, useRef, useState } from 'react'
 import { GitPullRequest } from 'lucide-react'
-import type { PullRequest, SyncOutcome } from '@/lib/bindings'
+import type { GitStatus, PullRequest, SyncOutcome } from '@/lib/bindings'
 import {
-  changeTitles,
-  defaultCommitMessage,
-  entryTitle,
-  isBehindBranch,
+  bringInBlocker,
+  gitStateSignature,
+  publishBlocker,
+  publishMessage,
   pullRequestForBranch,
+  syncBlocker,
+  type GitAction,
 } from '@/lib/git/changes'
+import { pathsIn, presentGitMessage } from '@/lib/git/messages'
+import { needsAttention } from '@/lib/git/repo-change'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
 import { toast } from '@/lib/toast'
 import { useProjectStore } from '../../store/projectStore'
 import { useGitStore } from '../../store/gitStore'
+import { useUIStore } from '../../store/uiStore'
+import { useGitBusy } from '../../hooks/useGitBusy'
 import { useGitStatusQuery } from '../../hooks/queries/useGitStatusQuery'
 import { useGitHubAuthQuery } from '../../hooks/queries/useGitHubAuthQuery'
 import { useGitHubRepoInfoQuery } from '../../hooks/queries/useGitHubRepoInfoQuery'
 import { useGitBranchesQuery } from '../../hooks/queries/useGitBranchesQuery'
+import { useGitBehindDefaultQuery } from '../../hooks/queries/useGitBehindDefaultQuery'
 import { usePullRequestsQuery } from '../../hooks/queries/usePullRequestsQuery'
-import { useGitLogQuery } from '../../hooks/queries/useGitLogQuery'
-import { useChangedEntryTitles } from '../../hooks/queries/useChangedEntryTitles'
+import { useEntryLookup } from '../../hooks/queries/useEntryLookup'
 import { useGitPublishMutation } from '../../hooks/mutations/useGitPublishMutation'
 import { useGitSyncMutation } from '../../hooks/mutations/useGitSyncMutation'
 import { useGitCheckoutMutation } from '../../hooks/mutations/useGitCheckoutMutation'
@@ -27,17 +33,33 @@ import { useMergePullRequestMutation } from '../../hooks/mutations/useMergePullR
 import { useMergeDefaultBranchMutation } from '../../hooks/mutations/useMergeDefaultBranchMutation'
 import { Button } from '../ui/button'
 import { BranchMenu, NewBranchDialog } from './BranchMenu'
-import { ChangesView, type GitNotice } from './ChangesView'
+import { ChangesView } from './ChangesView'
 import { OpenPullRequestDialog } from './OpenPullRequestDialog'
 import { PullRequestCard } from './PullRequestCard'
 
-/** Outcomes that leave something for the writer to sort out. */
-const NEEDS_ATTENTION: SyncOutcome[] = ['conflict', 'blockedByLocalChanges']
+/** A conflict or blocked attempt, kept on screen until it's dismissed. */
+interface StoredNotice {
+  /** The engine's message; presented at render, when titles are known */
+  raw: string
+  outcome: SyncOutcome
+  action: GitAction
+  /** The branch it happened on: switching hides it */
+  branch: string | null
+  /** The repository just after it: while this holds, retrying is pointless */
+  signature: string
+}
+
+/** Shows the Changes tab, opening the sidebar if it's closed. */
+function showChanges() {
+  useUIStore.getState().setSidebarVisible(true)
+  useGitStore.getState().setPanelTab('changes')
+}
 
 /**
  * The Changes tab of the left sidebar: wires git status, branches and pull
  * requests to `ChangesView`, and handles the palette's Publish and Sync.
- * Stays mounted while the Files tab is shown.
+ * Stays mounted while the Files tab is shown; LeftSidebar remounts it for each
+ * project, so a draft message or notice never follows you to another project.
  */
 export function ChangesPanel() {
   const projectPath = useProjectStore(state => state.projectPath)
@@ -54,45 +76,91 @@ export function ChangesPanel() {
   const onGitHub = !!repo
   const signedIn = auth?.signedIn ?? false
   const needsSignIn = onGitHub && !signedIn
+  const remoteName = onGitHub ? 'GitHub' : 'the remote'
 
   const branches = useGitBranchesQuery(projectPath, { enabled: isRepo }).data
   const pullRequests = usePullRequestsQuery(isRepo ? projectPath : null).data
-  const log = useGitLogQuery(projectPath, { enabled: onFeatureBranch }).data
-  const behindDefault =
-    onFeatureBranch &&
-    isBehindBranch(log ?? [], branch, defaultBranch) !== false
+  const behindDefaultCount =
+    useGitBehindDefaultQuery(projectPath, {
+      enabled: isRepo && onFeatureBranch,
+    }).data ?? 0
+  const behindDefault = onFeatureBranch && behindDefaultCount > 0
+  const busy = useGitBusy()
 
+  const [stored, setStored] = useState<StoredNotice | null>(null)
+  const notice = stored && stored.branch === branch ? stored : null
+  const signature = status ? gitStateSignature(status, behindDefaultCount) : ''
+  const heldBack =
+    notice && notice.signature === signature ? notice.action : null
+
+  // Titles for the changed files, and for files a notice mentions (a
+  // conflicting file is often committed already, so not among the changes)
   const files = status?.files ?? []
-  const entryTitles = useChangedEntryTitles(projectPath, files)
+  const lookup = useEntryLookup(projectPath, [
+    ...files.map(file => file.path),
+    ...(notice ? pathsIn(notice.raw) : []),
+  ])
+  const titles = new Map<string, string>()
+  for (const file of files) {
+    const title = lookup.titleFor(file.path)
+    if (title) titles.set(file.path, title)
+  }
+  const present = (message: string) =>
+    presentGitMessage(message, { onGitHub, titleFor: lookup.titleFor })
+
   const [draft, setDraft] = useState<string | null>(null)
   const message =
     draft ??
-    defaultCommitMessage(changeTitles(files, projectPath ?? '', entryTitles))
-  const titles = new Map<string, string>()
-  for (const file of files) {
-    const title = entryTitle(file, projectPath ?? '', entryTitles)
-    if (title) titles.set(file.path, title)
-  }
+    publishMessage(
+      files.map(file => ({
+        change: file.change,
+        path: file.path,
+        entry: lookup.isEntry(file.path),
+        title: lookup.titleFor(file.path),
+      }))
+    )
 
-  // A notice belongs to the branch it happened on, so switching hides it
-  const [notice, setNotice] = useState<
-    (GitNotice & { branch: string | null }) | null
-  >(null)
   const [openingPullRequest, setOpeningPullRequest] = useState(false)
   const selectedDiffPath = useGitStore(state => state.selectedDiffPath)
   const newBranchOpen = useGitStore(state => state.newBranchOpen)
 
-  const publish = useGitPublishMutation()
-  const sync = useGitSyncMutation()
-  const checkout = useGitCheckoutMutation()
+  /** Keeps a conflict or blocked outcome on screen, instead of a toast. */
+  const keepNotice =
+    (action: GitAction) =>
+    (result: { outcome: SyncOutcome; message: string; status: GitStatus }) => {
+      setStored({
+        raw: result.message,
+        outcome: result.outcome,
+        action,
+        branch: result.status.branch,
+        signature: gitStateSignature(result.status, behindDefaultCount),
+      })
+      // From the palette the panel may be out of sight
+      showChanges()
+    }
+
+  const publish = useGitPublishMutation({
+    present,
+    onNeedsAttention: keepNotice('publish'),
+  })
+  const sync = useGitSyncMutation({
+    present,
+    onNeedsAttention: keepNotice('sync'),
+  })
+  const mergeDefault = useMergeDefaultBranchMutation({
+    present,
+    onNeedsAttention: keepNotice('bringIn'),
+  })
+  const checkout = useGitCheckoutMutation({ present })
   const createPullRequest = useCreatePullRequestMutation()
   const mergePullRequest = useMergePullRequestMutation()
-  const mergeDefault = useMergeDefaultBranchMutation()
 
-  const noticeFor = (outcome: SyncOutcome, text: string) =>
-    NEEDS_ATTENTION.includes(outcome)
-      ? { message: text, url: repo?.htmlUrl ?? null, branch }
-      : null
+  const guard = { status, busy, heldBack }
+
+  /** Clears a notice once the same action has gone through. */
+  const settled = (outcome: SyncOutcome) => {
+    if (!needsAttention(outcome)) setStored(null)
+  }
 
   const handleSync = () => {
     if (!projectPath) return
@@ -100,20 +168,26 @@ export function ChangesPanel() {
       void startGitHubSignIn()
       return
     }
+    const reason = syncBlocker(guard)
+    if (reason) {
+      toast.info(reason)
+      return
+    }
     void sync
       .mutateAsync({ projectPath })
-      .then(result => setNotice(noticeFor(result.outcome, result.message)))
+      .then(result => settled(result.outcome))
       .catch(() => {})
   }
 
   const handlePublish = () => {
     if (!projectPath) return
-    if (!isRepo) {
-      toast.info("This project isn't a git repository.")
+    if (needsSignIn && isRepo) {
+      void startGitHubSignIn()
       return
     }
-    if (needsSignIn) {
-      void startGitHubSignIn()
+    const reason = publishBlocker({ ...guard, message })
+    if (reason) {
+      toast.info(reason)
       return
     }
     void publish
@@ -125,7 +199,7 @@ export function ChangesPanel() {
       })
       .then(result => {
         setDraft(null)
-        setNotice(noticeFor(result.outcome, result.message))
+        settled(result.outcome)
         // The diff on screen is of a change that's now committed
         if (useGitStore.getState().selectedDiffPath) {
           useGitStore.getState().closeMainView()
@@ -136,18 +210,25 @@ export function ChangesPanel() {
 
   const handleBringIn = () => {
     if (!projectPath) return
+    const reason = bringInBlocker(guard)
+    if (reason) {
+      toast.info(reason)
+      return
+    }
     void mergeDefault
       .mutateAsync({ projectPath })
-      .then(result => setNotice(noticeFor(result.outcome, result.message)))
+      .then(result => settled(result.outcome))
       .catch(() => {})
   }
 
   const handleSwitch = (name: string) => {
-    if (projectPath) checkout.mutate({ projectPath, name, create: false })
+    if (projectPath && !busy) {
+      checkout.mutate({ projectPath, name, create: false })
+    }
   }
 
   const handleCreateBranch = (name: string) => {
-    if (!projectPath) return
+    if (!projectPath || busy) return
     void checkout
       .mutateAsync({ projectPath, name, create: true })
       .then(() => useGitStore.getState().setNewBranchOpen(false))
@@ -169,7 +250,9 @@ export function ChangesPanel() {
   }
 
   const handleMerge = (pr: PullRequest) => {
-    if (projectPath) mergePullRequest.mutate({ projectPath, number: pr.number })
+    if (projectPath && !busy) {
+      mergePullRequest.mutate({ projectPath, number: pr.number })
+    }
   }
 
   // The palette's Publish and Sync run the same handlers as the buttons
@@ -192,6 +275,7 @@ export function ChangesPanel() {
     branch && pullRequests
       ? pullRequestForBranch(pullRequests, branch)
       : undefined
+  const unpublished = (status?.ahead ?? 0) > 0 || files.length > 0
 
   let pullRequestArea: React.ReactNode = null
   if (onFeatureBranch && onGitHub && signedIn) {
@@ -199,6 +283,8 @@ export function ChangesPanel() {
       <PullRequestCard
         pr={currentPullRequest}
         merging={mergePullRequest.isPending}
+        disabled={busy}
+        unpublished={unpublished}
         onMerge={() => handleMerge(currentPullRequest)}
       />
     ) : (
@@ -207,7 +293,7 @@ export function ChangesPanel() {
           variant="outline"
           size="sm"
           className="w-full"
-          disabled={!status?.upstream}
+          disabled={!status?.upstream || busy}
           onClick={() => setOpeningPullRequest(true)}
         >
           <GitPullRequest /> Open pull request
@@ -221,6 +307,13 @@ export function ChangesPanel() {
     )
   }
 
+  // Remote-only branches are labelled by the remote's name ("origin"), or
+  // GitHub when that's where it is
+  const remoteBranch = branches?.find(b => b.isRemote)
+  const remoteLabel = onGitHub
+    ? 'GitHub'
+    : (remoteBranch?.name.split('/')[0] ?? 'the remote')
+
   return (
     <>
       <ChangesView
@@ -228,7 +321,7 @@ export function ChangesPanel() {
         loading={statusQuery.isPending}
         error={statusQuery.error?.message ?? null}
         onRetry={() => void statusQuery.refetch()}
-        remoteName={onGitHub ? 'GitHub' : 'the remote'}
+        remoteName={remoteName}
         needsSignIn={needsSignIn}
         onSignIn={() => void startGitHubSignIn()}
         branchMenu={
@@ -236,9 +329,10 @@ export function ChangesPanel() {
             current={branch}
             branches={branches ?? []}
             pullRequests={pullRequests ?? []}
+            remoteLabel={remoteLabel}
             onSwitch={handleSwitch}
             onNewBranch={() => useGitStore.getState().setNewBranchOpen(true)}
-            disabled={checkout.isPending}
+            disabled={busy}
           />
         }
         onShowHistory={() => useGitStore.getState().openHistory()}
@@ -248,8 +342,18 @@ export function ChangesPanel() {
         onBringIn={handleBringIn}
         bringingIn={mergeDefault.isPending}
         pullRequest={pullRequestArea}
-        notice={notice?.branch === branch ? notice : null}
-        onDismissNotice={() => setNotice(null)}
+        notice={
+          notice
+            ? {
+                message: present(notice.raw),
+                outcome: notice.outcome,
+                url: repo?.htmlUrl ?? null,
+              }
+            : null
+        }
+        onDismissNotice={() => setStored(null)}
+        busy={busy}
+        heldBack={heldBack}
         selectedPath={selectedDiffPath}
         onSelectFile={path => useGitStore.getState().openDiff(path)}
         titles={titles}

@@ -50,6 +50,9 @@ export const queryKeys = {
     [...queryKeys.git(projectPath), 'status'] as const,
   gitBranches: (projectPath: string) =>
     [...queryKeys.git(projectPath), 'branches'] as const,
+  // Commits the default branch has that the current one doesn't
+  gitBehindDefault: (projectPath: string) =>
+    [...queryKeys.git(projectPath), 'behindDefault'] as const,
   gitLog: (projectPath: string, limit: number) =>
     [...queryKeys.git(projectPath), 'log', limit] as const,
   // Working tree vs HEAD for one file

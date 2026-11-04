@@ -4,34 +4,47 @@ import { commands, type GitStatus } from '@/lib/bindings'
 /** How often the Git panel checks GitHub for new changes while focused. */
 export const FETCH_INTERVAL_MS = 5 * 60 * 1000
 
-let lastFetch: { projectPath: string; at: number } | null = null
+/** A five-minute timer may fire a little early; that still counts. */
+export const FETCH_SLACK_MS = 30 * 1000
 
-/** Forget when the last fetch happened, so the next load fetches first. */
+const lastFetch = new Map<string, number>()
+
+/** Forget when each project was last fetched, so the next load fetches. */
 export function resetGitFetchTimes(): void {
-  lastFetch = null
+  lastFetch.clear()
+}
+
+interface LoadOptions {
+  signedIn: boolean
+  now?: number
+  /** Called with the status after a background fetch succeeds */
+  onFetched?: (status: GitStatus) => void
 }
 
 /**
- * The project's git status. When signed in, it fetches from the remote first
- * (so ahead/behind are current) if this project hasn't been fetched yet or the
- * last fetch was five minutes ago; otherwise it only reads the local status,
- * which is quick enough to run after every save. A failed fetch (offline,
- * GitHub unreachable) falls back to the local status rather than failing.
+ * The project's git status, read locally so it's quick. When signed in and the
+ * project hasn't been fetched in the last five minutes, it also starts a fetch
+ * in the background and hands its status (with fresh ahead/behind) to
+ * `onFetched`. The fetch never delays the status: git commands on one
+ * repository run one at a time, so the local read goes first. A failed fetch
+ * (offline, GitHub unreachable) only logs a warning.
  */
 export async function loadGitStatus(
   projectPath: string,
-  { signedIn, now = Date.now() }: { signedIn: boolean; now?: number }
+  { signedIn, now = Date.now(), onFetched }: LoadOptions
 ): Promise<GitStatus> {
-  const due =
-    lastFetch?.projectPath !== projectPath ||
-    now - lastFetch.at >= FETCH_INTERVAL_MS
-  if (signedIn && due) {
-    lastFetch = { projectPath, at: now }
-    const fetched = await commands.gitFetch(projectPath)
-    if (fetched.status === 'ok') return fetched.data
-    void logWarn(`Astro Editor [GIT] Fetch failed: ${fetched.error}`)
-  }
   const result = await commands.gitStatus(projectPath)
   if (result.status === 'error') throw new Error(result.error)
+
+  const last = lastFetch.get(projectPath)
+  const due =
+    last === undefined || now - last >= FETCH_INTERVAL_MS - FETCH_SLACK_MS
+  if (signedIn && result.data.isRepo && due) {
+    lastFetch.set(projectPath, now)
+    void commands.gitFetch(projectPath).then(fetched => {
+      if (fetched.status === 'ok') onFetched?.(fetched.data)
+      else void logWarn(`Astro Editor [GIT] Fetch failed: ${fetched.error}`)
+    })
+  }
   return result.data
 }

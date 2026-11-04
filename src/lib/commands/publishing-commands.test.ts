@@ -5,12 +5,17 @@ import { getAllCommands } from './app-commands'
 import { useGitStore } from '@/store/gitStore'
 import { useUIStore } from '@/store/uiStore'
 
-function context(showPublishingTools: boolean, projectPath: string | null) {
+function context(
+  showPublishingTools: boolean,
+  projectPath: string | null,
+  isGitRepo = true
+) {
   return {
     currentFile: null,
     selectedCollection: null,
     collections: [],
     projectPath,
+    isGitRepo,
     globalSettings: { general: { showPublishingTools } },
   } as unknown as CommandContext
 }
@@ -47,6 +52,14 @@ describe('publishing commands', () => {
       'git-open-from-github',
     ])
     expect(visible(context(true, '/site'))).toHaveLength(5)
+  })
+
+  it('offers only Open from GitHub when the project is not a git repository', () => {
+    const ids = publishingCommands.map(c => c.id)
+    const visible = getAllCommands(context(true, '/site', false))
+      .filter(c => ids.includes(c.id))
+      .map(c => c.id)
+    expect(visible).toEqual(['git-open-from-github'])
   })
 
   it('Publish and Sync ask the Changes panel to run them', async () => {

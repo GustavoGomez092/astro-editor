@@ -43,6 +43,10 @@ interface PullRequestCardProps {
   pr: PullRequest
   onMerge: () => void
   merging?: boolean
+  /** Another git operation is running */
+  disabled?: boolean
+  /** There are changes or commits on this branch that aren't on GitHub */
+  unpublished?: boolean
 }
 
 /**
@@ -54,10 +58,13 @@ export function PullRequestCard({
   pr,
   onMerge,
   merging,
+  disabled,
+  unpublished,
 }: PullRequestCardProps) {
   const [confirming, setConfirming] = useState(false)
   const checks = pr.checks === 'none' ? null : CHECKS[pr.checks]
-  const blocked = pr.draft || pr.mergeable === false
+  // Merging now would leave the latest changes out of what goes live
+  const blocked = pr.draft || pr.mergeable === false || unpublished
 
   return (
     <div className="space-y-3 rounded-lg border bg-card p-3">
@@ -80,6 +87,11 @@ export function PullRequestCard({
           {checks.label}
         </div>
       )}
+      {unpublished && (
+        <p className="text-xs text-foreground">
+          Your latest changes aren't on GitHub yet. Publish first.
+        </p>
+      )}
       {pr.mergeable === false && (
         <p className="text-xs text-muted-foreground">
           This can't be merged automatically. Open it on GitHub to sort it out.
@@ -90,7 +102,7 @@ export function PullRequestCard({
         <Button
           size="sm"
           className="flex-1"
-          disabled={blocked || merging}
+          disabled={blocked || merging || disabled}
           onClick={() => setConfirming(true)}
         >
           {merging && <Spinner />} Merge

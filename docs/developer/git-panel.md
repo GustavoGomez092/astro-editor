@@ -18,20 +18,33 @@ Gate new UI the same way, so turning the preference off leaves the app as it was
 - **Queries** live under one key prefix, `queryKeys.git(projectPath)` (`['project', path, 'git', …]`), so `refreshGit()` (`lib/git/cache.ts`) refreshes status, branches, history, diffs and pull requests together after any command that changes the repository. Index 4 of every git key is a constant, never a path or id, because `useFileChangeHandler` invalidates keys with `'files'` at index 4. Sign-in (`githubAuth`) and the repository list (`githubRepos`) aren't tied to a project.
 - Command results go through `unwrap()` (`lib/git/unwrap.ts`): Rust returns plain-language messages, so an error's message is shown to the writer as is, in a toast or in the panel.
 
+## Changing the repository safely
+
+Every mutation that changes the repository (publish, sync, checkout, "Bring in changes", merging a pull request) shares `GIT_CHANGE_MUTATION_KEY` and goes through `lib/git/repo-change.ts`:
+
+- **It saves the open file first** (`saveBeforeGitChange`, using `saveUnsavedEdits` from `lib/quit.ts`). Unsaved edits saved after a checkout or sync would silently undo the incoming changes. If the save fails, nothing runs: "Couldn't save your edits, so nothing was changed."
+- **While it runs, nothing can be edited**: `useGitBusy()` makes the editor area and the frontmatter panel `inert`, and the panel disables Sync, Publish, Bring in, the branch menu and the message box.
+- **Afterwards it reloads what git rewrote** (`reloadProjectFiles`, after checkout, sync, bring in and a publish that merged): the open file's content, collections, collection file lists and folder listings. The watcher can't be relied on here, because it ignores the open file for a few seconds after our own save, which just happened. If the open file is gone (it doesn't exist on the branch), it's closed.
+
 ## Keeping the status current
 
-`loadGitStatus()` (`lib/git/status.ts`) is the status query's function. When the writer is signed in, it fetches from the remote first if this project hasn't been fetched since it opened or the last fetch was five minutes ago; otherwise it only reads the local status, which is cheap enough to run after every save. A failed fetch (offline, GitHub down) logs a warning and falls back to the local status, so the panel never breaks on a network problem. The status query waits for the sign-in check, so the first load after opening a project fetches when it should.
+`loadGitStatus()` (`lib/git/status.ts`) is the status query's function. It reads the local status, so the panel and the title bar's Publish appear at once; it never waits for sign-in or the network. When the writer is signed in and the project hasn't been fetched for about five minutes (`FETCH_INTERVAL_MS`, with 30 s of slack for timers; kept per project), it starts a fetch in the background after the local read, and the fetched status replaces the cached one when it arrives (branches, history, pull requests and the behind-default count are reloaded too). Git commands on one repository run one at a time on the Rust side, so a status read can wait behind a running Publish or Sync; the panel keeps showing the last status meanwhile. A failed fetch only logs a warning. The query reads the sign-in state when it runs, and `useGitStatusRefresh` reloads it once sign-in is confirmed, so the first fetch after opening a project happens as soon as it can.
 
 `useGitStatusRefresh()` (mounted once, in Layout) reloads the status, and any open diff of a changed file, on `file-changed` (the watcher), on window `focus`, and every five minutes while `document.hasFocus()`. It's our own interval rather than TanStack's `refetchInterval`, because TanStack's focus manager follows page visibility, and a Mac app's page stays visible when the app is in the background.
+
+"Bring in changes from main" is offered only when `gitCommitsBehindDefault` says the default branch has commits the current branch doesn't.
 
 ## Components
 
 In `src/components/git/`:
 
 - **`ChangesPanel`** wires queries and mutations to **`ChangesView`**, which is presentational so the styleguide can show every state with fixtures. Keep new state in the container and new display in the view.
-- The Publish message is pre-filled from the changed entries' titles (`defaultCommitMessage`, `changedFileTitle` in `lib/git/changes.ts`; titles come from the same per-collection file lists as the entry pickers) until the writer edits it, without an effect: the panel keeps a `draft` that's `null` until edited.
-- A sync, publish or "Bring in changes" that ends in a conflict or is blocked by local changes shows a toast and also leaves a notice in the panel, with a link to the repository on GitHub, until it's dismissed.
-- **`GitMainView`** draws the diff or History over the editor, which stays mounted underneath (see "Keep stateful panels mounted" in the architecture guide). Escape, the close button and opening a file return to the editor.
+- **The Publish message** is pre-filled by `publishMessage` (`lib/git/changes.ts`) until the writer edits it, without an effect: the panel keeps a `draft` that's `null` until edited. It names entries by their frontmatter titles only, never file names: "Add Harbour, update About and images", at most three names then "and N more"; assets aren't named ("and images", or "Update images" when nothing else changed). Titles come from `useEntryLookup`, which reads the same per-collection file lists as the entry pickers.
+- **Engine messages are presented** with `presentGitMessage` (`lib/git/messages.ts`): paths of known entries become their titles, and "the remote" becomes "GitHub" when it is.
+- **Each outcome is shown once.** A conflict or a blocked sync, publish or "Bring in changes" becomes a notice in the panel (switching to the Changes tab if it's out of sight, as after the palette's Publish), not a toast. A conflict notice gives a next step ("Open it on GitHub, or ask whoever manages the site."). The notice belongs to its branch, and the action that hit it stays disabled while `gitStateSignature` says nothing has changed (no fetch, commit, edit or branch switch since), because trying again would only stop the same way. Other outcomes are toasts.
+- **The palette's Publish and Sync** go through the same guards as the buttons (`publishBlocker`, `syncBlocker`): busy, not a repository, not on a branch, nothing to publish, no message, held back. When one applies, a toast says why. LeftSidebar keys `ChangesPanel` by project, so a draft message or notice never follows you to another project.
+- **Merge** stays disabled while the branch has changes or commits that aren't on GitHub ("Your latest changes aren't on GitHub yet. Publish first.").
+- **`GitMainView`** draws the diff or History over the editor, which stays mounted underneath (see "Keep stateful panels mounted" in the architecture guide). Escape, the close button and opening a file return to the editor. History hides the frontmatter panel while it's open, for the width, and shows it again after if it was showing.
 - **`CommitGraph`** lays rows out with `layoutGraph()` (`lib/git/graph-layout.ts`, pure and tested) and draws all lanes as one SVG behind the rows, so lines run unbroken between rows. Lane colours are the `--git-lane-0…7` tokens, used through full class names (`stroke-git-lane-3`) so Tailwind finds them.
 - The palette's Publish and Sync are DOM events (`git-publish`, `git-sync`) that `ChangesPanel` handles with the same handlers as its buttons, because they need the panel's message and sign-in state.
 
@@ -43,7 +56,7 @@ The words are deliberately plain: Publish, Sync, Open pull request, Merge, "not 
 
 ## Open from GitHub
 
-`OpenFromGitHubDialog` lists the signed-in writer's repositories (search, or paste a GitHub link; SSH links become HTTPS so the sign-in is used), clones into `~/Sites` or a folder the writer picks, shows progress from the `git-clone-progress` event, and opens the result with `projectStore.setProject`. Dependencies aren't installed here: Preview installs them the first time it runs.
+`OpenFromGitHubDialog` lists the signed-in writer's repositories (search, or paste a GitHub link; SSH links become HTTPS so the sign-in is used), clones into `~/Sites` (created if it's missing) or a folder the writer picks, can't be closed while downloading (`cloneInProgress`, so the result is never lost), shows progress from the `git-clone-progress` event, and opens the result with `projectStore.setProject`. Dependencies aren't installed here: Preview installs them the first time it runs.
 
 ## Styleguide
 

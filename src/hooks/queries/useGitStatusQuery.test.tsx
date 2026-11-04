@@ -26,6 +26,7 @@ const STATUS: GitStatus = {
   files: [],
   detached: false,
 }
+const FETCHED: GitStatus = { ...STATUS, behind: 2 }
 
 function signedIn(value: boolean) {
   vi.mocked(commands.githubAuthStatus).mockResolvedValue({
@@ -92,59 +93,76 @@ describe('useGitStatusQuery with useGitStatusRefresh', () => {
     vi.restoreAllMocks()
   })
 
-  it('fetches first on project open when signed in', async () => {
-    signedIn(true)
+  it('shows the local status without waiting for sign-in or a fetch', async () => {
+    // The sign-in check never answers
+    vi.mocked(commands.githubAuthStatus).mockReturnValue(new Promise(() => {}))
     const { result } = renderStatus()
     await vi.waitFor(() => expect(result.current.data).toEqual(STATUS))
+    expect(commands.gitFetch).not.toHaveBeenCalled()
+  })
+
+  it('fetches in the background once signed in, then shows the fetched status', async () => {
+    signedIn(true)
+    // After a fetch, the local status knows about the new remote commits too
+    let fetched = false
+    vi.mocked(commands.gitFetch).mockImplementation(() => {
+      fetched = true
+      return Promise.resolve({ status: 'ok', data: FETCHED })
+    })
+    vi.mocked(commands.gitStatus).mockImplementation(() =>
+      Promise.resolve({ status: 'ok', data: fetched ? FETCHED : STATUS })
+    )
+    const { result } = renderStatus()
+    await vi.waitFor(() => expect(result.current.data).toEqual(FETCHED))
     expect(commands.gitFetch).toHaveBeenCalledTimes(1)
-    expect(commands.gitStatus).not.toHaveBeenCalled()
   })
 
   it('only reads the local status when not signed in', async () => {
     signedIn(false)
     const { result } = renderStatus()
     await vi.waitFor(() => expect(result.current.data).toEqual(STATUS))
+    await new Promise(resolve => setTimeout(resolve, 20))
     expect(commands.gitFetch).not.toHaveBeenCalled()
-    expect(commands.gitStatus).toHaveBeenCalledTimes(1)
   })
 
   it('fetches again every 5 minutes while the window is focused', async () => {
     signedIn(true)
-    const { result } = renderStatus()
-    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    renderStatus()
+    await vi.waitFor(() => expect(commands.gitFetch).toHaveBeenCalledTimes(1))
     advance(FETCH_INTERVAL_MS)
     await vi.waitFor(() => expect(commands.gitFetch).toHaveBeenCalledTimes(2))
   })
 
   it("doesn't fetch while the window isn't focused", async () => {
     signedIn(true)
-    const { result } = renderStatus()
-    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    renderStatus()
+    await vi.waitFor(() => expect(commands.gitFetch).toHaveBeenCalledTimes(1))
     focused = false
     advance(FETCH_INTERVAL_MS * 2)
     await new Promise(resolve => setTimeout(resolve, 20))
     expect(commands.gitFetch).toHaveBeenCalledTimes(1)
-    expect(commands.gitStatus).not.toHaveBeenCalled()
   })
 
-  it('reads the local status again when a file changes', async () => {
+  it('reads the local status again when a file changes, without fetching', async () => {
     signedIn(true)
-    const { result } = renderStatus()
-    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    renderStatus()
+    await vi.waitFor(() => expect(commands.gitFetch).toHaveBeenCalledTimes(1))
+    const reads = vi.mocked(commands.gitStatus).mock.calls.length
     act(() => {
       window.dispatchEvent(
         new CustomEvent('file-changed', { detail: { path: '/site/a.md' } })
       )
     })
-    await vi.waitFor(() => expect(commands.gitStatus).toHaveBeenCalledTimes(1))
-    // Not five minutes yet, so no second fetch
+    await vi.waitFor(() =>
+      expect(commands.gitStatus).toHaveBeenCalledTimes(reads + 1)
+    )
     expect(commands.gitFetch).toHaveBeenCalledTimes(1)
   })
 
   it('fetches when the window regains focus after five minutes', async () => {
     signedIn(true)
-    const { result } = renderStatus()
-    await vi.waitFor(() => expect(result.current.isSuccess).toBe(true))
+    renderStatus()
+    await vi.waitFor(() => expect(commands.gitFetch).toHaveBeenCalledTimes(1))
     focused = false
     advance(FETCH_INTERVAL_MS + 1000)
     focused = true

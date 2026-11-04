@@ -12,17 +12,26 @@ import {
   X,
 } from 'lucide-react'
 import { openUrl } from '@tauri-apps/plugin-opener'
-import type { GitStatus } from '@/lib/bindings'
-import { syncSummary } from '@/lib/git/changes'
+import type { GitStatus, SyncOutcome } from '@/lib/bindings'
+import {
+  bringInBlocker,
+  publishBlocker,
+  syncBlocker,
+  syncSummary,
+  waitingToPublish,
+  type GitAction,
+} from '@/lib/git/changes'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
 import { Spinner } from '../ui/spinner'
 import { AutoExpandingTextarea } from '../ui/auto-expanding-textarea'
 import { ChangedFileRow } from './ChangedFileRow'
 
-/** A sync or publish that needs the writer's attention, kept until dismissed. */
+/** A sync, publish or bring-in that needs the writer's attention. */
 export interface GitNotice {
+  /** Already presented for the writer (titles, "GitHub") */
   message: string
+  outcome: SyncOutcome
   /** Where to sort it out: the repository on GitHub */
   url: string | null
 }
@@ -50,6 +59,10 @@ export interface ChangesViewProps {
   pullRequest: React.ReactNode
   notice: GitNotice | null
   onDismissNotice: () => void
+  /** A git operation that changes the repository is running */
+  busy: boolean
+  /** The action that last hit a conflict, while nothing has changed since */
+  heldBack: GitAction | null
   selectedPath: string | null
   onSelectFile: (path: string) => void
   /** Entry titles of changed content files, by repository-relative path */
@@ -123,6 +136,8 @@ function RepoChanges({
   pullRequest,
   notice,
   onDismissNotice,
+  busy,
+  heldBack,
   selectedPath,
   onSelectFile,
   titles,
@@ -132,13 +147,10 @@ function RepoChanges({
   publishing,
 }: ChangesViewProps & { status: GitStatus }) {
   const fileCount = status.files.length
-  const nothingToPublish =
-    fileCount === 0 && status.ahead === 0 && status.upstream !== null
-  const canPublish =
-    !nothingToPublish &&
-    !publishing &&
-    !status.detached &&
-    (fileCount === 0 || message.trim() !== '')
+  const guard = { status, busy, heldBack }
+  const publishReason = publishBlocker({ ...guard, message })
+  const syncReason = syncBlocker(guard)
+  const bringInReason = bringInBlocker(guard)
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -159,9 +171,9 @@ function RepoChanges({
             variant="ghost"
             size="sm"
             className="h-7 gap-1.5 px-2 text-icon"
-            disabled={syncing}
+            disabled={syncing || (!needsSignIn && syncReason !== null)}
             onClick={needsSignIn ? onSignIn : onSync}
-            title={`Check ${remoteName} for new changes`}
+            title={syncReason ?? `Check ${remoteName} for new changes`}
           >
             <RefreshCw className={cn('size-3.5', syncing && 'animate-spin')} />
             Sync
@@ -178,6 +190,13 @@ function RepoChanges({
         {notice && (
           <Callout tone="warning" onDismiss={onDismissNotice}>
             <p>{notice.message}</p>
+            {notice.outcome === 'conflict' && (
+              <p className="text-muted-foreground">
+                {notice.url
+                  ? 'Open it on GitHub, or ask whoever manages the site.'
+                  : 'Ask whoever manages the site to sort it out.'}
+              </p>
+            )}
             {notice.url && (
               <button
                 type="button"
@@ -213,7 +232,8 @@ function RepoChanges({
             variant="outline"
             size="sm"
             className="w-full"
-            disabled={bringingIn}
+            disabled={bringingIn || bringInReason !== null}
+            title={bringInReason ?? undefined}
             onClick={onBringIn}
           >
             {bringingIn ? <Spinner /> : <GitMerge />}
@@ -229,9 +249,11 @@ function RepoChanges({
             {fileCount > 0 && <span>{fileCount}</span>}
           </div>
           {fileCount === 0 ? (
-            <p className="flex items-center gap-2 px-1 py-2 text-sm text-muted-foreground">
-              <CircleCheck className="size-4 text-git-add" />
-              No changes since the last publish.
+            <p className="flex items-start gap-2 px-1 py-2 text-sm text-muted-foreground">
+              <CircleCheck className="mt-0.5 size-4 shrink-0 text-git-add" />
+              {status.ahead > 0
+                ? waitingToPublish(status.ahead)
+                : 'No changes since the last publish.'}
             </p>
           ) : (
             <div className="-mx-1">
@@ -256,6 +278,7 @@ function RepoChanges({
             placeholder="Describe your changes"
             value={message}
             onChange={event => onMessageChange(event.target.value)}
+            disabled={busy}
             minRows={2}
             maxRows={6}
             className="bg-background text-sm"
@@ -263,7 +286,8 @@ function RepoChanges({
         )}
         <Button
           className="w-full"
-          disabled={!canPublish}
+          disabled={publishing || (!needsSignIn && publishReason !== null)}
+          title={publishReason ?? undefined}
           onClick={needsSignIn ? onSignIn : onPublish}
         >
           {publishing ? <Spinner /> : <CloudUpload />}

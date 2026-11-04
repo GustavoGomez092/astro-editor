@@ -45,6 +45,8 @@ function renderView(props: Partial<ChangesViewProps> = {}) {
       bringingIn={false}
       pullRequest={null}
       notice={null}
+      busy={false}
+      heldBack={null}
       selectedPath={null}
       message="Update About"
       publishing={false}
@@ -112,6 +114,7 @@ describe('ChangesView', () => {
     renderView({
       notice: {
         message: 'Your changes and the changes on GitHub both edited about.md.',
+        outcome: 'conflict',
         url: 'https://github.com/kr/site',
       },
     })
@@ -119,6 +122,47 @@ describe('ChangesView', () => {
     expect(
       screen.getByRole('button', { name: /Open on GitHub/ })
     ).toBeInTheDocument()
+  })
+
+  it('gives a concrete next step after a conflict', () => {
+    renderView({
+      notice: {
+        message: 'Your changes and the changes on GitHub both edited “About”.',
+        outcome: 'conflict',
+        url: 'https://github.com/kr/site',
+      },
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Open it on GitHub, or ask whoever manages the site.'
+    )
+  })
+
+  it('says updates are saved and waiting when only commits are left to publish', () => {
+    renderView({ status: { ...STATUS, files: [], ahead: 1 } })
+    expect(
+      screen.getByText('Everything is saved. 1 update waiting to be published.')
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByText('No changes since the last publish.')
+    ).not.toBeInTheDocument()
+  })
+
+  it('holds back an action that would only repeat a conflict', () => {
+    renderView({ status: { ...STATUS, ahead: 1 }, heldBack: 'publish' })
+    const publish = screen.getByRole('button', { name: 'Publish' })
+    expect(publish).toBeDisabled()
+    expect(publish.getAttribute('title')).toMatch(/Nothing has changed since/)
+    expect(screen.getByRole('button', { name: /Sync/ })).toBeEnabled()
+  })
+
+  it('disables Sync, Publish, Bring in and the message while git is busy', () => {
+    renderView({ busy: true, behindDefault: true })
+    expect(screen.getByRole('button', { name: 'Publish' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Sync/ })).toBeDisabled()
+    expect(
+      screen.getByRole('button', { name: 'Bring in changes from main' })
+    ).toBeDisabled()
+    expect(screen.getByLabelText('Describe your changes')).toBeDisabled()
   })
 
   it("can't publish when there's nothing new", () => {
@@ -162,6 +206,16 @@ describe('PullRequestCard', () => {
     expect(dialog).toHaveTextContent('Merge into main?')
     await userEvent.click(within(dialog).getByRole('button', { name: 'Merge' }))
     expect(onMerge).toHaveBeenCalledTimes(1)
+  })
+
+  it('asks to publish first while the latest changes are only on this Mac', () => {
+    render(<PullRequestCard pr={PR} onMerge={vi.fn()} unpublished />)
+    expect(
+      screen.getByText(
+        "Your latest changes aren't on GitHub yet. Publish first."
+      )
+    ).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled()
   })
 
   it("can't merge a pull request GitHub can't merge automatically", () => {

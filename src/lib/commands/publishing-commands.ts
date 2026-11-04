@@ -11,7 +11,9 @@ import type { AppCommand, CommandContext } from './types'
 
 const available = (context: CommandContext) =>
   Boolean(
-    context.projectPath && context.globalSettings?.general.showPublishingTools
+    context.projectPath &&
+    context.isGitRepo &&
+    context.globalSettings?.general.showPublishingTools
   )
 
 /** Shows the Changes tab, opening the sidebar if it's closed. */

@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { commands, type GitStatus, type PullRequest } from '@/lib/bindings'
 import { queryKeys } from '@/lib/query-keys'
 import { mockToast, resetToastMocks } from '@/test/mocks/toast'
+import { SAVE_FAILED } from '@/lib/git/repo-change'
+import { useEditorStore } from '@/store/editorStore'
 import { useGitPublishMutation } from './useGitPublishMutation'
 import { useGitSyncMutation } from './useGitSyncMutation'
 import { useGitCheckoutMutation } from './useGitCheckoutMutation'
@@ -21,6 +23,7 @@ vi.mock('@/lib/bindings', () => ({
     githubCreatePullRequest: vi.fn(),
     githubMergePullRequest: vi.fn(),
     gitMergeDefaultBranch: vi.fn(),
+    readFileContent: vi.fn(),
   },
 }))
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn() }))
@@ -80,6 +83,8 @@ describe('git mutations', () => {
     vi.clearAllMocks()
     resetToastMocks()
     vi.mocked(commands.gitFetch).mockResolvedValue(ok(STATUS))
+    vi.mocked(commands.readFileContent).mockResolvedValue(ok('---\n---\n'))
+    useEditorStore.setState({ currentFile: null, isDirty: false })
   })
 
   it('publish refreshes status, branches and history and says so', async () => {
@@ -213,5 +218,156 @@ describe('git mutations', () => {
     await act(() => result.current.mutateAsync({ projectPath: P }))
     expect(mockToast.warning).toHaveBeenCalled()
     expect(mockToast.success).not.toHaveBeenCalled()
+  })
+
+  describe('unsaved edits', () => {
+    const OPEN_FILE = {
+      id: 'pages/about',
+      path: '/site/src/content/pages/about.md',
+      name: 'about',
+      extension: 'md',
+      collection: 'pages',
+      last_modified: null,
+      frontmatter: {},
+    }
+
+    /** An open file with unsaved edits; `saves` decides whether saving works. */
+    function dirtyEditor(order: string[], saves = true) {
+      useEditorStore.setState({
+        currentFile: OPEN_FILE,
+        isDirty: true,
+        saveFile: vi.fn(() => {
+          order.push('save')
+          if (saves) useEditorStore.setState({ isDirty: false })
+          return Promise.resolve()
+        }),
+      })
+    }
+
+    it('saves a dirty editor before syncing', async () => {
+      const order: string[] = []
+      dirtyEditor(order)
+      vi.mocked(commands.gitSync).mockImplementation(() => {
+        order.push('sync')
+        return Promise.resolve(
+          ok({ outcome: 'upToDate', message: 'Up to date', status: STATUS })
+        )
+      })
+      const { result } = setup(useGitSyncMutation)
+      await act(() => result.current.mutateAsync({ projectPath: P }))
+      expect(order).toEqual(['save', 'sync'])
+    })
+
+    it('saves a dirty editor before switching branch', async () => {
+      const order: string[] = []
+      dirtyEditor(order)
+      vi.mocked(commands.gitCheckout).mockImplementation(() => {
+        order.push('checkout')
+        return Promise.resolve(ok(STATUS))
+      })
+      const { result } = setup(useGitCheckoutMutation)
+      await act(() =>
+        result.current.mutateAsync({
+          projectPath: P,
+          name: 'main',
+          create: false,
+        })
+      )
+      expect(order).toEqual(['save', 'checkout'])
+    })
+
+    it('changes nothing when the save fails', async () => {
+      const order: string[] = []
+      dirtyEditor(order, false)
+      const { result } = setup(useGitCheckoutMutation)
+      await act(() =>
+        result.current
+          .mutateAsync({ projectPath: P, name: 'main', create: false })
+          .catch(() => {})
+      )
+      expect(commands.gitCheckout).not.toHaveBeenCalled()
+      expect(mockToast.error).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({ description: SAVE_FAILED })
+      )
+    })
+
+    it('publish, bring in and merging a pull request save first too', async () => {
+      for (const [useHook, variables, command] of [
+        [
+          useGitPublishMutation,
+          { projectPath: P, message: 'x' },
+          commands.gitPublish,
+        ],
+        [
+          useMergeDefaultBranchMutation,
+          { projectPath: P },
+          commands.gitMergeDefaultBranch,
+        ],
+        [
+          useMergePullRequestMutation,
+          { projectPath: P, number: 1 },
+          commands.githubMergePullRequest,
+        ],
+      ] as const) {
+        const order: string[] = []
+        dirtyEditor(order, false)
+        const { result } = setup(
+          useHook as () => { mutateAsync: (v: unknown) => Promise<unknown> }
+        )
+        await act(() => result.current.mutateAsync(variables).catch(() => {}))
+        expect(order).toEqual(['save'])
+        expect(command).not.toHaveBeenCalled()
+      }
+    })
+
+    it('reloads the open file and the file lists after a checkout', async () => {
+      useEditorStore.setState({ currentFile: OPEN_FILE, isDirty: false })
+      vi.mocked(commands.gitCheckout).mockResolvedValue(ok(STATUS))
+      const { client, result } = setup(useGitCheckoutMutation)
+      const content = queryKeys.fileContent(P, OPEN_FILE.id)
+      const collections = queryKeys.collections(P)
+      const files = queryKeys.collectionFiles(P, 'pages')
+      const folder = queryKeys.directoryContents(P, 'pages', 'root')
+      for (const key of [content, collections, files, folder]) {
+        client.setQueryData(key, {})
+      }
+
+      await act(() =>
+        result.current.mutateAsync({
+          projectPath: P,
+          name: 'main',
+          create: false,
+        })
+      )
+      for (const key of [content, collections, files, folder]) {
+        await vi.waitFor(() =>
+          expect(client.getQueryState(key)?.isInvalidated, String(key)).toBe(
+            true
+          )
+        )
+      }
+      expect(useEditorStore.getState().currentFile?.id).toBe(OPEN_FILE.id)
+    })
+
+    it("closes the open file when it doesn't exist on the new branch", async () => {
+      useEditorStore.setState({ currentFile: OPEN_FILE, isDirty: false })
+      vi.mocked(commands.gitCheckout).mockResolvedValue(ok(STATUS))
+      vi.mocked(commands.readFileContent).mockResolvedValue({
+        status: 'error',
+        error: 'File not found',
+      })
+      const { result } = setup(useGitCheckoutMutation)
+      await act(() =>
+        result.current.mutateAsync({
+          projectPath: P,
+          name: 'main',
+          create: false,
+        })
+      )
+      await vi.waitFor(() =>
+        expect(useEditorStore.getState().currentFile).toBeNull()
+      )
+    })
   })
 })

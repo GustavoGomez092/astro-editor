@@ -34,6 +34,8 @@ interface BranchMenuProps {
   branches: BranchInfo[]
   /** Open pull requests for the repository */
   pullRequests: PullRequest[]
+  /** Where remote-only branches live: "GitHub", or the remote's name */
+  remoteLabel?: string
   onSwitch: (name: string) => void
   onNewBranch: () => void
   disabled?: boolean
@@ -52,12 +54,13 @@ function remoteOnly(branches: BranchInfo[]): BranchInfo[] {
 
 /**
  * The current branch, as a menu: switch to another branch (including ones only
- * on GitHub), start a new one, or go to a pull request's branch.
+ * on the remote), start a new one, or go to a pull request's branch.
  */
 export function BranchMenu({
   current,
   branches,
   pullRequests,
+  remoteLabel = 'GitHub',
   onSwitch,
   onNewBranch,
   disabled,
@@ -105,7 +108,7 @@ export function BranchMenu({
         </DropdownMenuGroup>
         {remote.length > 0 && (
           <DropdownMenuGroup>
-            <DropdownMenuLabel>Only on GitHub</DropdownMenuLabel>
+            <DropdownMenuLabel>Only on {remoteLabel}</DropdownMenuLabel>
             {remote.map(branch => (
               <DropdownMenuItem
                 key={branch.name}

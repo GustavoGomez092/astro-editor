@@ -60,11 +60,15 @@ function folderNameFrom(cloneUrl: string): string {
 export function OpenFromGitHubDialog() {
   const open = useGitStore(state => state.openFromGitHubOpen)
   const close = () => useGitStore.getState().setOpenFromGitHubOpen(false)
+  // Closing mid-download would lose what happened to it
+  const requestClose = () => {
+    if (!useGitStore.getState().cloneInProgress) close()
+  }
   return (
     <Dialog
       open={open}
       onOpenChange={next => {
-        if (!next) close()
+        if (!next) requestClose()
       }}
     >
       <DialogContent className="sm:max-w-lg">
@@ -84,7 +88,9 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
   const [chosen, setChosen] = useState<Choice | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
   const [progress, setProgress] = useState<CloneProgress | null>(null)
-  const [cloning, setCloning] = useState(false)
+  const cloning = useGitStore(state => state.cloneInProgress)
+  const setCloning = (value: boolean) =>
+    useGitStore.getState().setCloneInProgress(value)
   const [error, setError] = useState<string | null>(null)
 
   const parentDir = folder ?? defaultFolder
@@ -121,6 +127,7 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
     setProgress(null)
     void cloneRepository(selection.cloneUrl, parentDir, setProgress)
       .then(projectPath => {
+        setCloning(false)
         useProjectStore.getState().setProject(projectPath)
         toast.success(`Opened ${folderNameFrom(selection.cloneUrl)}`)
         onDone()

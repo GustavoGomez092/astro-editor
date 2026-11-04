@@ -1,113 +1,112 @@
 import { describe, expect, it } from 'vitest'
-import type { ChangedFile, GraphCommit, PullRequest } from '@/lib/bindings'
+import type { GitStatus, PullRequest } from '@/lib/bindings'
 import {
+  BUSY,
+  REPEAT,
   branchNameFrom,
-  changeTitles,
-  changedFileTitle,
+  bringInBlocker,
   entryTitle,
-  defaultCommitMessage,
-  isBehindBranch,
+  gitStateSignature,
+  publishBlocker,
+  publishMessage,
   pullRequestForBranch,
+  syncBlocker,
   syncSummary,
+  waitingToPublish,
+  type MessageItem,
 } from './changes'
 
-const file = (path: string, change: ChangedFile['change'] = 'modified') => ({
-  path,
-  oldPath: null,
+const entry = (
+  title: string | undefined,
+  change: MessageItem['change'] = 'modified'
+): MessageItem => ({
+  title,
   change,
+  entry: true,
+  path: `src/content/pages/${title ?? 'x'}.md`,
 })
+const asset = (
+  path: string,
+  change: MessageItem['change'] = 'added'
+): MessageItem => ({ path, change, entry: false })
 
-describe('defaultCommitMessage', () => {
+describe('publishMessage', () => {
   it('is empty when nothing changed', () => {
-    expect(defaultCommitMessage([])).toBe('')
+    expect(publishMessage([])).toBe('')
   })
-  it('names up to three entries', () => {
-    expect(defaultCommitMessage(['About'])).toBe('Update About')
-    expect(defaultCommitMessage(['About', 'Contact'])).toBe(
-      'Update About, Contact'
-    )
-    expect(defaultCommitMessage(['About', 'Contact', 'Home'])).toBe(
-      'Update About, Contact, Home'
-    )
+
+  it('names up to three entries by title', () => {
+    expect(publishMessage([entry('About')])).toBe('Update About')
+    expect(
+      publishMessage([entry('About'), entry('Contact'), entry('Home')])
+    ).toBe('Update About, Contact, Home')
   })
+
   it('counts the rest after three', () => {
-    expect(defaultCommitMessage(['A', 'B', 'C', 'D', 'E'])).toBe(
+    expect(publishMessage(['A', 'B', 'C', 'D', 'E'].map(t => entry(t)))).toBe(
       'Update A, B, C and 2 more'
     )
   })
+
+  it('says Add and Remove for new and deleted entries', () => {
+    expect(publishMessage([entry('Harbour', 'untracked')])).toBe('Add Harbour')
+    expect(publishMessage([entry('Old site', 'deleted')])).toBe(
+      'Remove Old site'
+    )
+    expect(
+      publishMessage([
+        entry('About'),
+        entry('Harbour', 'added'),
+        entry('Old site', 'deleted'),
+      ])
+    ).toBe('Add Harbour, update About, remove Old site')
+  })
+
+  it('never names images or other files', () => {
+    expect(
+      publishMessage([entry('About'), asset('src/assets/cover.jpg')])
+    ).toBe('Update About and images')
+    expect(
+      publishMessage([entry('About'), asset('astro.config.mjs', 'modified')])
+    ).toBe('Update About and other files')
+  })
+
+  it('describes changes that are only images or other files', () => {
+    expect(publishMessage([asset('a.png'), asset('b.webp', 'modified')])).toBe(
+      'Update images'
+    )
+    expect(publishMessage([asset('a.png'), asset('b.svg')])).toBe('Add images')
+    expect(publishMessage([asset('package.json', 'modified')])).toBe(
+      'Update site files'
+    )
+  })
+
+  it("counts entries whose title isn't known instead of naming their files", () => {
+    expect(publishMessage([entry(undefined, 'deleted')])).toBe('Remove 1 entry')
+    expect(publishMessage([entry('About'), entry(undefined, 'deleted')])).toBe(
+      'Update About and 1 more'
+    )
+  })
+
   it("doesn't repeat a title", () => {
-    expect(defaultCommitMessage(['About', 'About', 'Home'])).toBe(
-      'Update About, Home'
+    expect(publishMessage([entry('About'), entry('About')])).toBe(
+      'Update About'
     )
   })
 })
 
-describe('changedFileTitle', () => {
+describe('entryTitle', () => {
   const titles = new Map([['/site/src/content/pages/about.md', 'About me']])
-
-  it("uses the entry's title when the file is a known entry", () => {
+  it('finds the title of a known entry, with or without a trailing slash', () => {
     expect(
-      changedFileTitle(file('src/content/pages/about.md'), '/site', titles)
+      entryTitle({ path: 'src/content/pages/about.md' }, '/site', titles)
     ).toBe('About me')
-  })
-  it('falls back to the file name without its extension', () => {
     expect(
-      changedFileTitle(file('src/assets/hero-image.jpg'), '/site', titles)
-    ).toBe('hero-image')
-    expect(changedFileTitle(file('README'), '/site', titles)).toBe('README')
-  })
-  it('copes with a trailing slash on the project path', () => {
-    expect(
-      changedFileTitle(file('src/content/pages/about.md'), '/site/', titles)
+      entryTitle({ path: 'src/content/pages/about.md' }, '/site/', titles)
     ).toBe('About me')
-  })
-})
-
-const commit = (
-  id: string,
-  parents: string[],
-  refs: GraphCommit['refs'] = []
-): GraphCommit => ({
-  id,
-  shortId: id,
-  parents,
-  summary: id,
-  authorName: 'K',
-  time: 0,
-  refs,
-})
-
-describe('isBehindBranch', () => {
-  it('is false when the default branch is already in the current one', () => {
-    const log = [
-      commit('s2', ['s1'], [{ name: 'staging', kind: 'head' }]),
-      commit('s1', ['m1']),
-      commit('m1', [], [{ name: 'origin/main', kind: 'remoteBranch' }]),
-    ]
-    expect(isBehindBranch(log, 'staging', 'main')).toBe(false)
-  })
-
-  it('is true when the default branch has commits the current one lacks', () => {
-    const log = [
-      commit('m2', ['m1'], [{ name: 'origin/main', kind: 'remoteBranch' }]),
-      commit('s1', ['m1'], [{ name: 'staging', kind: 'localBranch' }]),
-      commit('m1', []),
-    ]
-    expect(isBehindBranch(log, 'staging', 'main')).toBe(true)
-  })
-
-  it('prefers the remote default branch over a stale local one', () => {
-    const log = [
-      commit('m2', ['m1'], [{ name: 'origin/main', kind: 'remoteBranch' }]),
-      commit('s1', ['m1'], [{ name: 'staging', kind: 'head' }]),
-      commit('m1', [], [{ name: 'main', kind: 'localBranch' }]),
-    ]
-    expect(isBehindBranch(log, 'staging', 'main')).toBe(true)
-  })
-
-  it("is null when either tip isn't in the loaded history", () => {
-    const log = [commit('s1', [], [{ name: 'staging', kind: 'head' }])]
-    expect(isBehindBranch(log, 'staging', 'main')).toBeNull()
+    expect(
+      entryTitle({ path: 'src/assets/cover.jpg' }, '/site', titles)
+    ).toBeUndefined()
   })
 })
 
@@ -128,43 +127,37 @@ describe('pullRequestForBranch', () => {
       pullRequestForBranch([pr(1, 'other'), pr(2, 'staging')], 'staging')
         ?.number
     ).toBe(2)
-  })
-  it('is undefined when there is none', () => {
     expect(pullRequestForBranch([pr(1, 'other')], 'staging')).toBeUndefined()
   })
 })
 
-describe('syncSummary', () => {
-  const status = (ahead: number, behind: number, upstream: string | null) => ({
-    isRepo: true,
-    branch: 'main',
-    defaultBranch: 'main',
-    upstream,
-    ahead,
-    behind,
-    files: [],
-    detached: false,
-  })
+const STATUS: GitStatus = {
+  isRepo: true,
+  branch: 'main',
+  defaultBranch: 'main',
+  upstream: 'origin/main',
+  ahead: 0,
+  behind: 0,
+  files: [],
+  detached: false,
+}
 
-  it('says when everything matches', () => {
-    expect(syncSummary(status(0, 0, 'origin/main'), 'GitHub')).toBe(
-      'Up to date with GitHub'
-    )
-  })
-  it('counts updates waiting to go up and new ones to bring down', () => {
-    expect(syncSummary(status(1, 0, 'origin/main'), 'GitHub')).toBe(
-      '1 update not on GitHub yet'
-    )
-    expect(syncSummary(status(2, 3, 'origin/main'), 'GitHub')).toBe(
+describe('syncSummary and waitingToPublish', () => {
+  it('describes where the branch stands', () => {
+    expect(syncSummary(STATUS, 'GitHub')).toBe('Up to date with GitHub')
+    expect(syncSummary({ ...STATUS, ahead: 2, behind: 3 }, 'GitHub')).toBe(
       '2 updates not on GitHub yet · 3 new on GitHub'
     )
-    expect(syncSummary(status(0, 1, 'origin/main'), 'the server')).toBe(
-      '1 new on the server'
+    expect(syncSummary({ ...STATUS, upstream: null }, 'GitHub')).toBe(
+      'Not on GitHub yet. Publish puts it there.'
     )
   })
-  it('explains a branch that was never published', () => {
-    expect(syncSummary(status(0, 0, null), 'GitHub')).toBe(
-      'Not on GitHub yet. Publish puts it there.'
+  it('says how many updates are saved but waiting', () => {
+    expect(waitingToPublish(1)).toBe(
+      'Everything is saved. 1 update waiting to be published.'
+    )
+    expect(waitingToPublish(3)).toBe(
+      'Everything is saved. 3 updates waiting to be published.'
     )
   })
 })
@@ -172,34 +165,71 @@ describe('syncSummary', () => {
 describe('branchNameFrom', () => {
   it('turns words into a branch name', () => {
     expect(branchNameFrom('Spring copy!')).toBe('spring-copy')
-    expect(branchNameFrom('  New   Home Page ')).toBe('new-home-page')
-  })
-  it('keeps slashes and dots that git allows', () => {
     expect(branchNameFrom('kevin/v1.2')).toBe('kevin/v1.2')
-  })
-  it('is empty when nothing usable is left', () => {
     expect(branchNameFrom('!!!')).toBe('')
   })
 })
 
-describe('entryTitle and changeTitles', () => {
-  const titles = new Map([['/site/src/content/pages/about.md', 'About me']])
-  const files = [
-    file('src/assets/cover.jpg', 'added'),
-    file('src/content/pages/about.md'),
-    file('src/content/notes/old.md', 'deleted'),
-  ]
+describe('gitStateSignature', () => {
+  it('changes with a fetch, a commit, an edit or a branch switch', () => {
+    const base = gitStateSignature(STATUS, 0)
+    expect(gitStateSignature({ ...STATUS }, 0)).toBe(base)
+    expect(gitStateSignature({ ...STATUS, behind: 1 }, 0)).not.toBe(base)
+    expect(gitStateSignature({ ...STATUS, ahead: 1 }, 0)).not.toBe(base)
+    expect(gitStateSignature({ ...STATUS, branch: 'staging' }, 0)).not.toBe(
+      base
+    )
+    expect(gitStateSignature(STATUS, 2)).not.toBe(base)
+    expect(
+      gitStateSignature(
+        {
+          ...STATUS,
+          files: [{ path: 'a.md', oldPath: null, change: 'modified' }],
+        },
+        0
+      )
+    ).not.toBe(base)
+  })
+})
 
-  it('finds the entry title of a changed content file', () => {
-    expect(entryTitle(files[1]!, '/site', titles)).toBe('About me')
-    expect(entryTitle(files[0]!, '/site', titles)).toBeUndefined()
+describe('action guards', () => {
+  const changed: GitStatus = {
+    ...STATUS,
+    files: [{ path: 'a.md', oldPath: null, change: 'modified' }],
+  }
+  const ready = {
+    status: changed,
+    busy: false,
+    heldBack: null,
+    message: 'Update A',
+  }
+
+  it('lets Publish run when there is something to publish and a message', () => {
+    expect(publishBlocker(ready)).toBeNull()
+    expect(
+      publishBlocker({ ...ready, status: { ...STATUS, ahead: 1 } })
+    ).toBeNull()
   })
 
-  it('puts entries with titles first, then other files by name', () => {
-    expect(changeTitles(files, '/site', titles)).toEqual([
-      'About me',
-      'cover',
-      'old',
-    ])
+  it('says why Publish is held back', () => {
+    expect(publishBlocker({ ...ready, busy: true })).toBe(BUSY)
+    expect(
+      publishBlocker({ ...ready, status: { ...changed, isRepo: false } })
+    ).toMatch(/isn't a git repository/)
+    expect(
+      publishBlocker({ ...ready, status: { ...changed, detached: true } })
+    ).toMatch(/not a branch/)
+    expect(publishBlocker({ ...ready, status: STATUS })).toBe(
+      'Nothing new to publish.'
+    )
+    expect(publishBlocker({ ...ready, message: '  ' })).toMatch(/message/)
+    expect(publishBlocker({ ...ready, heldBack: 'publish' })).toBe(REPEAT)
+  })
+
+  it('holds back only the action that hit the conflict', () => {
+    const input = { status: STATUS, busy: false, heldBack: 'bringIn' as const }
+    expect(syncBlocker(input)).toBeNull()
+    expect(bringInBlocker(input)).toBe(REPEAT)
+    expect(syncBlocker({ ...input, busy: true })).toBe(BUSY)
   })
 })

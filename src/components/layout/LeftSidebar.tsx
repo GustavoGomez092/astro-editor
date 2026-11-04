@@ -706,7 +706,8 @@ export const LeftSidebar: React.FC = () => {
       </div>
       {toolsOn && (
         <div className={cn('min-h-0 flex-1', tab !== 'changes' && 'hidden')}>
-          <ChangesPanel />
+          {/* One per project: a draft message or notice stays with its project */}
+          <ChangesPanel key={projectPath ?? 'none'} />
         </div>
       )}
     </div>

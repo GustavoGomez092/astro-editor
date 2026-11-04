@@ -311,6 +311,8 @@ function View(props: Partial<ChangesViewProps> & { status: GitStatus }) {
       pullRequest={null}
       notice={null}
       onDismissNotice={noop}
+      busy={false}
+      heldBack={null}
       selectedPath={null}
       onSelectFile={noop}
       message=""
@@ -344,16 +346,17 @@ export function GitChangesSection() {
           }}
         />
       </Panel>
-      <Panel label="Behind, after a conflict">
+      <Panel label="After a publish conflict">
         <View
-          status={{ ...STATUS, behind: 3, files: STATUS.files.slice(0, 1) }}
+          status={{ ...STATUS, ahead: 1, behind: 1, files: [] }}
           behindDefault
-          message="Update About"
           notice={{
             message:
-              "Your changes and the changes on GitHub both edited about.md. Publish isn't possible until that's sorted out.",
+              "Your changes are saved on this computer, but weren't published: the same lines of “About” were also changed on GitHub. Publish isn't possible until that's sorted out.",
+            outcome: 'conflict',
             url: 'https://github.com/kevinrobinson/site',
           }}
+          heldBack="publish"
         />
       </Panel>
       <Panel label="Not signed in">

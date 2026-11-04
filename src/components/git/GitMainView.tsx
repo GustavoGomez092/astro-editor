@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { convertFileSrc } from '@tauri-apps/api/core'
 import { ArrowLeft, X } from 'lucide-react'
 import { useProjectStore } from '../../store/projectStore'
 import { useGitStore } from '../../store/gitStore'
 import { useEditorStore } from '../../store/editorStore'
+import { useUIStore } from '../../store/uiStore'
 import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
 import { useGitLogQuery } from '../../hooks/queries/useGitLogQuery'
 import {
@@ -36,6 +37,22 @@ export function GitMainView() {
   useEffect(() => {
     closeMainView()
   }, [currentFileId])
+
+  // History gets the full width: the frontmatter panel steps aside while it's
+  // open, and comes back after if it was showing
+  const historyShown = open && historyOpen
+  const restoreFrontmatter = useRef(false)
+  useEffect(() => {
+    if (!historyShown) return
+    const ui = useUIStore.getState()
+    restoreFrontmatter.current = ui.frontmatterPanelVisible
+    if (ui.frontmatterPanelVisible) ui.setFrontmatterPanelVisible(false)
+    return () => {
+      if (restoreFrontmatter.current) {
+        useUIStore.getState().setFrontmatterPanelVisible(true)
+      }
+    }
+  }, [historyShown])
 
   useEffect(() => {
     if (!open) return

@@ -27,6 +27,8 @@ interface GitState {
   newBranchOpen: boolean
   /** The Open from GitHub (clone) dialog */
   openFromGitHubOpen: boolean
+  /** A clone is downloading: the dialog stays open until it's done */
+  cloneInProgress: boolean
 
   setPanelTab: (tab: GitPanelTab) => void
   openDiff: (path: string) => void
@@ -38,6 +40,7 @@ interface GitState {
   setSignIn: (update: Partial<SignInState>) => void
   setNewBranchOpen: (open: boolean) => void
   setOpenFromGitHubOpen: (open: boolean) => void
+  setCloneInProgress: (cloning: boolean) => void
   /** Back to the initial state, e.g. when another project opens */
   reset: () => void
 }
@@ -56,6 +59,7 @@ const INITIAL = {
   } as SignInState,
   newBranchOpen: false,
   openFromGitHubOpen: false,
+  cloneInProgress: false,
 }
 
 /**
@@ -83,6 +87,7 @@ export const useGitStore = create<GitState>(set => ({
     })),
   setNewBranchOpen: open => set({ newBranchOpen: open }),
   setOpenFromGitHubOpen: open => set({ openFromGitHubOpen: open }),
+  setCloneInProgress: cloning => set({ cloneInProgress: cloning }),
   // Sign-in and cloning aren't tied to a project (a clone ends by opening
   // one), so they survive a project switch
   reset: () =>
@@ -90,5 +95,6 @@ export const useGitStore = create<GitState>(set => ({
       ...INITIAL,
       signIn: state.signIn,
       openFromGitHubOpen: state.openFromGitHubOpen,
+      cloneInProgress: state.cloneInProgress,
     })),
 }))

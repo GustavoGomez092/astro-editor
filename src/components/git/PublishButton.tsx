@@ -29,11 +29,7 @@ export function PublishButton() {
       size="sm"
       className="h-7 gap-1.5 px-2 text-xs text-icon"
       onClick={showChanges}
-      title={
-        count > 0
-          ? `${count} changed ${count === 1 ? 'file' : 'files'}. Review and publish`
-          : 'Review and publish'
-      }
+      title="Review and publish your changes"
     >
       <CloudUpload className="size-4" />
       Publish

@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commands, type GitStatus } from '@/lib/bindings'
-import { FETCH_INTERVAL_MS, loadGitStatus, resetGitFetchTimes } from './status'
+import {
+  FETCH_INTERVAL_MS,
+  FETCH_SLACK_MS,
+  loadGitStatus,
+  resetGitFetchTimes,
+} from './status'
 
 vi.mock('@/lib/bindings', () => ({
   commands: { gitStatus: vi.fn(), gitFetch: vi.fn() },
@@ -16,6 +21,7 @@ const STATUS: GitStatus = {
   files: [],
   detached: false,
 }
+const FETCHED = { ...STATUS, behind: 2 }
 
 describe('loadGitStatus', () => {
   beforeEach(() => {
@@ -27,46 +33,88 @@ describe('loadGitStatus', () => {
     })
     vi.mocked(commands.gitFetch).mockResolvedValue({
       status: 'ok',
-      data: { ...STATUS, behind: 2 },
+      data: FETCHED,
     })
   })
 
-  it('fetches first when signed in and the project has just opened', async () => {
-    const status = await loadGitStatus('/site', { signedIn: true, now: 0 })
+  it('returns the local status at once and fetches in the background when signed in', async () => {
+    let finishFetch: (value: unknown) => void = () => {}
+    vi.mocked(commands.gitFetch).mockReturnValue(
+      new Promise(resolve => (finishFetch = resolve)) as never
+    )
+    const onFetched = vi.fn()
+
+    const status = await loadGitStatus('/site', {
+      signedIn: true,
+      now: 0,
+      onFetched,
+    })
+    // The fetch hasn't finished, and the status didn't wait for it
+    expect(status).toEqual(STATUS)
     expect(commands.gitFetch).toHaveBeenCalledWith('/site')
-    expect(commands.gitStatus).not.toHaveBeenCalled()
-    expect(status.behind).toBe(2)
+    expect(onFetched).not.toHaveBeenCalled()
+
+    finishFetch({ status: 'ok', data: FETCHED })
+    await vi.waitFor(() => expect(onFetched).toHaveBeenCalledWith(FETCHED))
   })
 
-  it('only reads local status when not signed in', async () => {
+  it('reads the local status before the fetch starts', async () => {
+    const order: string[] = []
+    vi.mocked(commands.gitStatus).mockImplementation(() => {
+      order.push('status')
+      return Promise.resolve({ status: 'ok', data: STATUS })
+    })
+    vi.mocked(commands.gitFetch).mockImplementation(() => {
+      order.push('fetch')
+      return Promise.resolve({ status: 'ok', data: FETCHED })
+    })
+    await loadGitStatus('/site', { signedIn: true, now: 0 })
+    expect(order).toEqual(['status', 'fetch'])
+  })
+
+  it('never fetches when not signed in', async () => {
     await loadGitStatus('/site', { signedIn: false, now: 0 })
     expect(commands.gitFetch).not.toHaveBeenCalled()
-    expect(commands.gitStatus).toHaveBeenCalledWith('/site')
   })
 
-  it('fetches again only after five minutes', async () => {
+  it('fetches again after about five minutes, allowing for timer slack', async () => {
     await loadGitStatus('/site', { signedIn: true, now: 0 })
-    await loadGitStatus('/site', { signedIn: true, now: FETCH_INTERVAL_MS - 1 })
+    await loadGitStatus('/site', { signedIn: true, now: 60_000 })
     expect(commands.gitFetch).toHaveBeenCalledTimes(1)
-    expect(commands.gitStatus).toHaveBeenCalledTimes(1)
 
-    await loadGitStatus('/site', { signedIn: true, now: FETCH_INTERVAL_MS })
+    // A 5-minute timer that fires a little early still fetches
+    await loadGitStatus('/site', {
+      signedIn: true,
+      now: FETCH_INTERVAL_MS - FETCH_SLACK_MS,
+    })
     expect(commands.gitFetch).toHaveBeenCalledTimes(2)
   })
 
-  it('fetches first again when another project opens', async () => {
+  it('remembers the last fetch per project', async () => {
     await loadGitStatus('/site', { signedIn: true, now: 0 })
     await loadGitStatus('/other', { signedIn: true, now: 10 })
-    expect(commands.gitFetch).toHaveBeenLastCalledWith('/other')
+    // Back to the first project within five minutes: no new fetch
+    await loadGitStatus('/site', { signedIn: true, now: 20 })
+    expect(vi.mocked(commands.gitFetch).mock.calls).toEqual([
+      ['/site'],
+      ['/other'],
+    ])
   })
 
-  it('falls back to local status when the fetch fails (offline)', async () => {
+  it('keeps the local status when the fetch fails (offline)', async () => {
     vi.mocked(commands.gitFetch).mockResolvedValue({
       status: 'error',
       error: "Couldn't reach GitHub",
     })
-    const status = await loadGitStatus('/site', { signedIn: true, now: 0 })
+    const onFetched = vi.fn()
+    const status = await loadGitStatus('/site', {
+      signedIn: true,
+      now: 0,
+      onFetched,
+    })
     expect(status).toEqual(STATUS)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(onFetched).not.toHaveBeenCalled()
   })
 
   it('throws the readable message when status itself fails', async () => {
