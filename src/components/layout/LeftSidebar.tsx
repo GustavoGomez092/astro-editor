@@ -41,6 +41,7 @@ import {
 import type { CollectionSort } from '../../lib/project-registry/types'
 import { filterFilesBySearch } from '../../lib/files/search'
 import { deserializeCompleteSchema } from '../../lib/schema'
+import { collectionDisplayName } from '../../lib/collection-name'
 
 /** Saves the selected collection's sort in the project settings. */
 function saveCollectionSort(
@@ -357,7 +358,7 @@ export const LeftSidebar: React.FC = () => {
   ])
 
   const headerTitle = selectedCollection
-    ? selectedCollection.charAt(0).toUpperCase() + selectedCollection.slice(1)
+    ? collectionDisplayName(selectedCollection)
     : 'Content'
 
   // Generate breadcrumb segments
@@ -555,7 +556,7 @@ export const LeftSidebar: React.FC = () => {
                   <div className="flex w-full items-center justify-between">
                     <div className="flex items-center gap-1.5">
                       <span className="font-medium text-foreground">
-                        {collection.name}
+                        {collectionDisplayName(collection.name)}
                       </span>
                       {!hasSchema && (
                         <Tooltip>

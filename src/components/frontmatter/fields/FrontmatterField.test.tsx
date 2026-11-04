@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { screen, fireEvent, act } from '@testing-library/react'
 import { FrontmatterField } from './FrontmatterField'
 import { useEditorStore } from '../../../store/editorStore'
+import { useProjectStore } from '../../../store/projectStore'
 import { renderWithProviders } from '../../../test/test-utils'
 import { FieldType, type SchemaField } from '../../../lib/schema'
 
@@ -250,6 +251,34 @@ describe('FrontmatterField Orchestrator', () => {
 
       // Should render as TextareaField despite being String type in schema
       expect(screen.getByRole('textbox')).toBeInTheDocument()
+    })
+  })
+
+  describe('Copy as slug', () => {
+    const renderTitle = (urlPattern?: string) => {
+      useProjectStore.setState({
+        currentProjectSettings: {
+          pathOverrides: {},
+          frontmatterMappings: {},
+          collections: urlPattern
+            ? [{ name: 'blog', settings: { urlPattern } }]
+            : [],
+        },
+      })
+      useEditorStore.setState({ frontmatter: { title: 'Hello world' } })
+      renderWithProviders(
+        <FrontmatterField name="title" label="Title" collectionName="blog" />
+      )
+    }
+
+    it('is offered when the collection has a URL pattern', () => {
+      renderTitle('/blog/{slug}')
+      expect(screen.getByText('Copy as slug')).toBeInTheDocument()
+    })
+
+    it("isn't offered without one, where a slug has no use", () => {
+      renderTitle()
+      expect(screen.queryByText('Copy as slug')).not.toBeInTheDocument()
     })
   })
 

@@ -24,6 +24,7 @@ import { toast } from '../toast'
 import { openInIde } from '../ide'
 import { openProjectViaDialog } from '../projects/actions'
 import { DOCS_URLS } from '../docs-urls'
+import { collectionDisplayName } from '../collection-name'
 import { useContentLinkerStore } from '@/store/contentLinkerStore'
 
 /**
@@ -310,8 +311,8 @@ export function generateCollectionCommands(
 ): AppCommand[] {
   return collections.map(collection => ({
     id: `open-collection-${collection.name}`,
-    label: `Open Collection: ${collection.name}`,
-    description: `Switch to the ${collection.name} collection`,
+    label: `Open Collection: ${collectionDisplayName(collection.name)}`,
+    description: `Switch to the ${collectionDisplayName(collection.name)} collection`,
     icon: FileText,
     group: 'navigation' as const,
     execute: (context: CommandContext) => {

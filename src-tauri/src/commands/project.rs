@@ -381,6 +381,10 @@ fn scan_content_directories_with_override(
             }
         }
 
+        // read_dir's order is whatever the filesystem gives; without a config
+        // to follow, list them by name so the sidebar doesn't shuffle
+        collections.sort_by(|a, b| a.name.cmp(&b.name));
+
         info!(
             "Astro Editor [PROJECT_SCAN] Found {} collections via directory scan",
             collections.len()
@@ -937,6 +941,20 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let missing = temp.path().join("missing").to_string_lossy().to_string();
         assert_eq!(collection_has_body_text(missing).await, Ok(false));
+    }
+
+    #[test]
+    fn directory_scan_lists_collections_by_name() {
+        let temp = tempfile::tempdir().unwrap();
+        let content = temp.path().join("src").join("content");
+        for name in ["work", "about", "sketch-strip", "settings"] {
+            std::fs::create_dir_all(content.join(name)).unwrap();
+        }
+
+        let collections = scan_content_directories_with_override(temp.path(), None).unwrap();
+        let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
+
+        assert_eq!(names, ["about", "settings", "sketch-strip", "work"]);
     }
 
     #[test]

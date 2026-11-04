@@ -1093,6 +1093,25 @@ export const collections = {
     }
 
     #[test]
+    fn collections_keep_the_order_of_the_config() {
+        let config = r#"
+const work = defineCollection({ schema: z.object({}) });
+const settings = defineCollection({ schema: z.object({}) });
+const about = defineCollection({ schema: z.object({}) });
+export const collections = { work, settings, about };
+"#;
+        let temp = tempfile::tempdir().unwrap();
+        for name in ["about", "settings", "work"] {
+            fs::create_dir_all(temp.path().join("src").join("content").join(name)).unwrap();
+        }
+
+        let collections = parse_collections_from_content(config, temp.path(), None).unwrap();
+        let names: Vec<&str> = collections.iter().map(|c| c.name.as_str()).collect();
+
+        assert_eq!(names, ["work", "settings", "about"]);
+    }
+
+    #[test]
     fn test_remove_comments() {
         let content = r#"
 // This is a comment
