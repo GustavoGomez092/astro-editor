@@ -10,6 +10,7 @@ import { RightSidebar } from './RightSidebar'
 import { FrontmatterPanel } from '../frontmatter'
 import { CommandPalette } from '../command-palette'
 import { ComponentBuilderDialog } from '../component-builder'
+import { NewFileDialog } from '../new-file'
 import { ContentLinkerDialog } from '../content-linker'
 import { Toaster } from '../ui/sonner'
 import { PreferencesDialog } from '../preferences'
@@ -256,6 +257,7 @@ export const Layout: React.FC = () => {
       <CommandPalette />
       <ComponentBuilderDialog />
       <ContentLinkerDialog />
+      <NewFileDialog />
       <PreferencesDialog
         open={preferencesOpen}
         onOpenChange={handleSetPreferencesOpen}
