@@ -37,6 +37,15 @@ export function isIgnored(filePath: string, key: string): boolean {
   return ignoredByFile.get(filePath)?.has(key) ?? false
 }
 
+/** Keeps a file's ignored issues when it's renamed or moved */
+export function moveIgnoredIssues(fromPath: string, toPath: string) {
+  const keys = ignoredByFile.get(fromPath)
+  if (!keys || fromPath === toPath) return
+  ignoredByFile.delete(fromPath)
+  const existing = ignoredByFile.get(toPath)
+  ignoredByFile.set(toPath, existing ? new Set([...existing, ...keys]) : keys)
+}
+
 /** For tests */
 export function clearIgnoredIssues() {
   ignoredByFile.clear()

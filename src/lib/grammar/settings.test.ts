@@ -28,6 +28,34 @@ describe('resolveGrammarSettings', () => {
   })
 })
 
+describe('resolveGrammarSettings with a damaged file', () => {
+  test('falls back field by field, without switching checking off', () => {
+    const global = {
+      grammar: { enabled: 'yes', dialect: 'klingon', dictionary: 'Kevin' },
+    } as unknown as GlobalSettings
+    expect(resolveGrammarSettings(global)).toEqual({
+      enabled: true,
+      dialect: 'american',
+      dictionary: [],
+    })
+  })
+
+  test('keeps only the text entries of a dictionary', () => {
+    const global = {
+      grammar: { dictionary: ['Kevin', 3, null, 'Astro'] },
+    } as unknown as GlobalSettings
+    expect(resolveGrammarSettings(global).dictionary).toEqual([
+      'Kevin',
+      'Astro',
+    ])
+  })
+
+  test('ignores a grammar value that is not an object', () => {
+    const global = { grammar: 'off' } as unknown as GlobalSettings
+    expect(resolveGrammarSettings(global).enabled).toBe(true)
+  })
+})
+
 describe('GRAMMAR_DIALECTS', () => {
   test('lists the five dialects, American first', () => {
     expect(GRAMMAR_DIALECTS.map(d => d.value)).toEqual([

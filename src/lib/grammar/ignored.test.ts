@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach } from 'vitest'
 import type { GrammarIssue } from '@/lib/bindings'
 import {
   clearIgnoredIssues,
+  moveIgnoredIssues,
   ignoreIssue,
   ignoreKey,
   isIgnored,
@@ -45,5 +46,12 @@ describe('ignored issues', () => {
     ignoreIssue('/a.md', 'key')
     expect(isIgnored('/a.md', 'key')).toBe(true)
     expect(isIgnored('/b.md', 'key')).toBe(false)
+  })
+
+  test('follow a file when it is renamed', () => {
+    ignoreIssue('/a.md', 'key')
+    moveIgnoredIssues('/a.md', '/b.md')
+    expect(isIgnored('/a.md', 'key')).toBe(false)
+    expect(isIgnored('/b.md', 'key')).toBe(true)
   })
 })

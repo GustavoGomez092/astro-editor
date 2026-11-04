@@ -4,7 +4,7 @@ export {
   removeWord,
   resolveGrammarSettings,
 } from './settings'
-export { ignoreIssue, ignoreKey, isIgnored } from './ignored'
+export { ignoreIssue, ignoreKey, isIgnored, moveIgnoredIssues } from './ignored'
 export {
   issuesToDiagnostics,
   plainMessage,

@@ -15,15 +15,28 @@ export const GRAMMAR_DIALECTS: { value: GrammarDialect; label: string }[] = [
   { value: 'indian', label: 'Indian English' },
 ]
 
-/** The grammar settings with defaults filled in: on, American, no words */
+/**
+ * The grammar settings with defaults filled in: on, American, no words. The
+ * file can be edited by hand, so each field is checked on its own: a damaged
+ * field falls back to its default without switching checking off
+ */
 export function resolveGrammarSettings(
   global: GlobalSettings | null | undefined
 ): Required<GrammarSettings> {
-  const grammar = global?.grammar
+  const stored: unknown = global?.grammar
+  const grammar =
+    stored && typeof stored === 'object'
+      ? (stored as Record<string, unknown>)
+      : {}
+  const { enabled, dialect, dictionary } = grammar
   return {
-    enabled: grammar?.enabled ?? true,
-    dialect: grammar?.dialect ?? 'american',
-    dictionary: grammar?.dictionary ?? [],
+    enabled: typeof enabled === 'boolean' ? enabled : true,
+    dialect: GRAMMAR_DIALECTS.some(d => d.value === dialect)
+      ? (dialect as GrammarDialect)
+      : 'american',
+    dictionary: Array.isArray(dictionary)
+      ? dictionary.filter((w): w is string => typeof w === 'string')
+      : [],
   }
 }
 

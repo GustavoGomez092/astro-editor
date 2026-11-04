@@ -27,7 +27,11 @@ const grammar: GrammarIssue = {
   suggestions: ['a', ''],
 }
 
-const handlers = () => ({ onIgnore: vi.fn(), onAddWord: vi.fn() })
+const handlers = () => ({
+  onIgnore: vi.fn(),
+  onAddWord: vi.fn(),
+  onStale: vi.fn(),
+})
 
 describe('plainMessage', () => {
   test('turns code quotes into curly quotes', () => {
@@ -114,5 +118,34 @@ describe('issuesToDiagnostics', () => {
     )
     expect(h.onAddWord).toHaveBeenCalledWith(view, 'teh')
     view.destroy()
+  })
+
+  test('a suggestion does nothing and re-checks when the text has changed', () => {
+    const h = handlers()
+    const view = new EditorView({ state: EditorState.create({ doc: DOC }) })
+    const [d] = issuesToDiagnostics(DOC, [spelling], '/a.md', h)
+    view.dispatch({ changes: { from: 8, to: 11, insert: 'tex' } })
+    d?.actions?.[0]?.apply(view, 8, 11)
+    expect(view.state.doc.toString()).toBe('This is tex test and an apple.')
+    expect(h.onStale).toHaveBeenCalledWith(view)
+    view.destroy()
+  })
+
+  test('Ignore does nothing and re-checks when the text has changed', () => {
+    const h = handlers()
+    const view = new EditorView({ state: EditorState.create({ doc: DOC }) })
+    const [d] = issuesToDiagnostics(DOC, [spelling], '/a.md', h)
+    view.dispatch({ changes: { from: 8, to: 11, insert: 'tex' } })
+    d?.actions?.[2]?.apply(view, 8, 11)
+    expect(h.onIgnore).not.toHaveBeenCalled()
+    expect(h.onStale).toHaveBeenCalledWith(view)
+    view.destroy()
+  })
+
+  test('drops issues on dictionary words, whatever their case', () => {
+    const issue = { ...spelling, problem: 'Teh' }
+    expect(
+      issuesToDiagnostics(DOC, [issue], '/a.md', handlers(), ['teh'])
+    ).toEqual([])
   })
 })
