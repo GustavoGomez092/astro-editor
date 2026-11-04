@@ -22,6 +22,15 @@ export const commands = {
 	getAppDataDir: () => typedError<string, string>(__TAURI_INVOKE("get_app_data_dir")),
 	writeAppDataFile: (filePath: string, content: string) => typedError<null, string>(__TAURI_INVOKE("write_app_data_file", { filePath, content })),
 	readAppDataFile: (filePath: string) => typedError<string, string>(__TAURI_INVOKE("read_app_data_file", { filePath })),
+	/**
+	 *  A preferences file's text, or null when there isn't one. Errors for a file
+	 *  that's there but can't be read
+	 */
+	readAppDataFileIfPresent: (filePath: string) => typedError<string | null, string>(__TAURI_INVOKE("read_app_data_file_if_present", { filePath })),
+	/**  Copy a preferences file within the app data folder, all or nothing */
+	copyAppDataFile: (fromPath: string, toPath: string) => typedError<null, string>(__TAURI_INVOKE("copy_app_data_file", { fromPath, toPath })),
+	/**  Rename a preferences file within the app data folder */
+	moveAppDataFile: (fromPath: string, toPath: string) => typedError<null, string>(__TAURI_INVOKE("move_app_data_file", { fromPath, toPath })),
 	readFileContent: (filePath: string, projectRoot: string) => typedError<string, string>(__TAURI_INVOKE("read_file_content", { filePath, projectRoot })),
 	/**
 	 *  Checks if a file path is within the project directory

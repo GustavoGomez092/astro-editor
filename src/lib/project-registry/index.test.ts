@@ -41,8 +41,8 @@ describe('Project Registry System', () => {
    */
   function setupInitializationMocks(mockInvoke: ReturnType<typeof vi.fn>) {
     mockInvoke.mockResolvedValueOnce('/mock/app/data') // get_app_data_dir
-    mockInvoke.mockRejectedValueOnce(new Error('File not found')) // read_file_content (registry)
-    mockInvoke.mockRejectedValueOnce(new Error('File not found')) // read_file_content (global settings)
+    mockInvoke.mockResolvedValueOnce(null) // read_app_data_file_if_present (registry)
+    mockInvoke.mockResolvedValueOnce(null) // read_app_data_file_if_present (global settings)
   }
 
   it('should initialize with default settings', async () => {
@@ -115,7 +115,7 @@ describe('Project Registry System', () => {
     const projectId = await manager.registerProject(mockProjectPath)
 
     // Mock loading project data (no project-specific settings)
-    mockInvoke.mockRejectedValueOnce(new Error('File not found')) // read_file_content (project data)
+    mockInvoke.mockResolvedValueOnce(null) // read_app_data_file_if_present (project data)
     mockInvoke.mockResolvedValueOnce(undefined) // write_app_data_file (save project data)
 
     const effectiveSettings = await manager.getEffectiveSettings(projectId)
@@ -149,8 +149,8 @@ describe('Project Registry System', () => {
           ? Promise.reject(new Error('File not found'))
           : Promise.resolve(JSON.stringify({ name }))
       }
-      if (command === 'read_app_data_file')
-        return Promise.reject(new Error('File not found'))
+      if (command === 'read_app_data_file_if_present')
+        return Promise.resolve(null)
       if (command === 'folder_states')
         return Promise.resolve(
           (a.paths as string[]).map(path =>
@@ -288,8 +288,8 @@ describe('Project Registry System', () => {
         return Promise.resolve('/mock/app/data')
       if (command === 'read_file_content')
         return Promise.resolve(JSON.stringify({ name: 'site' }))
-      if (command === 'read_app_data_file')
-        return Promise.reject(new Error('File not found'))
+      if (command === 'read_app_data_file_if_present')
+        return Promise.resolve(null)
       return Promise.resolve(undefined)
     })
     await manager.initialize()
