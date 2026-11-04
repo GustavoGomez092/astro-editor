@@ -546,6 +546,61 @@ mod tests {
         assert_eq!(kept, vec![(9, 12, true, 255), (20, 24, false, 1)]);
     }
 
+    /// About 5,000 words of varied prose with a misspelling every few sentences
+    fn long_text() -> String {
+        let words: Vec<&str> = "the quick writer keeps a steady rhythm while drafting long articles about design craft and the small decisions that shape a project from the first sketch to the final page".split(' ').collect();
+        let mut seed = 4u64;
+        let mut next = |n: usize| {
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            (seed >> 33) as usize % n
+        };
+        let mut paragraphs = Vec::new();
+        let (mut count, mut sentence) = (0, 0);
+        while count < 5000 {
+            let mut sentences = Vec::new();
+            for _ in 0..5 {
+                let n = 12 + next(11);
+                let mut w: Vec<&str> = (0..n).map(|_| words[next(words.len())]).collect();
+                sentence += 1;
+                if sentence % 7 == 0 {
+                    w[next(n)] = "teh";
+                }
+                count += n;
+                sentences.push(format!("{}.", w.join(" ")));
+            }
+            paragraphs.push(sentences.join(" "));
+        }
+        paragraphs.join("\n\n")
+    }
+
+    /// Timing check, not run by default:
+    /// `cargo test --release --lib grammar::tests::timing -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn timing_long_text() {
+        use std::time::Instant;
+        let text = long_text();
+        let started = Instant::now();
+        let mut checker = Checker::new(GrammarDialect::American, vec![]);
+        println!("build checker: {:?}", started.elapsed());
+        for label in ["first check", "same text again"] {
+            let started = Instant::now();
+            let issues = checker.check(&text, GrammarFileType::Md);
+            println!("{label}: {:?} ({} issues)", started.elapsed(), issues.len());
+        }
+        // The first long misspelling on a thread builds Harper's spelling
+        // automaton, which is why checks run on one long-lived thread
+        let started = Instant::now();
+        checker.check("A qwrtzpklmnbvcx word.", GrammarFileType::Md);
+        println!("a long misspelling: {:?}", started.elapsed());
+        let edited = text.replacen("writer", "writers", 1);
+        let started = Instant::now();
+        checker.check(&edited, GrammarFileType::Md);
+        println!("after a one-word edit: {:?}", started.elapsed());
+    }
+
     #[test]
     fn matches_compares_dialect_and_words() {
         let checker = Checker::new(GrammarDialect::British, vec!["a".to_string()]);

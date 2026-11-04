@@ -121,8 +121,9 @@ opt-level = "s" # Prioritize small binary size
 panic = "abort" # Disable panic handlers
 strip = true # Remove debug symbols
 
-# Harper is about 12 times slower unoptimised, which makes grammar checking lag in
-# dev builds. Optimising just its crates keeps the app's own code quick to rebuild
+# Harper and its part-of-speech tagger are 10 to 20 times slower unoptimised, which
+# made grammar checking lag in dev builds. Optimising just those crates keeps the
+# app's own code quick to rebuild
 [profile.dev.package.harper-core]
 opt-level = 3
 
@@ -130,4 +131,22 @@ opt-level = 3
 opt-level = 3
 
 [profile.dev.package.fst]
+opt-level = 3
+
+[profile.dev.package.harper-pos-utils]
+opt-level = 3
+
+[profile.dev.package.burn-ndarray]
+opt-level = 3
+
+[profile.dev.package.burn-tensor]
+opt-level = 3
+
+[profile.dev.package.ndarray]
+opt-level = 3
+
+[profile.dev.package.matrixmultiply]
+opt-level = 3
+
+[profile.dev.package.levenshtein_automata]
 opt-level = 3

@@ -220,9 +220,13 @@ export const commands = {
 	githubListRepos: () => typedError<RepoSummary[], string>(__TAURI_INVOKE("github_list_repos")),
 	/**
 	 *  Checks `text` (the body, without frontmatter) and returns its issues, with
-	 *  UTF-16 offsets. Runs on a blocking thread, so typing never waits on it
+	 *  UTF-16 offsets, or `null` if a newer check replaced this one before it ran.
+	 * 
+	 *  Checks run on one dedicated thread rather than the blocking pool: Harper
+	 *  builds its spelling automaton once per thread, which takes up to a second,
+	 *  so a fresh pool thread would make an occasional check that slow
 	 */
-	checkGrammar: (text: string, fileType: GrammarFileType, dialect: GrammarDialect, dictionary: string[]) => typedError<GrammarIssue[], string>(__TAURI_INVOKE("check_grammar", { text, fileType, dialect, dictionary })),
+	checkGrammar: (text: string, fileType: GrammarFileType, dialect: GrammarDialect, dictionary: string[]) => typedError<GrammarIssue[] | null, string>(__TAURI_INVOKE("check_grammar", { text, fileType, dialect, dictionary })),
 };
 
 /* Types */
