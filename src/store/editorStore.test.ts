@@ -60,3 +60,28 @@ describe('editorStore.openFile', () => {
     expect(useEditorStore.getState().isDirty).toBe(true)
   })
 })
+
+describe('editorStore field validation messages', () => {
+  it('forgets which messages were shown when another file opens', () => {
+    useEditorStore.setState({
+      currentFile: fileEntry('first'),
+      isDirty: false,
+      shownFieldErrors: { email: true },
+    })
+
+    useEditorStore.getState().openFile(fileEntry('second'))
+
+    expect(useEditorStore.getState().shownFieldErrors).toEqual({})
+  })
+
+  it('adds fields to the shown messages', () => {
+    useEditorStore.setState({ shownFieldErrors: { email: true } })
+
+    useEditorStore.getState().showFieldErrors(['title', 'email'])
+
+    expect(useEditorStore.getState().shownFieldErrors).toEqual({
+      email: true,
+      title: true,
+    })
+  })
+})

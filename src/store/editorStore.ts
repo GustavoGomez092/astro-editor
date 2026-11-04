@@ -22,6 +22,9 @@ interface EditorState {
   autoSaveTimeoutId: ReturnType<typeof setTimeout> | null // Auto-save timeout ID
   lastSaveTimestamp: number | null // Timestamp of last successful save
   autoSaveCallback: ((showToast?: boolean) => Promise<void>) | null // Hook-provided save callback
+  // Frontmatter fields whose validation message is shown: those the writer
+  // has left, and those that needed attention at the last save
+  shownFieldErrors: Record<string, true>
 
   // Actions
   openFile: (file: FileEntry) => void
@@ -36,6 +39,7 @@ interface EditorState {
     callback: ((showToast?: boolean) => Promise<void>) | null
   ) => void
   updateCurrentFileAfterRename: (newPath: string) => void
+  showFieldErrors: (names: string[]) => void
 }
 
 export const useEditorStore = create<EditorState>((set, get) => ({
@@ -50,6 +54,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   autoSaveTimeoutId: null,
   lastSaveTimestamp: null,
   autoSaveCallback: null,
+  shownFieldErrors: {},
 
   // Actions
   openFile: (file: FileEntry) => {
@@ -83,6 +88,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       isFrontmatterDirty: false,
       autoSaveTimeoutId: null,
       lastSaveTimestamp: Date.now(),
+      shownFieldErrors: {},
     })
 
     // Update the selected collection to match the opened file's collection
@@ -114,6 +120,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       isFrontmatterDirty: false,
       autoSaveTimeoutId: null,
       lastSaveTimestamp: null,
+      shownFieldErrors: {},
     })
   },
 
@@ -226,7 +233,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       })
     }
   },
-}))
 
-// Components can use direct selectors like:
-// const currentFile = useEditorStore(state => state.currentFile)
+  showFieldErrors: (names: string[]) => {
+    const { shownFieldErrors } = get()
+    if (names.every(name => shownFieldErrors[name])) return
+    const shown = { ...shownFieldErrors }
+    for (const name of names) shown[name] = true
+    set({ shownFieldErrors: shown })
+  },
+}))

@@ -62,8 +62,9 @@ export function useMenuEvents(
           void openProjectViaDialog()
         }),
         listen('menu-save', () => {
-          const { currentFile, isDirty, saveFile } = useEditorStore.getState()
-          if (currentFile && isDirty) {
+          // A saved file isn't written again (see saveCurrentFile)
+          const { currentFile, saveFile } = useEditorStore.getState()
+          if (currentFile) {
             void saveFile()
           }
         }),

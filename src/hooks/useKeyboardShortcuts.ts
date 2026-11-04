@@ -41,12 +41,12 @@ export function useKeyboardShortcuts(
     openPreferencesRef.current = onOpenPreferences
   }, [saveFile, onOpenPreferences])
 
-  // Cmd+S: Save File
+  // Cmd+S: Save File. A saved file isn't written again, but the save still
+  // reports the fields that need attention
   useHotkeys(
     'mod+s',
     () => {
-      const { currentFile, isDirty } = useEditorStore.getState()
-      if (currentFile && isDirty) {
+      if (useEditorStore.getState().currentFile) {
         void saveFileRef.current()
       }
     },

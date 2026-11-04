@@ -1,7 +1,9 @@
 import React from 'react'
 import { useEditorStore } from '../../../store/editorStore'
 import { useEffectiveSettings } from '../../../hooks/settings/useEffectiveSettings'
+import { useFieldError } from '../../../hooks/editor/useFieldError'
 import { FieldType, type SchemaField } from '../../../lib/schema'
+import { FieldError } from '../../ui/field'
 import { StringField } from './StringField'
 import { TextareaField } from './TextareaField'
 import { NumberField } from './NumberField'
@@ -21,7 +23,33 @@ interface FrontmatterFieldProps {
   collectionName?: string
 }
 
-export const FrontmatterField: React.FC<FrontmatterFieldProps> = ({
+/**
+ * One frontmatter field: the control for its type, and its validation message
+ * (see `lib/frontmatter-validation.ts`), shown once the writer leaves the field
+ * or saves. Focus moving into the field's own popup (a select or date picker,
+ * portalled outside `#root`) doesn't count as leaving it.
+ */
+export const FrontmatterField: React.FC<FrontmatterFieldProps> = props => {
+  const error = useFieldError(props.name, props.field)
+
+  const handleBlur = (event: React.FocusEvent<HTMLDivElement>) => {
+    const next = event.relatedTarget
+    if (next instanceof Node && event.currentTarget.contains(next)) return
+    if (next instanceof Element && !next.closest('#root')) return
+    useEditorStore.getState().showFieldErrors([props.name])
+  }
+
+  return (
+    <div className="flex flex-col gap-1.5" onBlur={handleBlur}>
+      <FieldControl {...props} />
+      {error && (
+        <FieldError className="text-xs text-required">{error}</FieldError>
+      )}
+    </div>
+  )
+}
+
+const FieldControl: React.FC<FrontmatterFieldProps> = ({
   name,
   label,
   field,
