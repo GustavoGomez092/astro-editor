@@ -54,4 +54,6 @@ Right-clicking a file in the left sidebar gives you the following options:
 
 ## Creating New Files
 
-When a collection is open, you can create a new file with <Kbd mac="Cmd+N" windows="Ctrl+N" /> or the "New File" button in the toolbar. If you're in a subdirectory, the file is created there. If you're at the collection root, the file is created at the root. The file will have default [frontmatter](/frontmatter/overview/) values from your collection schema.
+When a collection is open, you can create a new file with <Kbd mac="Cmd+N" windows="Ctrl+N" /> or the "New File" button in the toolbar. If you're in a subdirectory, the file is created there. If you're at the collection root, the file is created at the root.
+
+You're asked for a title first, and the file is named after it (`Andrew Dyk` becomes `andrew-dyk.md`, or `andrew-dyk-1.md` if that's taken). Leave it empty and the file is named for today's date. The new file's [frontmatter](/frontmatter/overview/) has the title, today's date and every default from your collection schema. Required fields without a default are left out rather than filled with a placeholder, so the form shows what still needs filling in; a required list that may be empty starts as an empty list.

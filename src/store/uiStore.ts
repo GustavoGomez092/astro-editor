@@ -14,6 +14,7 @@ interface UIState {
   focusModeEnabled: boolean
   typewriterModeEnabled: boolean
   distractionFreeBarsHidden: boolean
+  newFileDialogOpen: boolean // Asking for a new entry's title
 
   // View filters (per-collection state, ephemeral)
   draftFilterByCollection: Record<string, boolean>
@@ -22,6 +23,7 @@ interface UIState {
   // Actions
   setSidebarVisible: (visible: boolean) => void
   setFrontmatterPanelVisible: (visible: boolean) => void
+  setNewFileDialogOpen: (open: boolean) => void
   toggleSidebar: () => void
   toggleFrontmatterPanel: () => void
   toggleFocusMode: () => void
@@ -57,6 +59,7 @@ export const useUIStore = create<UIState>((set, get) => ({
   focusModeEnabled: false,
   typewriterModeEnabled: false,
   distractionFreeBarsHidden: false,
+  newFileDialogOpen: false,
   draftFilterByCollection: {},
   collectionViewState: {},
 
@@ -67,6 +70,10 @@ export const useUIStore = create<UIState>((set, get) => ({
 
   setFrontmatterPanelVisible: (visible: boolean) => {
     set({ frontmatterPanelVisible: visible })
+  },
+
+  setNewFileDialogOpen: (open: boolean) => {
+    set({ newFileDialogOpen: open })
   },
 
   toggleSidebar: () => {

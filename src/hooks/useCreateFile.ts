@@ -9,58 +9,29 @@ import {
   useCreateFileMutation,
   type CreateFilePayload,
 } from './mutations/useCreateFileMutation'
-import { deserializeCompleteSchema, FieldType } from '../lib/schema'
+import { deserializeCompleteSchema } from '../lib/schema'
 import { toast } from '../lib/toast'
 import { todayIsoDate } from '../lib/dates'
 import { getDefaultFileType } from '../lib/project-registry/default-file-type'
-
-// Helper function to singularize collection name
-const singularize = (word: string): string => {
-  const pluralRules = [
-    { suffix: 'ies', replacement: 'y' }, // stories -> story
-    { suffix: 'es', replacement: 'e' }, // articles -> article (not articl)
-    { suffix: 's', replacement: '' }, // notes -> note
-  ]
-
-  for (const rule of pluralRules) {
-    if (word.endsWith(rule.suffix)) {
-      return word.slice(0, -rule.suffix.length) + rule.replacement
-    }
-  }
-  return word
-}
-
-// Helper function to get default value based on field type
-const getDefaultValueForFieldType = (type: FieldType): unknown => {
-  switch (type) {
-    case FieldType.String:
-    case FieldType.Email:
-    case FieldType.URL:
-      return ''
-    case FieldType.Number:
-    case FieldType.Integer:
-      return 0
-    case FieldType.Boolean:
-      return false
-    case FieldType.Date:
-      return todayIsoDate() // YYYY-MM-DD format
-    case FieldType.Array:
-      return []
-    default:
-      return ''
-  }
-}
+import {
+  buildNewFileFrontmatter,
+  newFileContent,
+  newFileName,
+  newFileTitlePlaceholder,
+} from '../lib/files/new-file'
 
 /**
- * Creates a file named for today in the folder open in the sidebar, with
- * frontmatter from the collection's schema (a placeholder title, today's date,
- * defaults for required fields), then opens it and focuses its title or the
- * editor. Plain function rather than inline in the hook so the React Compiler
- * can compile the hook (it can't handle `throw` inside `try`).
+ * Creates a file named after `title` (or today's date when there's none) in
+ * the folder open in the sidebar, with frontmatter from the collection's
+ * schema (see `lib/files/new-file.ts`), then opens it and focuses the editor,
+ * or the title field when no title was given. Plain function rather than
+ * inline in the hook so the React Compiler can compile the hook (it can't
+ * handle `throw` inside `try`).
  */
 async function createFileInCurrentFolder(
   collections: Collection[],
-  createFile: (payload: CreateFilePayload) => Promise<unknown>
+  createFile: (payload: CreateFilePayload) => Promise<unknown>,
+  title: string
 ): Promise<void> {
   // Get current values from store state
   const { selectedCollection, currentSubdirectory } = useProjectStore.getState()
@@ -90,12 +61,6 @@ async function createFileInCurrentFolder(
     selectedCollection
   )
 
-  // Generate filename based on today's date
-  const today = todayIsoDate()
-  let filename = `${today}.${fileExtension}`
-  let counter = 1
-
-  // Check if file exists in target directory and increment counter if needed
   const existingResult = await commands.scanDirectory(
     targetDirectory,
     selectedCollection,
@@ -112,71 +77,19 @@ async function createFileInCurrentFolder(
     )
   )
 
-  while (existingNames.has(filename)) {
-    filename = `${today}-${counter}.${fileExtension}`
-    counter++
-  }
+  const today = todayIsoDate()
+  const filename = newFileName(title, fileExtension, existingNames, today)
 
-  // Generate default frontmatter from schema
-  const schema = collection.complete_schema
-    ? deserializeCompleteSchema(collection.complete_schema)
-    : null
-  const defaultFrontmatter: Record<string, unknown> = {}
-
-  // Track if we have a title field in the schema
-  let hasTitleField = false
-
-  // Generate default title
-  const singularName = singularize(selectedCollection)
-  const defaultTitle = `New ${singularName.charAt(0).toUpperCase() + singularName.slice(1)}`
-
-  if (schema?.fields) {
-    for (const field of schema.fields) {
-      // Check if this is a title field
-      if (field.name.toLowerCase() === 'title') {
-        hasTitleField = true
-        // Always include title field with default value
-        defaultFrontmatter[field.name] = defaultTitle
-      }
-      // Check for date fields (pubDate, date, publishedDate)
-      else if (
-        field.type === FieldType.Date &&
-        (field.name.toLowerCase() === 'pubdate' ||
-          field.name.toLowerCase() === 'date' ||
-          field.name.toLowerCase() === 'publisheddate')
-      ) {
-        // Only add date fields if they exist in the schema
-        defaultFrontmatter[field.name] = today
-      }
-      // Include other required fields
-      else if (field.required) {
-        // Use field default if available, otherwise use type-based defaults
-        defaultFrontmatter[field.name] =
-          field.default !== undefined
-            ? field.default
-            : getDefaultValueForFieldType(field.type)
-      }
-    }
-  }
-
-  // Create YAML frontmatter with proper type formatting
-  const frontmatterYaml =
-    Object.keys(defaultFrontmatter).length > 0
-      ? `---\n${Object.entries(defaultFrontmatter)
-          .map(([key, value]) => {
-            if (typeof value === 'string') {
-              return `${key}: "${value}"`
-            } else if (typeof value === 'boolean') {
-              return `${key}: ${value}` // Don't quote booleans
-            } else if (Array.isArray(value)) {
-              return `${key}: []` // Empty array
-            } else if (typeof value === 'number') {
-              return `${key}: ${value}` // Don't quote numbers
-            }
-            return `${key}: ${String(value)}`
-          })
-          .join('\n')}\n---\n\n`
-      : ''
+  const fields = collection.complete_schema
+    ? (deserializeCompleteSchema(collection.complete_schema)?.fields ?? [])
+    : []
+  const hasTitleField = fields.some(f => f.name.toLowerCase() === 'title')
+  const frontmatter = buildNewFileFrontmatter(
+    fields,
+    title || newFileTitlePlaceholder(selectedCollection),
+    today
+  )
+  const frontmatterYaml = newFileContent(frontmatter, fields)
 
   // Create the file in target directory (respects current subdirectory)
   await createFile({
@@ -217,7 +130,7 @@ async function createFileInCurrentFolder(
 
     // Focus the appropriate element after a delay to allow UI to update
     setTimeout(() => {
-      if (hasTitleField) {
+      if (hasTitleField && !title) {
         // Try to find and focus the title field by ID
         const titleField = document.getElementById(
           'frontmatter-title-field'
@@ -227,7 +140,7 @@ async function createFileInCurrentFolder(
           titleField.select()
         }
       } else {
-        // No title field, focus the main editor
+        // Otherwise, the editor
         const cmEditor = document.querySelector(
           '.cm-editor .cm-content'
         ) as HTMLElement
@@ -262,23 +175,37 @@ export const useCreateFile = () => {
   // React ref for concurrency guard (doesn't trigger re-renders)
   const isCreatingRef = useRef(false)
 
-  const createNewFile = useCallback(async () => {
-    if (isCreatingRef.current) {
-      return // Silently ignore concurrent calls
+  // Asks for the title first; the dialog then calls createNamedFile
+  const createNewFile = useCallback(() => {
+    if (!useProjectStore.getState().selectedCollection) {
+      toast.error('No collection selected')
+    } else {
+      useUIStore.getState().setNewFileDialogOpen(true)
     }
+    return Promise.resolve()
+  }, [])
 
-    isCreatingRef.current = true
-    await createFileInCurrentFolder(
-      collectionsRef.current,
-      createFileMutation.mutateAsync
-    ).catch(error =>
-      toast.error('Failed to create new file', {
-        description:
-          error instanceof Error ? error.message : 'Unknown error occurred',
-      })
-    )
-    isCreatingRef.current = false
-  }, [createFileMutation]) // PERFORMANCE FIX: Use ref for collections, stable dependency array
+  const createNamedFile = useCallback(
+    async (title: string) => {
+      if (isCreatingRef.current) {
+        return // Silently ignore concurrent calls
+      }
 
-  return { createNewFile }
+      isCreatingRef.current = true
+      await createFileInCurrentFolder(
+        collectionsRef.current,
+        createFileMutation.mutateAsync,
+        title.trim()
+      ).catch(error =>
+        toast.error('Failed to create new file', {
+          description:
+            error instanceof Error ? error.message : 'Unknown error occurred',
+        })
+      )
+      isCreatingRef.current = false
+    },
+    [createFileMutation]
+  ) // PERFORMANCE FIX: Use ref for collections, stable dependency array
+
+  return { createNewFile, createNamedFile }
 }
