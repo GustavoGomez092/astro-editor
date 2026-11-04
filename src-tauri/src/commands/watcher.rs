@@ -47,7 +47,7 @@ const RESCAN_INTERVAL: Duration = Duration::from_secs(300);
 /// The folders to watch: the content directory, and each collection folder
 /// outside it (one the writer set, or a glob loader's base). Only folders
 /// that exist
-fn watched_folders(
+pub(crate) fn watched_folders(
     project_root: &Path,
     content_directory: Option<&str>,
     collection_folders: &CollectionFolders,
@@ -392,16 +392,49 @@ fn rewatch_folders(
     else {
         return;
     };
-    for folder in &removed {
-        let _ = entry.watcher.unwatch(folder);
+    let watcher = std::cell::RefCell::new(&mut entry.watcher);
+    folders.watched = apply_folder_changes(
+        &folders.watched,
+        &added,
+        &removed,
+        |folder| {
+            watcher
+                .borrow_mut()
+                .watch(folder, RecursiveMode::Recursive)
+                .map_err(|e| e.to_string())
+        },
+        |folder| {
+            let _ = watcher.borrow_mut().unwatch(folder);
+        },
+    );
+    log::info!("Watching the collection folders of {project_path} again after a config change");
+}
+
+/// Stop watching `removed` and start watching `added`, and return the folders
+/// watched after: one that fails to be watched isn't counted, so it's tried
+/// again after the next config change
+fn apply_folder_changes(
+    watched: &[PathBuf],
+    added: &[PathBuf],
+    removed: &[PathBuf],
+    mut watch: impl FnMut(&Path) -> Result<(), String>,
+    mut unwatch: impl FnMut(&Path),
+) -> Vec<PathBuf> {
+    for folder in removed {
+        unwatch(folder);
     }
-    for folder in &added {
-        if let Err(e) = entry.watcher.watch(folder, RecursiveMode::Recursive) {
-            log::warn!("Failed to watch {}: {e}", folder.display());
+    let mut now: Vec<PathBuf> = watched
+        .iter()
+        .filter(|folder| !removed.contains(folder))
+        .cloned()
+        .collect();
+    for folder in added {
+        match watch(folder) {
+            Ok(()) => now.push(folder.clone()),
+            Err(e) => log::warn!("Failed to watch {}: {e}", folder.display()),
         }
     }
-    log::info!("Watching the collection folders of {project_path} again after a config change");
-    folders.watched = now;
+    now
 }
 
 /// Tell the frontend about changed files. Whether a schema file changed
@@ -531,6 +564,30 @@ mod tests {
             folder_changes(std::slice::from_ref(&a), std::slice::from_ref(&a)),
             (vec![], vec![])
         );
+    }
+
+    #[test]
+    fn a_folder_that_fails_to_be_watched_is_not_recorded_as_watched() {
+        let a = PathBuf::from("/site/src/content");
+        let b = PathBuf::from("/site/posts");
+        let c = PathBuf::from("/site/writing");
+        let d = PathBuf::from("/site/gone");
+
+        let watched = apply_folder_changes(
+            &[a.clone(), b.clone()],
+            &[c.clone(), d.clone()],
+            std::slice::from_ref(&b),
+            |folder| {
+                if folder == d {
+                    Err("no such folder".to_string())
+                } else {
+                    Ok(())
+                }
+            },
+            |_| {},
+        );
+
+        assert_eq!(watched, vec![a, c]);
     }
 
     #[test]

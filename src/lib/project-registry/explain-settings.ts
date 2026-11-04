@@ -44,6 +44,8 @@ export interface ExplainInput {
     automatic_path?: string | null
     /** A folder set for the collection that isn't there */
     missing_folder?: string | null
+    /** Why Rust refused the folder set for the collection ("it links …") */
+    refused_folder?: string | null
   }
   projectPath: string
   projectSettings: ProjectSettings | null | undefined
@@ -119,7 +121,9 @@ function explainContentFolder(
     const set = tidyFolder(paths.contentDirectory)
     const problem = collection.missing_folder
       ? `Folder not found: \`${set}\` — using \`${automatic}\`.`
-      : unusableFolder(paths.contentDirectory, projectSettings, automatic)
+      : collection.refused_folder
+        ? `Can't use \`${set}\`: ${collection.refused_folder} — using \`${automatic}\`.`
+        : unusableFolder(paths.contentDirectory, projectSettings, automatic)
     // Set but not used: the line says what's set, the warning what's used
     return problem
       ? {

@@ -28,6 +28,7 @@ function explain({
   loaderBase = null,
   automaticPath = null,
   missingFolder = null,
+  refusedFolder = null,
 }: {
   settings?: CollectionSpecificSettings
   project?: ProjectSettings
@@ -36,6 +37,7 @@ function explain({
   loaderBase?: string | null
   automaticPath?: string | null
   missingFolder?: string | null
+  refusedFolder?: string | null
 } = {}) {
   return explainCollectionSettings({
     collection: {
@@ -44,6 +46,7 @@ function explain({
       loader_base: loaderBase,
       automatic_path: automaticPath,
       missing_folder: missingFolder,
+      refused_folder: refusedFolder,
     },
     projectPath: PROJECT,
     projectSettings: {
@@ -98,6 +101,21 @@ describe("explainCollectionSettings: a content folder that can't be used", () =>
       value: null,
       reason: 'set to `writing/blog`',
       warning: 'Folder not found: `writing/blog` — using `src/content/blog`.',
+    })
+  })
+
+  it('says why a folder set for the collection was refused', () => {
+    expect(
+      explain({
+        settings: { pathOverrides: { contentDirectory: 'posts' } },
+        refusedFolder: 'it links outside the project',
+      }).contentFolder
+    ).toEqual({
+      state: 'set',
+      value: null,
+      reason: 'set to `posts`',
+      warning:
+        "Can't use `posts`: it links outside the project — using `src/content/blog`.",
     })
   })
 

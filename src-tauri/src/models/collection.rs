@@ -40,6 +40,11 @@ pub struct Collection {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub missing_folder: Option<String>,
 
+    /// Why the folder the writer set can't be used ("it links outside the
+    /// project"), so the collection is in its automatic folder instead
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refused_folder: Option<String>,
+
     // Complete merged schema - ONLY this goes to frontend
     #[serde(skip_serializing_if = "Option::is_none")]
     pub complete_schema: Option<String>, // Serialized SchemaDefinition
@@ -55,6 +60,7 @@ impl Collection {
             loader_base: None,
             automatic_path: None,
             missing_folder: None,
+            refused_folder: None,
             complete_schema: None,
         }
     }
@@ -69,6 +75,7 @@ impl Collection {
             loader_base: None,
             automatic_path: None,
             missing_folder: None,
+            refused_folder: None,
             complete_schema: None,
         }
     }

@@ -1,6 +1,7 @@
 use crate::models::{Collection, DirectoryInfo, FileEntry};
 use crate::parser::{
-    parse_astro_config, place_collection, resolve_collection_folders, CollectionFolders,
+    parse_astro_config, place_collection, project_folder, resolve_collection_folders,
+    CollectionFolders,
 };
 use crate::schema_merger;
 use log::{debug, error, info, warn};
@@ -201,6 +202,12 @@ pub enum FolderState {
 const MOUNT_FOLDERS: [&str; 4] = ["/Volumes", "/media", "/mnt", "/run/media"];
 
 pub fn folder_state(path: &Path) -> FolderState {
+    // Linux keeps mount points like /mnt/nas as empty folders while a drive
+    // or share isn't mounted, so a folder gone from an empty one is unavailable
+    folder_state_where(path, cfg!(target_os = "linux"))
+}
+
+fn folder_state_where(path: &Path, empty_parent_is_unmounted: bool) -> FolderState {
     match std::fs::metadata(path) {
         Ok(metadata) if metadata.is_dir() => FolderState::Present,
         Ok(_) => FolderState::Unavailable,
@@ -208,6 +215,8 @@ pub fn folder_state(path: &Path) -> FolderState {
             let parent_is_there = path.parent().is_some_and(|parent| {
                 !MOUNT_FOLDERS.iter().any(|mount| parent == Path::new(mount))
                     && std::fs::metadata(parent).is_ok_and(|m| m.is_dir())
+                    && !(empty_parent_is_unmounted
+                        && std::fs::read_dir(parent).is_ok_and(|mut e| e.next().is_none()))
             });
             if parent_is_there {
                 FolderState::Missing
@@ -283,7 +292,11 @@ pub fn discover_collections(
     content_directory: Option<&str>,
     collection_folders: &CollectionFolders,
 ) -> Result<Vec<Collection>, String> {
-    let folders = resolve_collection_folders(project_path, collection_folders)?;
+    let content_path = match content_directory {
+        Some(dir) => project_folder(project_path, dir),
+        None => project_path.join("src").join("content"),
+    };
+    let folders = resolve_collection_folders(project_path, &content_path, collection_folders);
     debug!("Astro Editor [PROJECT_SCAN] Attempting to parse Astro config");
     let collections = match parse_astro_config(project_path, content_directory, &folders) {
         Ok(collections) if !collections.is_empty() => {
@@ -968,6 +981,21 @@ mod tests {
         assert_eq!(gone, FolderState::Unavailable);
     }
 
+    #[test]
+    fn a_folder_in_an_empty_mount_point_is_unavailable_where_drives_mount_there() {
+        let temp = tempfile::tempdir().unwrap();
+        // /mnt/nas, there but empty while the share isn't mounted
+        let nas = temp.path().join("nas");
+        std::fs::create_dir(&nas).unwrap();
+        let site = nas.join("site");
+
+        assert_eq!(folder_state_where(&site, true), FolderState::Unavailable);
+        assert_eq!(folder_state_where(&site, false), FolderState::Missing);
+        // A parent with other things in it: the folder was moved or deleted
+        std::fs::create_dir(nas.join("other")).unwrap();
+        assert_eq!(folder_state_where(&site, true), FolderState::Missing);
+    }
+
     #[tokio::test]
     async fn folder_states_reports_each_folder_in_order() {
         let temp = tempfile::tempdir().unwrap();
@@ -1241,6 +1269,62 @@ mod tests {
     }
 
     #[test]
+    fn a_glob_loader_base_holding_the_content_folder_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/notes")).unwrap();
+        for base in ["./src/content", "./src", "src/content/."] {
+            let loader = format!("{{ base: '{base}', pattern: '*.md' }}");
+            assert_eq!(blog_folder(temp.path(), &loader), None, "base {base:?}");
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_inside_or_around_another_collection_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src/content/notes/2024")).unwrap();
+        std::fs::create_dir_all(root.join("data/posts")).unwrap();
+        let config = |blog_base: &str| {
+            format!(
+                "const blog = defineCollection({{ loader: glob({{ base: '{blog_base}', pattern: '*.md' }}) }});\n\
+                 const notes = defineCollection({{ schema: z.object({{}}) }});\n\
+                 const posts = defineCollection({{ loader: glob({{ base: './data/posts', pattern: '*.md' }}) }});\n\
+                 export const collections = {{ blog, notes, posts }};\n"
+            )
+        };
+
+        for base in ["./src/content/notes/2024", "./data"] {
+            write_entry(&root.join("src"), "content.config.ts", &config(base));
+            let collections = discover_collections(root, None, &CollectionFolders::new()).unwrap();
+            assert!(
+                collections.iter().all(|c| c.name != "blog"),
+                "base {base:?}: {collections:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_with_an_array_pattern_is_used_unless_it_names_a_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("posts")).unwrap();
+
+        assert_eq!(
+            blog_folder(
+                temp.path(),
+                "{ base: './posts', pattern: ['*.md', '**/*.mdx'] }"
+            ),
+            Some(temp.path().join("posts"))
+        );
+        assert_eq!(
+            blog_folder(
+                temp.path(),
+                "{ base: './posts', pattern: ['*.md', 'drafts/*.md'] }"
+            ),
+            None
+        );
+    }
+
+    #[test]
     fn collections_sharing_a_glob_loader_base_use_neither() {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(temp.path().join("src/data")).unwrap();
@@ -1257,38 +1341,98 @@ mod tests {
         assert!(collections.is_empty(), "{collections:?}");
     }
 
-    #[test]
-    fn a_collection_folder_outside_the_project_is_refused() {
+    const BLOG_AND_NOTES: &str = "const blog = defineCollection({ schema: z.object({}) });\n\
+        const notes = defineCollection({ schema: z.object({}) });\n\
+        export const collections = { blog, notes };\n";
+
+    /// Where blog is found with this folder set for it, and why it was refused
+    fn refused(root: &Path, folder: &str) -> (Vec<Collection>, Option<String>) {
+        let collections =
+            discover_collections(root, None, &folders(&[("blog", folder)])).expect(folder);
+        let blog = collections.iter().find(|c| c.name == "blog").expect(folder);
+        let reason = blog.refused_folder.clone();
+        assert_eq!(blog.path, root.join("src/content/blog"), "{folder}");
+        (collections, reason)
+    }
+
+    /// A project with blog and notes in the usual folders
+    fn blog_and_notes_project() -> (tempfile::TempDir, PathBuf) {
         let outer = tempfile::tempdir().unwrap();
         let root = outer.path().join("site");
+        write_entry(&root.join("src"), "content.config.ts", BLOG_AND_NOTES);
         std::fs::create_dir_all(root.join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(root.join("src/content/notes")).unwrap();
         std::fs::create_dir_all(outer.path().join("elsewhere")).unwrap();
+        (outer, root)
+    }
+
+    #[test]
+    fn a_collection_folder_outside_the_project_is_refused_for_that_collection_only() {
+        let (outer, root) = blog_and_notes_project();
         let absolute = outer.path().join("elsewhere").to_string_lossy().to_string();
 
         for folder in [
             "..",
             "../elsewhere",
             "posts/../../elsewhere",
-            ".",
-            "./",
             absolute.as_str(),
         ] {
-            let result = discover_collections(&root, None, &folders(&[("blog", folder)]));
-            let error = result.expect_err(folder);
-            assert!(error.contains("blog"), "{error}");
+            let (collections, reason) = refused(&root, folder);
+            assert_eq!(
+                reason.as_deref(),
+                Some("it isn't inside the project folder")
+            );
+            assert_eq!(collections.len(), 2, "notes is still listed");
+        }
+        for folder in [".", "./"] {
+            let (_, reason) = refused(&root, folder);
+            assert_eq!(reason.as_deref(), Some("it's the project folder itself"));
         }
     }
 
     #[test]
     #[cfg(unix)]
-    fn a_collection_folder_that_links_out_of_the_project_is_refused() {
-        let outer = tempfile::tempdir().unwrap();
-        let root = outer.path().join("site");
-        std::fs::create_dir_all(root.join("src/content")).unwrap();
-        std::fs::create_dir_all(outer.path().join("elsewhere")).unwrap();
+    fn a_collection_folder_that_links_out_of_the_project_is_refused_for_that_collection_only() {
+        let (outer, root) = blog_and_notes_project();
         std::os::unix::fs::symlink(outer.path().join("elsewhere"), root.join("posts")).unwrap();
 
-        assert!(discover_collections(&root, None, &folders(&[("blog", "posts")])).is_err());
+        let (collections, reason) = refused(&root, "posts");
+        assert_eq!(reason.as_deref(), Some("it links outside the project"));
+        assert!(collections.iter().any(|c| c.name == "notes"));
+        // The watcher still watches the project's folders
+        assert!(crate::commands::watcher::watched_folders(
+            &root,
+            None,
+            &folders(&[("blog", "posts")])
+        )
+        .contains(&root.join("src/content")));
+    }
+
+    #[test]
+    fn a_collection_folder_that_is_or_holds_the_content_folder_is_refused() {
+        let (_outer, root) = blog_and_notes_project();
+
+        for folder in [
+            "src/content",
+            "src//content",
+            "src/content/.",
+            "./src/content/",
+        ] {
+            let (_, reason) = refused(&root, folder);
+            assert_eq!(
+                reason.as_deref(),
+                Some("it's the content folder itself"),
+                "{folder}"
+            );
+        }
+        let (_, reason) = refused(&root, "src");
+        assert_eq!(reason.as_deref(), Some("it holds the content folder"));
+
+        // On a disk that ignores case, Src/Content is the same folder
+        if root.join("SRC").exists() {
+            let (_, reason) = refused(&root, "Src/Content");
+            assert_eq!(reason.as_deref(), Some("it's the content folder itself"));
+        }
     }
 
     #[test]

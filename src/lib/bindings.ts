@@ -288,6 +288,11 @@ export type Collection = {
 	 *  there, so the collection is in its automatic folder instead
 	 */
 	missing_folder?: string | null,
+	/**
+	 *  Why the folder the writer set can't be used ("it links outside the
+	 *  project"), so the collection is in its automatic folder instead
+	 */
+	refused_folder?: string | null,
 	complete_schema?: string | null,
 };
 
