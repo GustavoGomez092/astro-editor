@@ -33,8 +33,9 @@ export function newFileTitlePlaceholder(collectionName: string): string {
 
 /**
  * The frontmatter for a new entry: the title, today for the published date,
- * every field's default, and `false` or today for a required boolean or date
- * without one, since those have no empty value. Other required fields without
+ * every field's default, and `false`, today or `[]` for a required boolean,
+ * date or list without one (a list only when it may be empty), since those
+ * have a valid value that isn't a placeholder. Other required fields without
  * a default are left out.
  */
 export function buildNewFileFrontmatter(
@@ -61,6 +62,12 @@ export function buildNewFileFrontmatter(
       value = false
     } else if (field.required && field.type === FieldType.Date) {
       value = today
+    } else if (
+      field.required &&
+      field.type === FieldType.Array &&
+      !(field.constraints?.minItems && field.constraints.minItems > 0)
+    ) {
+      value = []
     } else {
       continue
     }
@@ -71,33 +78,57 @@ export function buildNewFileFrontmatter(
   return frontmatter
 }
 
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' &&
+  value !== null &&
+  !Array.isArray(value) &&
+  Object.keys(value).length > 0
+
+/** YAML lines for `values`, with nested objects indented under their key */
+function yamlLines(
+  values: Record<string, unknown>,
+  dateFields: Set<string>,
+  parentPath = '',
+  indent = ''
+): string[] {
+  return Object.entries(values).flatMap(([key, value]) => {
+    const path = parentPath ? `${parentPath}.${key}` : key
+    if (isObject(value)) {
+      return [
+        `${indent}${key}:`,
+        ...yamlLines(value, dateFields, path, `${indent}  `),
+      ]
+    }
+    return dateFields.has(path) && typeof value === 'string'
+      ? [`${indent}${key}: ${value}`]
+      : [`${indent}${key}: ${JSON.stringify(value)}`]
+  })
+}
+
 /**
  * The file's text: YAML frontmatter and an empty body. Values are written as
- * JSON, which YAML reads as the same types (quoted strings, flow arrays and
- * objects). Date fields are left unquoted, because YAML reads a quoted date
- * as a string and `z.date()` rejects it.
+ * JSON, which YAML reads as the same types (quoted strings, flow arrays), and
+ * objects as indented YAML. Date fields, nested ones too, are left unquoted,
+ * because YAML reads a quoted date as a string and `z.date()` rejects it.
  */
 export function newFileContent(
   frontmatter: Record<string, unknown>,
   fields: SchemaField[]
 ): string {
-  const entries = Object.entries(frontmatter)
-  if (entries.length === 0) return ''
+  if (Object.keys(frontmatter).length === 0) return ''
 
   const dateFields = new Set(
     fields.filter(f => f.type === FieldType.Date).map(f => f.name)
   )
-  const lines = entries.map(([key, value]) =>
-    dateFields.has(key) && typeof value === 'string'
-      ? `${key}: ${value}`
-      : `${key}: ${JSON.stringify(value)}`
-  )
+  const lines = yamlLines(frontmatter, dateFields)
   return `---\n${lines.join('\n')}\n---\n\n`
 }
 
 /**
  * A file name from the title (`andrew-dyk.md`), or today's date when the
  * title has no letters or digits, with `-1`, `-2`, … added until it's unused.
+ * A name counts as taken whatever its extension: Astro's id is the name
+ * without it, so `andrew-dyk.md` and `andrew-dyk.mdx` would collide.
  */
 export function newFileName(
   title: string,
@@ -105,13 +136,16 @@ export function newFileName(
   existingNames: Set<string>,
   today: string
 ): string {
+  const taken = new Set(
+    [...existingNames].map(name => name.replace(/\.[^.]+$/, ''))
+  )
   const base = slugFromTitle(title) || today
-  let filename = `${base}.${extension}`
+  let stem = base
   let counter = 1
 
-  while (existingNames.has(filename)) {
-    filename = `${base}-${counter}.${extension}`
+  while (taken.has(stem)) {
+    stem = `${base}-${counter}`
     counter++
   }
-  return filename
+  return `${stem}.${extension}`
 }

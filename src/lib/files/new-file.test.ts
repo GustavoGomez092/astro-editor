@@ -35,7 +35,10 @@ describe('buildNewFileFrontmatter', () => {
         enumValues: ['a', 'b'],
       }),
       field('author', FieldType.Reference, { required: true }),
-      field('tags', FieldType.Array, { required: true }),
+      field('gallery', FieldType.Array, {
+        required: true,
+        constraints: { minItems: 1 },
+      }),
     ]
 
     expect(buildNewFileFrontmatter(fields, 'Hello', TODAY)).toEqual({})
@@ -99,6 +102,23 @@ describe('buildNewFileFrontmatter', () => {
       eventDate: TODAY,
     })
   })
+
+  // An empty list is valid unless the schema asks for items, and a missing
+  // one fails the build with "Required"
+  it('writes an empty list for a required list that takes no items', () => {
+    const fields = [
+      field('tags', FieldType.Array, { required: true }),
+      field('links', FieldType.Array, {
+        required: true,
+        constraints: { minItems: 0 },
+      }),
+    ]
+
+    expect(buildNewFileFrontmatter(fields, 'Hello', TODAY)).toEqual({
+      tags: [],
+      links: [],
+    })
+  })
 })
 
 describe('newFileContent', () => {
@@ -121,7 +141,8 @@ describe('newFileContent', () => {
         'draft: false',
         'order: 3',
         'tags: []',
-        'seo: {"noindex":false}',
+        'seo:',
+        '  noindex: false',
         '---',
         '',
         '',
@@ -138,6 +159,22 @@ describe('newFileContent', () => {
     expect(
       newFileContent({ title: '2026-11-03', pubDate: TODAY }, fields)
     ).toBe('---\ntitle: "2026-11-03"\npubDate: 2026-11-03\n---\n\n')
+  })
+
+  it('writes dates inside objects unquoted too', () => {
+    const fields = [
+      field('event.start', FieldType.Date, {
+        isNested: true,
+        parentPath: 'event',
+      }),
+      field('event.name', FieldType.String, {
+        isNested: true,
+        parentPath: 'event',
+      }),
+    ]
+    expect(
+      newFileContent({ event: { start: TODAY, name: '2026-11-03' } }, fields)
+    ).toBe('---\nevent:\n  start: 2026-11-03\n  name: "2026-11-03"\n---\n\n')
   })
 
   it('writes nothing for empty frontmatter', () => {
@@ -157,6 +194,13 @@ describe('newFileName', () => {
     expect(newFileName('Andrew Dyk', 'md', taken, TODAY)).toBe(
       'andrew-dyk-2.md'
     )
+  })
+
+  // Astro's id is the name without the extension, so .md and .mdx collide
+  it('counts a name as taken whatever its extension', () => {
+    expect(
+      newFileName('Andrew Dyk', 'md', new Set(['andrew-dyk.mdx']), TODAY)
+    ).toBe('andrew-dyk-1.md')
   })
 
   it("uses today's date when the title gives no name", () => {
