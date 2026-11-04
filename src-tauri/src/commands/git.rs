@@ -232,8 +232,7 @@ pub async fn git_clone(
 #[tauri::command]
 #[specta::specta]
 pub async fn git_conflicts(project_path: String) -> Result<Vec<ConflictFile>, String> {
-    let _ = project_path;
-    Err("Not available yet.".to_string())
+    blocking(move || git::with_repo(&PathBuf::from(project_path), git::conflicts::conflicts)).await
 }
 
 /// Merge the upstream taking the chosen whole-file version of each conflicted
@@ -244,24 +243,42 @@ pub async fn git_resolve_conflicts(
     project_path: String,
     choices: Vec<ConflictResolution>,
 ) -> Result<SyncResult, String> {
-    let _ = (project_path, choices);
-    Err("Not available yet.".to_string())
+    let user = author_fallback(&project_path).await;
+    blocking(move || {
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            let label = git::sync::remote_label(repo);
+            git::conflicts::resolve_conflicts(repo, &choices, &label, &|| {
+                git::sync::commit_identity(repo, user.as_ref())
+            })
+        })
+    })
+    .await
 }
 
 /// Throw away local changes to one file: restore it from `HEAD`, or delete it if
-/// it's untracked
+/// it's untracked. Refuses paths outside the repository.
 #[tauri::command]
 #[specta::specta]
 pub async fn git_discard_file(project_path: String, path: String) -> Result<GitStatus, String> {
-    let _ = (project_path, path);
-    Err("Not available yet.".to_string())
+    blocking(move || {
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::discard::discard_file(repo, &path)
+        })
+    })
+    .await
 }
 
 /// Commits on the current branch that the default branch (as last fetched)
-/// doesn't have
+/// doesn't have: whether there's anything for a pull request. 0 on the default
+/// branch itself.
 #[tauri::command]
 #[specta::specta]
 pub async fn git_commits_ahead_of_default(project_path: String) -> Result<u32, String> {
-    let _ = project_path;
-    Err("Not available yet.".to_string())
+    blocking(move || {
+        git::with_repo(
+            &PathBuf::from(project_path),
+            git::sync::commits_ahead_of_default,
+        )
+    })
+    .await
 }

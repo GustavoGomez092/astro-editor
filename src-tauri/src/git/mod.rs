@@ -206,7 +206,9 @@ pub struct CloneProgress {
 
 pub mod branches;
 pub mod clone;
+pub mod conflicts;
 pub mod diff;
+pub mod discard;
 pub mod log;
 pub mod remote;
 pub mod status;

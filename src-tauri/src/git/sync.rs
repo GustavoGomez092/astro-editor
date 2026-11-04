@@ -176,14 +176,27 @@ pub fn merge_default_branch(
 /// the local one) has that the checked-out branch doesn't: what "Bring in
 /// changes from main" would bring in. 0 on the default branch itself.
 pub fn commits_behind_default(repo: &Repository) -> Result<u32, String> {
+    Ok(ahead_behind_default(repo)?.1)
+}
+
+/// How many commits the checked-out branch has that the default branch (as last
+/// fetched from the remote, else the local one) doesn't: whether there's anything
+/// for a pull request. 0 on the default branch itself.
+pub fn commits_ahead_of_default(repo: &Repository) -> Result<u32, String> {
+    Ok(ahead_behind_default(repo)?.0)
+}
+
+/// The checked-out branch against the default branch's tip (`origin/<default>`,
+/// else the local one); `(0, 0)` on the default branch itself
+fn ahead_behind_default(repo: &Repository) -> Result<(u32, u32), String> {
     let Some(default) = default_branch(repo) else {
-        return Ok(0);
+        return Ok((0, 0));
     };
     if current_branch_name(repo).as_deref() == Some(default.as_str()) {
-        return Ok(0);
+        return Ok((0, 0));
     }
     let Some(head) = repo.head().ok().and_then(|h| h.target()) else {
-        return Ok(0);
+        return Ok((0, 0));
     };
     let tip = [
         (format!("origin/{default}"), BranchType::Remote),
@@ -192,12 +205,13 @@ pub fn commits_behind_default(repo: &Repository) -> Result<u32, String> {
     .into_iter()
     .find_map(|(name, kind)| repo.find_branch(&name, kind).ok()?.get().target());
     let Some(tip) = tip else {
-        return Ok(0);
+        return Ok((0, 0));
     };
-    let (_, behind) = repo
+    let (ahead, behind) = repo
         .graph_ahead_behind(head, tip)
         .map_err(|e| describe("Couldn't compare the branches", &e))?;
-    Ok(u32::try_from(behind).unwrap_or(u32::MAX))
+    let count = |n: usize| u32::try_from(n).unwrap_or(u32::MAX);
+    Ok((count(ahead), count(behind)))
 }
 
 /// The author for commits: git config's user.name and user.email if both are set,
@@ -246,7 +260,7 @@ pub(crate) fn identity_from(
     signature.map_err(|e| describe("Couldn't use that name for commits", &e))
 }
 
-fn current_branch(repo: &Repository) -> Result<String, String> {
+pub(crate) fn current_branch(repo: &Repository) -> Result<String, String> {
     if repo.head_detached().unwrap_or(false) {
         return Err(DETACHED.to_string());
     }
@@ -254,13 +268,23 @@ fn current_branch(repo: &Repository) -> Result<String, String> {
 }
 
 /// "GitHub" for a github.com origin, else "the remote"
-fn remote_label(repo: &Repository) -> String {
+pub(crate) fn remote_label(repo: &Repository) -> String {
     let github = repo
         .find_remote("origin")
         .ok()
         .and_then(|r| r.url().map(|url| parse_github_remote(url).is_some()))
         .unwrap_or(false);
     if github { "GitHub" } else { "the remote" }.to_string()
+}
+
+/// The message for a merge commit that brings in the upstream: "Combine changes
+/// from GitHub", else from the remote's name (`origin`)
+pub(crate) fn combine_message(label: &str, upstream_name: &str) -> String {
+    if label == "GitHub" {
+        return "Combine changes from GitHub".to_string();
+    }
+    let remote = upstream_name.split('/').next().unwrap_or("origin");
+    format!("Combine changes from {remote}")
 }
 
 /// The label as the subject of a sentence: "GitHub", "The remote", or, for a
@@ -365,7 +389,7 @@ fn paths_between(repo: &Repository, from: Option<Oid>, to: Oid) -> Result<HashSe
 
 /// Point `branch` at `to`, but only if it's still at `expected` (or doesn't exist
 /// yet, when `expected` is `None`), so a commit made meanwhile is never dropped
-fn move_branch(
+pub(crate) fn move_branch(
     repo: &Repository,
     branch: &str,
     to: Oid,
@@ -915,6 +939,42 @@ mod tests {
         push_from_elsewhere(setup.remote_dir.path(), "main", "a.md", "a\n");
         crate::git::test_support::fetch(&setup.local);
         assert_eq!(commits_behind_default(&setup.local).unwrap(), 0);
+    }
+
+    #[test]
+    fn commits_ahead_of_default_counts_what_a_pull_request_would_hold() {
+        let setup = repo_with_remote();
+        let main = setup.local.head().unwrap().peel_to_commit().unwrap();
+        setup.local.branch("staging", &main, false).unwrap();
+        setup.local.set_head("refs/heads/staging").unwrap();
+        assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 0);
+
+        write(&setup.local, "draft.md", "draft\n");
+        commit_all(&setup.local, "Draft");
+        write(&setup.local, "more.md", "more\n");
+        commit_all(&setup.local, "More");
+        assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 2);
+
+        // Main moving on doesn't change what staging has that main doesn't
+        push_from_elsewhere(setup.remote_dir.path(), "main", "a.md", "a\n");
+        crate::git::test_support::fetch(&setup.local);
+        assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 2);
+    }
+
+    #[test]
+    fn commits_ahead_of_default_is_zero_once_merged_and_on_the_default_branch() {
+        let setup = repo_with_remote();
+        write(&setup.local, "mine.md", "mine\n");
+        commit_all(&setup.local, "Mine on main");
+        assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 0);
+
+        let main = setup.local.head().unwrap().peel_to_commit().unwrap();
+        setup.local.branch("staging", &main, false).unwrap();
+        setup.local.set_head("refs/heads/staging").unwrap();
+        // origin/main doesn't have "Mine on main" yet
+        assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 1);
+        push(&setup.local, "main");
+        assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 0);
     }
 
     #[test]
