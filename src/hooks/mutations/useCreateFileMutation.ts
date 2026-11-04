@@ -44,9 +44,15 @@ export const useCreateFileMutation = () => {
         ),
       })
 
-      // Also invalidate collections to refresh file counts
+      // Also invalidate collections, and the count beside this one
       void queryClient.invalidateQueries({
         queryKey: queryKeys.collections(variables.projectPath),
+      })
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.collectionFileCount(
+          variables.projectPath,
+          variables.collectionName
+        ),
       })
 
       toast.success('New file created successfully')

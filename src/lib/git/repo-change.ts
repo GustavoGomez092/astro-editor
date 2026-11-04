@@ -101,8 +101,11 @@ export async function reloadProjectFiles(
     predicate: ({ queryKey }) =>
       queryKey[0] === queryKeys.all[0] &&
       queryKey[1] === projectPath &&
-      // collections and collectionFiles, and directoryContents
-      (queryKey[2] === 'collections' || queryKey[3] === 'directory'),
+      // collections and collectionFiles, collectionFileCount, and
+      // directoryContents
+      (queryKey[2] === 'collections' ||
+        queryKey[2] === 'fileCount' ||
+        queryKey[3] === 'directory'),
   })
 }
 

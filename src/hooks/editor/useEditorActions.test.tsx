@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { renderHook } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { useEditorActions } from './useEditorActions'
+import { useCollectionFileCountsQuery } from '../queries/useCollectionFileCountsQuery'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { queryKeys } from '../../lib/query-keys'
@@ -316,5 +317,63 @@ describe('useEditorActions.saveFile with frontmatter back where it started', () 
       title: 'Andrew Dyk',
       featured: true,
     })
+  })
+})
+
+describe('useEditorActions.saveFile and the sidebar counts', () => {
+  const BLOG: Collection = {
+    name: 'blog',
+    path: '/test/content/blog',
+    complete_schema: null,
+  }
+  const walks = () =>
+    globalThis.mockTauri.invoke.mock.calls.filter(
+      ([cmd]) => cmd === 'count_collection_files_recursive'
+    ).length
+
+  beforeEach(() => {
+    globalThis.mockTauri.reset()
+    globalThis.mockTauri.invoke.mockImplementation((cmd: string) =>
+      Promise.resolve(cmd === 'count_collection_files_recursive' ? 12 : null)
+    )
+    useProjectStore.setState({ projectPath: '/test' })
+    useEditorStore.setState({
+      currentFile: fileEntry('first'),
+      editorContent: 'Body',
+      frontmatter: { title: 'Renamed' },
+      rawFrontmatter: 'title: First',
+      frontmatterBaseline: null,
+      lastWrittenFrontmatter: null,
+      imports: '',
+      isDirty: true,
+      isFrontmatterDirty: true,
+      autoSaveTimeoutId: null,
+    })
+  })
+
+  it("doesn't count the collection's files again on a frontmatter save", async () => {
+    const queryClient = new QueryClient()
+    const wrapper = ({ children }: { children: React.ReactNode }) => (
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    )
+    const { result } = renderHook(
+      () => ({
+        counts: useCollectionFileCountsQuery('/test', [BLOG]),
+        actions: useEditorActions(),
+      }),
+      { wrapper }
+    )
+    await vi.waitFor(() => expect(result.current.counts).toEqual({ blog: 12 }))
+    expect(walks()).toBe(1)
+
+    await result.current.actions.saveFile(false)
+    await new Promise(resolve => setTimeout(resolve, 50))
+
+    expect(
+      globalThis.mockTauri.invoke.mock.calls.some(
+        ([cmd]) => cmd === 'save_markdown_content'
+      )
+    ).toBe(true)
+    expect(walks()).toBe(1)
   })
 })

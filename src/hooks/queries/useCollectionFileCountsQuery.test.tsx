@@ -12,13 +12,18 @@ import { useCommandContext } from '../commands/useCommandContext'
 import { useFileChangeHandler } from '../useFileChangeHandler'
 import { useCollectionsQuery } from './useCollectionsQuery'
 import { useCollectionFileCountsQuery } from './useCollectionFileCountsQuery'
+import { useCreateFileMutation } from '../mutations/useCreateFileMutation'
 
 vi.mock('@/lib/bindings', () => ({
   commands: {
     scanProject: vi.fn(),
     countCollectionFilesRecursive: vi.fn(),
     readFileContent: vi.fn(),
+    createFile: vi.fn(),
   },
+}))
+vi.mock('@/lib/toast', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }))
 
 vi.mock('@/lib/project-registry', () => ({
@@ -26,11 +31,14 @@ vi.mock('@/lib/project-registry', () => ({
 }))
 
 const ok = <T,>(data: T) => ({ status: 'ok' as const, data })
-const POSTS: Collection = {
-  name: 'posts',
-  path: '/site/src/content/posts',
+const collection = (name: string): Collection => ({
+  name,
+  path: `/site/src/content/${name}`,
   complete_schema: null,
-}
+})
+const POSTS = collection('posts')
+const NOTES = collection('notes')
+const PAGES = collection('pages')
 
 const wrapper = ({ children }: { children: React.ReactNode }) => (
   <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
@@ -64,6 +72,22 @@ describe('useCollectionFileCountsQuery', () => {
     queryClient.clear()
   })
 
+  /** How many times a collection's folder has been walked. */
+  const walks = (c: Collection) =>
+    vi
+      .mocked(commands.countCollectionFilesRecursive)
+      .mock.calls.filter(([path]) => path === c.path).length
+
+  function fileChanged(path: string, kind: string) {
+    window.dispatchEvent(
+      new CustomEvent('file-changed', { detail: { path, kind } })
+    )
+  }
+
+  /** Past the watcher's wait for more events in a burst. */
+  const settle = () =>
+    act(() => new Promise(resolve => setTimeout(resolve, 600)))
+
   /** Renders the counts, then deletes a file outside the app. */
   async function countThenDelete() {
     const counts = renderCounts()
@@ -76,15 +100,63 @@ describe('useCollectionFileCountsQuery', () => {
     renderHook(() => useFileChangeHandler())
     const { result } = await countThenDelete()
 
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent('file-changed', {
-          detail: { path: `${POSTS.path}/old.md`, kind: 'Remove(File)' },
-        })
-      )
-    })
+    act(() => fileChanged(`${POSTS.path}/old.md`, 'Remove(File)'))
 
     await vi.waitFor(() => expect(result.current).toEqual({ posts: 27 }))
+  })
+
+  it("doesn't count again when the watcher only sees files edited", async () => {
+    renderHook(() => useFileChangeHandler())
+    await countThenDelete()
+    expect(walks(POSTS)).toBe(1)
+
+    act(() => {
+      for (let i = 0; i < 20; i++) {
+        fileChanged(`${POSTS.path}/entry-${i}.md`, 'Modify(Data(Content))')
+      }
+    })
+    await settle()
+
+    expect(walks(POSTS)).toBe(1)
+  })
+
+  it('counts each affected collection once after a burst of deletions', async () => {
+    vi.mocked(commands.scanProject).mockResolvedValue(ok([POSTS, NOTES, PAGES]))
+    renderHook(() => useFileChangeHandler())
+    const { result } = renderCounts()
+    await vi.waitFor(() =>
+      expect(result.current).toEqual({ posts: 28, notes: 28, pages: 28 })
+    )
+
+    act(() => {
+      for (let i = 0; i < 20; i++) {
+        fileChanged(`${POSTS.path}/2024/entry-${i}.md`, 'Remove(File)')
+      }
+      fileChanged(`${NOTES.path}/note.md`, 'Remove(File)')
+    })
+    await settle()
+
+    expect([walks(POSTS), walks(NOTES), walks(PAGES)]).toEqual([2, 2, 1])
+  })
+
+  it('counts again after creating an entry in the app', async () => {
+    const create = renderHook(() => useCreateFileMutation(), { wrapper })
+    const { result } = renderCounts()
+    await vi.waitFor(() => expect(result.current).toEqual({ posts: 28 }))
+    vi.mocked(commands.createFile).mockResolvedValue(ok('new.md'))
+    vi.mocked(commands.countCollectionFilesRecursive).mockResolvedValue(ok(29))
+
+    await act(() =>
+      create.result.current.mutateAsync({
+        directory: POSTS.path,
+        filename: 'new.md',
+        content: '',
+        projectPath: '/site',
+        collectionName: 'posts',
+      })
+    )
+
+    await vi.waitFor(() => expect(result.current).toEqual({ posts: 29 }))
   })
 
   it('counts again on Reload Collections', async () => {

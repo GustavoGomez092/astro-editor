@@ -598,7 +598,8 @@ pub async fn scan_directory(
     })
 }
 
-/// Count all markdown/mdx files recursively in a collection
+/// Count all markdown/mdx files recursively in a collection, on a blocking
+/// thread
 #[tauri::command]
 #[specta::specta]
 pub async fn count_collection_files_recursive(collection_path: String) -> Result<u32, String> {
@@ -654,7 +655,10 @@ pub async fn count_collection_files_recursive(collection_path: String) -> Result
         Ok(count)
     }
 
-    count_files_recursive(&path)
+    // Off the async runtime: a large collection takes a while to walk
+    tauri::async_runtime::spawn_blocking(move || count_files_recursive(&path))
+        .await
+        .map_err(|e| format!("Failed to count files: {e}"))?
 }
 
 /// Whether a file has text after its frontmatter and MDX imports. A file that
@@ -934,6 +938,30 @@ mod tests {
 
         let result = collection_has_body_text(temp.path().to_string_lossy().to_string()).await;
         assert_eq!(result, Ok(true));
+    }
+
+    // --- count_collection_files_recursive ---
+
+    #[tokio::test]
+    async fn counts_markdown_files_in_every_subfolder() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(temp.path(), "a.md", "A");
+        write_entry(&temp.path().join("2024"), "b.mdx", "B");
+        write_entry(&temp.path().join("2024/june"), "c.md", "C");
+        // Not counted: not Markdown, or hidden with _ or .
+        write_entry(temp.path(), "notes.txt", "Some text");
+        write_entry(temp.path(), "_draft.md", "D");
+        write_entry(&temp.path().join(".hidden"), "e.md", "E");
+
+        let path = temp.path().to_string_lossy().to_string();
+        assert_eq!(count_collection_files_recursive(path).await, Ok(3));
+    }
+
+    #[tokio::test]
+    async fn missing_collection_counts_nothing() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing").to_string_lossy().to_string();
+        assert_eq!(count_collection_files_recursive(missing).await, Ok(0));
     }
 
     #[tokio::test]

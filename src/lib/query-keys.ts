@@ -15,13 +15,12 @@ export const queryKeys = {
       'hasBody',
     ] as const,
   // How many files a collection holds, subfolders included, for the sidebar.
-  // Under collectionFiles for the same reason as collectionHasBody: the file
-  // watcher, Reload Collections and reloadProjectFiles all refresh it
+  // Not under collectionFiles: saves refresh that after every frontmatter
+  // edit, and counting walks the whole folder. Refreshed by name instead (the
+  // watcher for files added or removed, creating an entry), by
+  // reloadProjectFiles, and by Reload Collections with everything else
   collectionFileCount: (projectPath: string, collectionName: string) =>
-    [
-      ...queryKeys.collectionFiles(projectPath, collectionName),
-      'count',
-    ] as const,
+    [...queryKeys.all, projectPath, 'fileCount', collectionName] as const,
   // The files and folders in one folder of a collection, for the sidebar
   directoryContents: (
     projectPath: string,
