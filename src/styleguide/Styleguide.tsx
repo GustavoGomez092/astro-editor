@@ -23,12 +23,14 @@ import { ColoursSection } from './ColoursSection'
 import { ComponentBuilderSection } from './ComponentBuilderSection'
 import { DevServerSection } from './DevServerSection'
 import {
+  GitChangesConflictsSection,
   GitChangesMoreSection,
   GitChangesSection,
   GitDiffSection,
   GitHistorySection,
   GitOpenFromGitHubSection,
   GitOpenPullRequestSection,
+  GitResolveAgainSection,
   GitResolveSection,
   GitSignInSection,
 } from './GitSection'
@@ -72,6 +74,11 @@ const SECTIONS: Section[] = [
     Component: GitChangesMoreSection,
   },
   {
+    id: 'git-changes-conflicts',
+    title: 'Changes tab: conflicts',
+    Component: GitChangesConflictsSection,
+  },
+  {
     id: 'git-sign-in',
     title: 'Sign in with GitHub',
     Component: GitSignInSection,
@@ -93,6 +100,12 @@ const SECTIONS: Section[] = [
     id: 'git-resolve',
     title: 'Resolve conflicts',
     Component: GitResolveSection,
+    overlay: true,
+  },
+  {
+    id: 'git-resolve-again',
+    title: 'Resolve conflicts, GitHub moved again',
+    Component: GitResolveAgainSection,
     overlay: true,
   },
   { id: 'select', title: 'Select', Component: SelectSection, overlay: true },

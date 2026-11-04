@@ -316,6 +316,7 @@ function View(props: Partial<ChangesViewProps> & { status: GitStatus }) {
       heldBack={null}
       selectedPath={null}
       onSelectFile={noop}
+      onDiscardFile={noop}
       message=""
       onMessageChange={noop}
       onPublish={noop}
@@ -355,17 +356,18 @@ export function GitChangesSection() {
           }}
         />
       </Panel>
-      <Panel label="After a publish conflict">
+      <Panel label="After a publish conflict: choose which to keep">
         <View
           status={{ ...STATUS, ahead: 1, behind: 1, files: [] }}
-          behindDefault
           notice={{
             message:
-              "Your changes are saved on this computer, but weren't published: the same lines of “About” were also changed on GitHub. Publish isn't possible until that's sorted out.",
+              "Your changes are saved on this computer, but weren't published: the same lines of “About” were also changed on GitHub.",
             outcome: 'conflict',
             url: 'https://github.com/kevinrobinson/site',
+            resolvable: true,
           }}
-          heldBack="publish"
+          conflictCount={1}
+          onResolve={noop}
         />
       </Panel>
       <Panel label="Not signed in">
@@ -413,6 +415,36 @@ export function GitChangesMoreSection() {
             onMerge={noop}
           />
         </div>
+      </Panel>
+    </div>
+  )
+}
+
+/** Conflicts: one waiting to be resolved, and one Resolve can't sort out. */
+export function GitChangesConflictsSection() {
+  return (
+    <div className="flex gap-5">
+      <Panel label="A conflict waiting, notice dismissed">
+        <View
+          status={{ ...STATUS, ahead: 1, behind: 1, files: [] }}
+          conflictCount={2}
+          onResolve={noop}
+        />
+      </Panel>
+      <Panel label="Bring in stopped on a conflict, edits not published">
+        <View
+          status={{ ...STATUS, files: STATUS.files.slice(0, 1) }}
+          behindDefault
+          notice={{
+            message:
+              'This branch and main both changed the same lines of “About”, so nothing was changed.',
+            outcome: 'conflict',
+            url: 'https://github.com/kevinrobinson/site',
+            publishFirst: true,
+          }}
+          heldBack="bringIn"
+          message="Update About"
+        />
       </Panel>
     </div>
   )
@@ -490,32 +522,53 @@ export function GitOpenFromGitHubSection() {
   return <OpenFromGitHubDialog />
 }
 
+const RESOLVE_FILES = [
+  {
+    path: 'src/content/team/andrew-dyk.md',
+    mine: '---\ntitle: Andrew Dyk\nrole: Founder and director\nfeatured: true\n---\n\nAndrew started the studio in 2009.\n',
+    theirs:
+      '---\ntitle: Andrew Dyk\nrole: Creative director\nfeatured: false\n---\n\nAndrew started the studio in 2009 and still leads every project.\n',
+    binary: false,
+  },
+  {
+    path: 'src/assets/team/andrew-dyk.jpg',
+    mine: null,
+    theirs: null,
+    binary: true,
+  },
+]
+const RESOLVE_TITLES = new Map([
+  ['src/content/team/andrew-dyk.md', 'Andrew Dyk'],
+])
+
 /** Choosing versions after Publish stopped on a conflict with GitHub. */
 export function GitResolveSection() {
   return (
     <ResolveConflictsDialog
       open
       onOpenChange={noop}
-      files={[
-        {
-          path: 'src/content/team/andrew-dyk.md',
-          mine: '---\ntitle: Andrew Dyk\nrole: Founder and director\nfeatured: true\n---\n\nAndrew started the studio in 2009.\n',
-          theirs:
-            '---\ntitle: Andrew Dyk\nrole: Creative director\nfeatured: true\n---\n\nAndrew started the studio in 2009 and still leads every project.\n',
-          binary: false,
-        },
-        {
-          path: 'src/assets/team/andrew-dyk.jpg',
-          mine: null,
-          theirs: null,
-          binary: true,
-        },
-      ]}
-      titles={new Map([['src/content/team/andrew-dyk.md', 'Andrew Dyk']])}
+      files={RESOLVE_FILES}
+      titles={RESOLVE_TITLES}
       onGitHub
       onCombine={noop}
       pending={false}
       message={null}
+    />
+  )
+}
+
+/** The Resolve view when GitHub moved again after combining. */
+export function GitResolveAgainSection() {
+  return (
+    <ResolveConflictsDialog
+      open
+      onOpenChange={noop}
+      files={RESOLVE_FILES.slice(0, 1)}
+      titles={RESOLVE_TITLES}
+      onGitHub
+      onCombine={noop}
+      pending={false}
+      message="Your changes are saved on this computer, but weren't published: the same lines of “Andrew Dyk” were also changed on GitHub. Choose again for what changed."
     />
   )
 }
