@@ -150,6 +150,16 @@ function toTitleCase(str: string): string {
 }
 
 /**
+ * The direction a sort starts in when it's chosen: order, titles and file
+ * names ascending (1, 2, 3 and A to Z), dates newest first
+ */
+export function defaultSortDirection(mode: string): 'asc' | 'desc' {
+  return mode === 'order' || mode === 'title' || mode === 'filename'
+    ? 'asc'
+    : 'desc'
+}
+
+/**
  * Generate sort options based on the collection's schema
  * Returns dynamic options including date fields from schema
  */

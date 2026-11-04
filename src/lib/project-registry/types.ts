@@ -65,6 +65,14 @@ export interface CollectionSpecificSettings {
   useAbsoluteAssetPaths?: boolean
   // URL pattern template for content links (e.g. "/writing/{slug}")
   urlPattern?: string
+  // How the sidebar sorts the collection's files, as last chosen. Left out for
+  // the Default sort
+  sort?: CollectionSort
+}
+
+export interface CollectionSort {
+  mode: string // 'title' | 'filename' | 'date-{field}' | 'order' | 'modified'
+  direction: 'asc' | 'desc'
 }
 
 export interface CollectionSettings {
