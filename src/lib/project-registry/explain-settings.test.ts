@@ -93,9 +93,10 @@ describe("explainCollectionSettings: a content folder that can't be used", () =>
         missingFolder: 'writing/blog',
       }).contentFolder
     ).toEqual({
+      // Set, but not what's used
       state: 'set',
-      value: 'writing/blog',
-      reason: 'set for this collection',
+      value: null,
+      reason: 'set to `writing/blog`',
       warning: 'Folder not found: `writing/blog` — using `src/content/blog`.',
     })
   })
@@ -105,6 +106,7 @@ describe("explainCollectionSettings: a content folder that can't be used", () =>
       settings: { pathOverrides: { contentDirectory: 'src/content' } },
     })
     expect(contentFolder.state).toBe('set')
+    expect(contentFolder.value).toBeNull()
     expect(contentFolder.warning).toMatch(/the content folder itself/)
     expect(contentFolder.warning).toMatch(/using `src\/content\/blog`\.$/)
   })

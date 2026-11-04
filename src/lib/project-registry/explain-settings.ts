@@ -120,12 +120,15 @@ function explainContentFolder(
     const problem = collection.missing_folder
       ? `Folder not found: \`${set}\` — using \`${automatic}\`.`
       : unusableFolder(paths.contentDirectory, projectSettings, automatic)
-    return {
-      state: 'set',
-      value: set,
-      reason: SET,
-      ...(problem && { warning: problem }),
-    }
+    // Set but not used: the line says what's set, the warning what's used
+    return problem
+      ? {
+          state: 'set',
+          value: null,
+          reason: `set to \`${set}\``,
+          warning: problem,
+        }
+      : { state: 'set', value: set, reason: SET }
   }
   return {
     state: 'inferred',

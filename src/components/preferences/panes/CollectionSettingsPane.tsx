@@ -157,7 +157,11 @@ export const CollectionSettingsPane: React.FC = () => {
           : null
       )
     if (problem) {
-      toast.error("That folder can't be used", { description: problem })
+      // Enter and leaving the box both commit, so one toast for both
+      toast.error("That folder can't be used", {
+        id: 'collection-folder-refused',
+        description: problem,
+      })
       return
     }
     const existing = getCollectionOverride(collectionName)
