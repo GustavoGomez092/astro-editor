@@ -21,6 +21,7 @@ import {
   saveGlobalSettings,
   loadProjectData,
   saveProjectData,
+  setProjectDataAside,
 } from './persistence'
 import { discoverProject, folderStates, isSameProject } from './utils'
 import { DEFAULT_PROJECT_SETTINGS } from './defaults'
@@ -370,8 +371,9 @@ export class ProjectRegistryManager {
   }
 
   /**
-   * Take a project off the list. Its folder isn't touched, and its settings
-   * file is kept, so opening the folder again brings its settings back
+   * Take a project off the list. Its folder isn't touched. Its settings file
+   * is renamed rather than deleted, so a project that later gets the same id
+   * starts afresh, and the old settings can still be recovered by hand
    */
   async removeProject(projectId: string): Promise<void> {
     if (!this.registry) {
@@ -387,6 +389,7 @@ export class ProjectRegistryManager {
     }
     this.projectDataCache.delete(projectId)
     await saveProjectRegistry(this.registry)
+    await setProjectDataAside(projectId)
   }
 
   /**

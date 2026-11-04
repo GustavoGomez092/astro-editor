@@ -258,7 +258,7 @@ describe('Project Registry System', () => {
     expect(manager.getRegistry().projects[first]?.path).toBe('/work/notes')
   })
 
-  it('removes a project from the list without touching its settings file', async () => {
+  it('removes a project from the list and sets its settings file aside', async () => {
     fakeDisk({
       packages: { '/sites/a': 'a', '/sites/b': 'b' },
       folders: new Set(['/sites/a', '/sites/b']),
@@ -272,13 +272,39 @@ describe('Project Registry System', () => {
 
     expect(Object.keys(manager.getRegistry().projects)).toEqual([a])
     expect(manager.getLastOpenedProjectId()).toBeNull()
-    const written = mockInvoke.mock.calls
+    const calls = mockInvoke.mock.calls as [string, Record<string, string>][]
+    const written = calls
       .filter(([command]) => command === 'write_app_data_file')
-      .map(([, args]) => (args as { filePath: string }).filePath)
+      .map(([, args]) => args.filePath)
     expect(written).toContain(
       '/mock/app/data/preferences/project-registry.json'
     )
-    expect(written.some(path => path.includes('/projects/b'))).toBe(false)
+    // Renamed, so a new project that gets the same id starts afresh
+    const moves = calls.filter(([command]) => command === 'move_app_data_file')
+    expect(moves).toHaveLength(1)
+    expect(moves[0]![1].fromPath).toBe(
+      '/mock/app/data/preferences/projects/b.json'
+    )
+    expect(moves[0]![1].toPath).toMatch(
+      /^\/mock\/app\/data\/preferences\/projects\/b\.removed-[^/]+\.json$/
+    )
+  })
+
+  it("removes a project whose settings file can't be set aside", async () => {
+    fakeDisk({ packages: { '/sites/a': 'a' }, folders: new Set(['/sites/a']) })
+    await manager.initialize()
+    const a = await manager.registerProject('/sites/a')
+    const fallback = vi.mocked(invoke).getMockImplementation()!
+    vi.mocked(invoke).mockImplementation((command, args) =>
+      command === 'move_app_data_file'
+        ? // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+          Promise.reject('No such file')
+        : fallback(command, args)
+    )
+
+    await manager.removeProject(a)
+
+    expect(manager.getRegistry().projects).toEqual({})
   })
 
   it('keeps the Dev command override until it is cleared', async () => {

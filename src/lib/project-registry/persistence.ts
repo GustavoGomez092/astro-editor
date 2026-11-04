@@ -370,3 +370,24 @@ export async function saveProjectData(
     throw err
   }
 }
+
+/**
+ * Rename a removed project's settings file to `<id>.removed-<timestamp>.json`,
+ * so a project that later gets the same id doesn't start with its settings.
+ * A project that never saved any has none to rename
+ */
+export async function setProjectDataAside(projectId: string): Promise<void> {
+  try {
+    const { projectsDir } = await getAppSupportPaths()
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const result = await commands.moveAppDataFile(
+      `${projectsDir}/${projectId}.json`,
+      `${projectsDir}/${projectId}.removed-${stamp}.json`
+    )
+    if (result.status === 'error') throw new Error(result.error)
+  } catch (err) {
+    await info(
+      `Astro Editor [PREFERENCES] No settings file set aside for ${projectId}: ${String(err)}`
+    )
+  }
+}

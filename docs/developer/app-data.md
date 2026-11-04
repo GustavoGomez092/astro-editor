@@ -16,7 +16,7 @@ Inside it:
 
 - `preferences/global-settings.json`: app-wide settings (theme, IDE command, auto-save delay, appearance and so on).
 - `preferences/project-registry.json`: every project ever opened (ID, name, path, dates) and which was open last.
-- `preferences/projects/{id}.json`: one project's settings, including its collection overrides.
+- `preferences/projects/{id}.json`: one project's settings, including its collection overrides. Removing a project from the Projects screen renames it to `{id}.removed-{timestamp}.json`, so a later project that's given the same id doesn't inherit it.
 - `recovery/` and `crash-reports/`: see [Recovery Files](#recovery-files).
 - `telemetry.json`: the anonymous install ID. Release builds only.
 - `.window-state.json`: window size and position, from the window-state plugin.
