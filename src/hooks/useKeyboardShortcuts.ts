@@ -10,6 +10,7 @@ import { openProjectViaDialog } from '../lib/projects/actions'
 import { toast } from '../lib/toast'
 import { useEditorActions } from './editor/useEditorActions'
 import { usePlatform } from './usePlatform'
+import { isBodyEditorHidden } from '../lib/files/focus-new-file'
 
 // App shortcuts must work while typing: the editor is a contenteditable and the
 // frontmatter fields are inputs, and react-hotkeys-hook ignores both by default.
@@ -62,10 +63,12 @@ export function useKeyboardShortcuts(
     DEFAULT_HOTKEY_OPTS
   )
 
-  // Cmd+2: Toggle Frontmatter Panel
+  // Cmd+2: Toggle Frontmatter Panel, except while the form is in the main
+  // area and the panel is collapsed (Layout)
   useHotkeys(
     'mod+2',
     () => {
+      if (isBodyEditorHidden()) return
       useUIStore.getState().toggleFrontmatterPanel()
     },
     DEFAULT_HOTKEY_OPTS

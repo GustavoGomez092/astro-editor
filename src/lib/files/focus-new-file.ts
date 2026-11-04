@@ -4,6 +4,14 @@ export const BODY_EDITOR_ATTRIBUTE = 'data-body-editor'
 /** Marks the frontmatter panel, where a new entry's fields are. */
 export const FRONTMATTER_PANEL_ATTRIBUTE = 'data-frontmatter-panel'
 
+/**
+ * Whether the open file's body editor is hidden, so its form is in the main
+ * area. Read from the page, for code outside React (commands, shortcuts)
+ */
+export function isBodyEditorHidden(): boolean {
+  return document.querySelector(`[${BODY_EDITOR_ATTRIBUTE}="hidden"]`) !== null
+}
+
 // Text-like fields only: a button (clear, pick an image) isn't where you type
 const FIELD = 'input, textarea, select, [contenteditable="true"]'
 
@@ -23,9 +31,7 @@ export function focusNewFile({ titleGiven }: { titleGiven: boolean }): void {
     }
   }
 
-  const bodyHidden =
-    document.querySelector(`[${BODY_EDITOR_ATTRIBUTE}="hidden"]`) !== null
-  if (bodyHidden) {
+  if (isBodyEditorHidden()) {
     const field = document
       .querySelector(`[${FRONTMATTER_PANEL_ATTRIBUTE}]`)
       ?.querySelector(FIELD)

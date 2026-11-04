@@ -20,6 +20,7 @@ import {
   newFileTitlePlaceholder,
 } from '../lib/files/new-file'
 import { focusNewFile } from '../lib/files/focus-new-file'
+import { newEntryHidesBodyEditor } from '../lib/files/body-text'
 
 /**
  * Creates a file named after `title` (or today's date when there's none) in
@@ -125,8 +126,13 @@ async function createFileInCurrentFolder(
 
     openFile(newFile)
 
-    // Open frontmatter panel if we have a title field
-    if (hasTitleField && !frontmatterPanelVisible) {
+    // Open frontmatter panel if we have a title field, unless the form is in
+    // the main area, where the panel stays collapsed (Layout)
+    if (
+      hasTitleField &&
+      !frontmatterPanelVisible &&
+      !newEntryHidesBodyEditor(selectedCollection)
+    ) {
       toggleFrontmatterPanel()
     }
 

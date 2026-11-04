@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { focusNewFile } from './focus-new-file'
+import { focusNewFile, isBodyEditorHidden } from './focus-new-file'
 
 function page(bodyEditor: 'shown' | 'hidden') {
   document.body.innerHTML = `
@@ -34,5 +34,14 @@ describe('focusNewFile', () => {
     page('shown')
     focusNewFile({ titleGiven: false })
     expect(document.activeElement?.id).toBe('frontmatter-title-field')
+  })
+
+  it('tells whether the body editor is hidden', () => {
+    page('hidden')
+    expect(isBodyEditorHidden()).toBe(true)
+    page('shown')
+    expect(isBodyEditorHidden()).toBe(false)
+    document.body.innerHTML = ''
+    expect(isBodyEditorHidden()).toBe(false)
   })
 })

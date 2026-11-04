@@ -8,6 +8,7 @@ import { globalCommandRegistry } from '../lib/editor/commands'
 import { openProjectViaDialog } from '../lib/projects/actions'
 import { DOCS_URLS } from '../lib/docs-urls'
 import type { HeadingLevel } from '../lib/editor/markdown/types'
+import { isBodyEditorHidden } from '../lib/files/focus-new-file'
 
 /**
  * Format menu event mapping for reducing duplication.
@@ -82,6 +83,8 @@ export function useMenuEvents(
           useUIStore.getState().toggleSidebar()
         }),
         listen('menu-toggle-frontmatter', () => {
+          // Collapsed while the form is in the main area (Layout)
+          if (isBodyEditorHidden()) return
           useUIStore.getState().toggleFrontmatterPanel()
         }),
       ])

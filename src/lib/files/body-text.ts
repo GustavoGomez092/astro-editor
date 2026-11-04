@@ -3,6 +3,9 @@
 // never shows. It's hidden for those collections.
 
 import type { CollectionSpecificSettings } from '../project-registry/types'
+import { useProjectStore } from '../../store/projectStore'
+import { queryClient } from '../query-client'
+import { queryKeys } from '../query-keys'
 
 interface BodyEditorState {
   /** The collection's "Body text" setting; undefined detects it */
@@ -45,4 +48,20 @@ export function hidesBodyEditor({
   if (setting === 'show') return false
   if (setting === 'hide') return true
   return collectionHasBody === false
+}
+
+/**
+ * Whether a new, empty entry in `collectionName` gets its form in the main
+ * area, from the collection's setting and the cached check for body text.
+ * Read just after creating the entry, before its own content has loaded.
+ */
+export function newEntryHidesBodyEditor(collectionName: string): boolean {
+  const { projectPath, currentProjectSettings } = useProjectStore.getState()
+  const setting = currentProjectSettings?.collections?.find(
+    c => c.name === collectionName
+  )?.settings.bodyText
+  const collectionHasBody = queryClient.getQueryData<boolean>(
+    queryKeys.collectionHasBody(projectPath ?? '', collectionName)
+  )
+  return hidesBodyEditor({ setting, collectionHasBody, fileHasBody: false })
 }

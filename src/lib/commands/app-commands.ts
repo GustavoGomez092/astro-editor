@@ -28,6 +28,7 @@ import { collectionDisplayName } from '../collection-name'
 import { useContentLinkerStore } from '@/store/contentLinkerStore'
 import { publishingCommands } from './publishing-commands'
 import { isGitBusy } from '../git/busy'
+import { isBodyEditorHidden } from '../files/focus-new-file'
 
 /**
  * File-related commands
@@ -85,7 +86,8 @@ export const navigationCommands: AppCommand[] = [
     execute: (context: CommandContext) => {
       context.toggleFrontmatterPanel()
     },
-    isAvailable: () => true,
+    // The panel is collapsed while the form is in the main area (Layout)
+    isAvailable: () => !isBodyEditorHidden(),
   },
   {
     id: 'content-linker',

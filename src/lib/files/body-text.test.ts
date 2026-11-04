@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { hidesBodyEditor } from './body-text'
+import { hidesBodyEditor, newEntryHidesBodyEditor } from './body-text'
+import { queryClient } from '../query-client'
+import { queryKeys } from '../query-keys'
+import { useProjectStore } from '../../store/projectStore'
 
 describe('hidesBodyEditor', () => {
   it('hides the editor when no entry in the collection has body text', () => {
@@ -117,5 +120,45 @@ describe('hidesBodyEditor', () => {
         })
       ).toBe(false)
     })
+  })
+})
+
+describe('newEntryHidesBodyEditor', () => {
+  // A new entry has no body text, so its collection alone decides
+  const setUp = (
+    bodyText: 'show' | 'hide' | undefined,
+    collectionHasBody: boolean | undefined
+  ) => {
+    useProjectStore.setState({
+      projectPath: '/site',
+      currentProjectSettings: {
+        pathOverrides: {},
+        frontmatterMappings: {},
+        collections: bodyText ? [{ name: 'hero', settings: { bodyText } }] : [],
+      },
+    })
+    queryClient.clear()
+    if (collectionHasBody !== undefined) {
+      queryClient.setQueryData(
+        queryKeys.collectionHasBody('/site', 'hero'),
+        collectionHasBody
+      )
+    }
+  }
+
+  it('hides it in a collection without body text', () => {
+    setUp(undefined, false)
+    expect(newEntryHidesBodyEditor('hero')).toBe(true)
+    setUp('hide', true)
+    expect(newEntryHidesBodyEditor('hero')).toBe(true)
+  })
+
+  it('shows it in a collection with body text, or not yet checked', () => {
+    setUp(undefined, true)
+    expect(newEntryHidesBodyEditor('hero')).toBe(false)
+    setUp(undefined, undefined)
+    expect(newEntryHidesBodyEditor('hero')).toBe(false)
+    setUp('show', false)
+    expect(newEntryHidesBodyEditor('hero')).toBe(false)
   })
 })
