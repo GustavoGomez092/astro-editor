@@ -67,7 +67,7 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
 
   const handleSave = () => {
     if (currentFile && isDirty) {
-      void saveFile()
+      void saveFile(true, true)
     }
   }
 

@@ -62,6 +62,10 @@ Fields appear in the sidebar in the order they're defined in your schema, except
 
 The frontmatter is written to your file in the same order it's defined in the schema, with any fields that aren't in the schema written after them, in alphabetical order by field name.
 
+## Checking values
+
+Values are checked against your schema: required fields, email and URL formats, number ranges and whole numbers, text and list lengths, and the allowed options of an enum. When you leave a field whose value doesn't fit, a short message appears under it. Saving with <Kbd mac="Cmd+S" windows="Ctrl+S" /> shows the message under every field that needs attention, along with a warning such as "Saved, but 2 fields need attention". The file is always saved; the check only tells you what Astro's build is likely to reject.
+
 ## Fields not in your schema
 
 Frontmatter fields that aren't part of the schema are never discarded. They're still shown in the sidebar — below the schema fields and sorted alphabetically — and they're kept when you save. Because there's no schema to describe them, they're shown as plain text inputs (a list of text values becomes a tag field), rather than as typed controls like date pickers or toggles.

@@ -11,7 +11,8 @@ import { useProjectStore } from '../../store/projectStore'
 import { saveRecoveryData, saveCrashReport } from '../../lib/recovery'
 import { toast } from '../../lib/toast'
 import { queryKeys } from '../../lib/query-keys'
-import { deserializeCompleteSchema } from '../../lib/schema'
+import { deserializeCompleteSchema, type SchemaField } from '../../lib/schema'
+import { validateFrontmatter } from '../../lib/frontmatter-validation'
 import {
   projectRegistryManager,
   getEffectiveContentDirectory,
@@ -59,23 +60,74 @@ function waitForProjectReady(
   })
 }
 
+/** The open file's schema fields, from the collections in the query cache. */
+function getSchemaFields(
+  queryClient: QueryClient,
+  projectPath: string,
+  collectionName: string
+): SchemaField[] | null {
+  try {
+    const collections = queryClient.getQueryData<Collection[]>(
+      queryKeys.collections(projectPath)
+    )
+    const collection = collections?.find(c => c.name === collectionName)
+    const schema = collection?.complete_schema
+      ? deserializeCompleteSchema(collection.complete_schema)
+      : null
+    return schema ? schema.fields : null
+  } catch (error) {
+    void logWarn(`Could not get the schema fields: ${String(error)}`)
+    return null
+  }
+}
+
+/**
+ * After an explicit save, shows the message under every field that needs
+ * attention and says how many there are. Returns false when every field is
+ * fine. It never blocks the save.
+ */
+function reportFieldsNeedingAttention(
+  fields: SchemaField[] | null,
+  frontmatter: Record<string, unknown>,
+  fileId: string
+): boolean {
+  const names = Object.keys(validateFrontmatter(fields ?? [], frontmatter))
+  if (names.length === 0) return false
+
+  if (useEditorStore.getState().currentFile?.id === fileId) {
+    useEditorStore.getState().showFieldErrors(names)
+  }
+  toast.warning(
+    names.length === 1
+      ? 'Saved, but 1 field needs attention'
+      : `Saved, but ${names.length} fields need attention`
+  )
+  return true
+}
+
 /**
  * Saves the open file: writes its body, imports and frontmatter (in the
  * schema's field order), marks it clean if nothing changed meanwhile, and
  * refreshes the queries that show it. On failure, writes recovery data and a
- * crash report and keeps the file dirty. Plain function rather than inline in
- * the hook so the React Compiler can compile the hook (it can't handle `throw`
- * inside `try`).
+ * crash report and keeps the file dirty. When the writer asked to save
+ * (`reportFields`: Cmd+S, File → Save, the toolbar) it also reports the fields
+ * that need attention, even when there's nothing to write, because auto-save
+ * has usually saved the file by then. Other saves (auto-save, leaving the
+ * editor, before a path change) don't, so fields the writer hasn't reached
+ * yet don't light up. Plain function rather than inline in the hook so the
+ * React Compiler can compile the hook (it can't handle `throw` inside `try`).
  */
 async function saveCurrentFile(
   queryClient: QueryClient,
-  showToast: boolean
+  showToast: boolean,
+  reportFields: boolean
 ): Promise<void> {
   const {
     currentFile,
     editorContent,
     frontmatter,
     rawFrontmatter,
+    isDirty,
     isFrontmatterDirty,
     imports,
   } = useEditorStore.getState()
@@ -88,29 +140,19 @@ async function saveCurrentFile(
     throw new Error('No project path available')
   }
 
-  try {
-    // Get schema field order from collections data - NO EVENTS!
-    // Direct synchronous access to query cache
-    let schemaFieldOrder: string[] | null = null
-    if (currentFile) {
-      try {
-        const collections = queryClient.getQueryData<Collection[]>(
-          queryKeys.collections(projectPath)
-        )
-        if (collections && Array.isArray(collections)) {
-          const collection = collections.find(
-            (c: Collection) => c.name === currentFile.collection
-          )
-          const schema = collection?.complete_schema
-            ? deserializeCompleteSchema(collection.complete_schema)
-            : null
-          schemaFieldOrder = schema ? schema.fields.map(f => f.name) : null
-        }
-      } catch (error) {
-        void logWarn(`Could not get schema field order: ${String(error)}`)
-      }
-    }
+  // The schema gives the field order and what to validate
+  const schemaFields = getSchemaFields(
+    queryClient,
+    projectPath,
+    currentFile.collection
+  )
 
+  if (!isDirty && reportFields) {
+    reportFieldsNeedingAttention(schemaFields, frontmatter, currentFile.id)
+    return
+  }
+
+  try {
     // Only pass frontmatter object if it was edited, otherwise pass raw to preserve formatting
     const result = await commands.saveMarkdownContent(
       currentFile.path,
@@ -118,7 +160,7 @@ async function saveCurrentFile(
       isFrontmatterDirty ? null : rawFrontmatter,
       editorContent,
       imports,
-      schemaFieldOrder,
+      schemaFields ? schemaFields.map(f => f.name) : null,
       projectPath
     )
     if (result.status === 'error') {
@@ -182,8 +224,10 @@ async function saveCurrentFile(
       }
     }
 
-    // Show success toast only if requested
-    if (showToast) {
+    const reported =
+      reportFields &&
+      reportFieldsNeedingAttention(schemaFields, frontmatter, currentFile.id)
+    if (showToast && !reported) {
       toast.success('File saved successfully')
     }
   } catch (error) {
@@ -243,7 +287,8 @@ export function useEditorActions() {
   const queryClient = useQueryClient()
 
   const saveFile = useCallback(
-    (showToast = true) => saveCurrentFile(queryClient, showToast),
+    (showToast = true, reportFields = false) =>
+      saveCurrentFile(queryClient, showToast, reportFields),
     [queryClient]
   )
 

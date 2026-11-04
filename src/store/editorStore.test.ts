@@ -116,3 +116,43 @@ describe('editorStore.openFile', () => {
     })
   })
 })
+
+describe('editorStore field validation messages', () => {
+  it('forgets which messages were shown when another file opens', () => {
+    useEditorStore.setState({
+      currentFile: fileEntry('first'),
+      isDirty: false,
+      shownFieldErrors: { email: true },
+    })
+
+    useEditorStore.getState().openFile(fileEntry('second'))
+
+    expect(useEditorStore.getState().shownFieldErrors).toEqual({})
+  })
+
+  it('adds fields to the shown messages', () => {
+    useEditorStore.setState({ shownFieldErrors: { email: true } })
+
+    useEditorStore.getState().showFieldErrors(['title', 'email'])
+
+    expect(useEditorStore.getState().shownFieldErrors).toEqual({
+      email: true,
+      title: true,
+    })
+  })
+})
+
+describe('editorStore.saveFile', () => {
+  it('passes on whether the writer asked to save', async () => {
+    const save = vi.fn((_showToast?: boolean, _reportFields?: boolean) =>
+      Promise.resolve()
+    )
+    useEditorStore.setState({ autoSaveCallback: save })
+
+    await useEditorStore.getState().saveFile()
+    await useEditorStore.getState().saveFile(true, true)
+
+    expect(save).toHaveBeenNthCalledWith(1, true, false)
+    expect(save).toHaveBeenNthCalledWith(2, true, true)
+  })
+})

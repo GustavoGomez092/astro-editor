@@ -47,6 +47,8 @@ interface MockEditorState {
   updateCurrentFileAfterRename: Mock
   autoSaveCallback: ((showToast?: boolean) => Promise<void>) | null
   setAutoSaveCallback: Mock
+  shownFieldErrors: Record<string, true>
+  showFieldErrors: Mock
 }
 
 describe('useEditorHandlers', () => {
@@ -75,6 +77,8 @@ describe('useEditorHandlers', () => {
       updateCurrentFileAfterRename: vi.fn(),
       autoSaveCallback: null,
       setAutoSaveCallback: vi.fn(),
+      shownFieldErrors: {},
+      showFieldErrors: vi.fn(),
       isFrontmatterDirty: false,
     }
 
@@ -185,6 +189,8 @@ describe('useEditorHandlers', () => {
 
       expect(mockGetState).toHaveBeenCalled()
       expect(mockStoreState.saveFile).toHaveBeenCalledTimes(1)
+      // Leaving the editor isn't asking to save, so fields aren't reported
+      expect(mockStoreState.saveFile).toHaveBeenCalledWith()
     })
 
     it('should not save file when no current file', () => {

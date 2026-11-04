@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, fireEvent, act } from '@testing-library/react'
 import { FrontmatterField } from './FrontmatterField'
 import { useEditorStore } from '../../../store/editorStore'
 import { renderWithProviders } from '../../../test/test-utils'
@@ -451,5 +451,44 @@ describe('FrontmatterField Orchestrator', () => {
       // Empty array should still trigger ArrayField
       expect(screen.getByRole('textbox')).toBeInTheDocument()
     })
+  })
+})
+
+describe('FrontmatterField validation messages', () => {
+  const email: SchemaField = {
+    name: 'email',
+    label: 'Email',
+    type: FieldType.Email,
+    required: true,
+  }
+
+  beforeEach(() => {
+    useEditorStore.setState({
+      frontmatter: { email: 'nope' },
+      shownFieldErrors: {},
+    })
+    renderWithProviders(
+      <FrontmatterField name="email" label="Email" field={email} />
+    )
+  })
+
+  it('shows nothing until the writer leaves the field', () => {
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    fireEvent.blur(screen.getByRole('textbox'))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Enter an email address, like name@example.com'
+    )
+  })
+
+  it('clears the message as soon as the value is fixed', () => {
+    fireEvent.blur(screen.getByRole('textbox'))
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    act(() => {
+      useEditorStore.setState({ frontmatter: { email: 'kevin@example.com' } })
+    })
+
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
