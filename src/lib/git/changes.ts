@@ -66,26 +66,28 @@ export function publishMessage(items: MessageItem[]): string {
     seen.add(entry.title)
     named.push({ verb: verbFor(entry.change), title: entry.title })
   }
-  const unnamed = entries.filter(entry => !entry.title).length
+  const unnamed = entries.filter(entry => !entry.title)
   const shown = named.slice(0, MAX_NAMED)
-  const more = named.length - shown.length + unnamed
+  const overflow = named.length - shown.length
 
-  let text: string
-  if (shown.length === 0) {
-    const noun = unnamed === 1 ? 'entry' : 'entries'
-    text = `${sharedVerb(entries)} ${unnamed} ${noun}`
-  } else {
-    const phrases = (['Add', 'Update', 'Remove'] as const)
-      .map(verb => {
-        const titles = shown.filter(n => n.verb === verb).map(n => n.title)
-        return titles.length > 0
-          ? `${verb.toLowerCase()} ${titles.join(', ')}`
-          : ''
-      })
-      .filter(Boolean)
-    text = capitalize(phrases.join(', '))
-    if (more > 0) return `${text} and ${more} more`
+  const phrases = (['Add', 'Update', 'Remove'] as const)
+    .map(verb => {
+      const titles = shown.filter(n => n.verb === verb).map(n => n.title)
+      return titles.length > 0
+        ? `${verb.toLowerCase()} ${titles.join(', ')}`
+        : ''
+    })
+    .filter(Boolean)
+  // Entries without a title (a deleted one, usually) are counted, never named
+  // by file: in their own phrase while there's room, else in "and N more"
+  if (unnamed.length > 0 && overflow === 0) {
+    const noun = unnamed.length === 1 ? 'entry' : 'entries'
+    phrases.push(
+      `${sharedVerb(unnamed).toLowerCase()} ${unnamed.length} ${noun}`
+    )
   }
+  const text = capitalize(phrases.join(', '))
+  if (overflow > 0) return `${text} and ${overflow + unnamed.length} more`
   return assetWord ? `${text} and ${assetWord}` : text
 }
 
@@ -167,8 +169,9 @@ export function gitStateSignature(
 }
 
 export const BUSY = 'Still finishing the last change. Try again in a moment.'
+// The notice above it already says what to do next
 export const REPEAT =
-  'Nothing has changed since the last try, so it would stop the same way. Open it on GitHub, or ask whoever manages the site.'
+  'Nothing has changed since the last try, so it would stop the same way.'
 
 interface GuardInput {
   status: GitStatus | undefined

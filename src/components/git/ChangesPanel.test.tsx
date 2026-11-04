@@ -147,4 +147,21 @@ describe('ChangesPanel', () => {
     // Trying again would hit the same conflict
     expect(screen.getByRole('button', { name: /Sync/ })).toBeDisabled()
   })
+
+  it('keeps Sync available after a blocked sync, which the writer can clear outside git', async () => {
+    withStatus({ ...CLEAN, behind: 1 })
+    vi.mocked(commands.gitSync).mockResolvedValue(
+      ok({
+        outcome: 'blockedByLocalChanges',
+        message:
+          "Bringing in the changes from GitHub would overwrite .env, a file on this computer that isn't part of the site, so nothing was changed. Move or rename it, then try again.",
+        status: { ...CLEAN, behind: 1 },
+      })
+    )
+    renderWithProviders(<ChangesPanel />)
+    await screen.findByText(/1 new on GitHub/)
+    await userEvent.click(screen.getByRole('button', { name: /Sync/ }))
+    await screen.findByRole('alert')
+    expect(screen.getByRole('button', { name: /Sync/ })).toBeEnabled()
+  })
 })

@@ -332,8 +332,16 @@ export function GitChangesSection() {
         <View
           status={{ ...STATUS, ahead: 1 }}
           selectedPath="src/content/pages/about.md"
-          message="Update About, Harbour identity, harbour-cover and 1 more"
-          pullRequest={<PullRequestCard pr={PULL_REQUEST} onMerge={noop} />}
+          titles={
+            new Map([
+              ['src/content/pages/about.md', 'About'],
+              ['src/content/work/harbour.md', 'Harbour identity'],
+            ])
+          }
+          message="Add Harbour identity, update About, remove 1 entry and images"
+          pullRequest={
+            <PullRequestCard pr={PULL_REQUEST} onMerge={noop} unpublished />
+          }
         />
       </Panel>
       <Panel label="Clean">
@@ -363,7 +371,7 @@ export function GitChangesSection() {
         <View
           status={{ ...STATUS, files: STATUS.files.slice(0, 2) }}
           needsSignIn
-          message="Update About, Harbour identity"
+          message="Add Harbour identity, update About"
         />
       </Panel>
     </div>
@@ -386,6 +394,11 @@ export function GitChangesMoreSection() {
             </Button>
           }
         />
+      </Panel>
+      <Panel label="Pull request, latest changes not published">
+        <div className="p-3">
+          <PullRequestCard pr={PULL_REQUEST} onMerge={noop} unpublished />
+        </div>
       </Panel>
       <Panel label="Draft that can't merge, checks running">
         <div className="p-3">

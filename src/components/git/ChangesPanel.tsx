@@ -90,8 +90,12 @@ export function ChangesPanel() {
   const [stored, setStored] = useState<StoredNotice | null>(null)
   const notice = stored && stored.branch === branch ? stored : null
   const signature = status ? gitStateSignature(status, behindDefaultCount) : ''
+  // Only a conflict repeats for sure. A blocked attempt can be cleared by
+  // something git doesn't see (moving an ignored file), so it stays enabled
   const heldBack =
-    notice && notice.signature === signature ? notice.action : null
+    notice && notice.outcome === 'conflict' && notice.signature === signature
+      ? notice.action
+      : null
 
   // Titles for the changed files, and for files a notice mentions (a
   // conflicting file is often committed already, so not among the changes)

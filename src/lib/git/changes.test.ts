@@ -84,8 +84,22 @@ describe('publishMessage', () => {
   it("counts entries whose title isn't known instead of naming their files", () => {
     expect(publishMessage([entry(undefined, 'deleted')])).toBe('Remove 1 entry')
     expect(publishMessage([entry('About'), entry(undefined, 'deleted')])).toBe(
-      'Update About and 1 more'
+      'Update About, remove 1 entry'
     )
+    expect(
+      publishMessage([
+        entry('About'),
+        entry(undefined, 'deleted'),
+        asset('src/assets/new.jpg'),
+      ])
+    ).toBe('Update About, remove 1 entry and images')
+    // Once names overflow, untitled entries join the count
+    expect(
+      publishMessage([
+        ...['A', 'B', 'C', 'D'].map(t => entry(t)),
+        entry(undefined, 'deleted'),
+      ])
+    ).toBe('Update A, B, C and 2 more')
   })
 
   it("doesn't repeat a title", () => {
