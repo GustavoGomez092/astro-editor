@@ -408,6 +408,20 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       return
     }
 
+    // Collection settings show at once, so a second change made before this
+    // one is written (two quick clicks on the sort arrow) builds on it rather
+    // than on the settings from before. Put back if the write fails
+    const previousSettings = get().currentProjectSettings
+    if ('collections' in settings && previousSettings) {
+      set({
+        currentProjectSettings: {
+          ...previousSettings,
+          collections: settings.collections,
+        },
+      })
+    }
+    const optimisticSettings = get().currentProjectSettings
+
     try {
       // Check if path overrides are changing
       const pathOverridesChanged = !!settings.pathOverrides
@@ -487,6 +501,9 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         }
       }
     } catch (error) {
+      if (get().currentProjectSettings === optimisticSettings) {
+        set({ currentProjectSettings: previousSettings })
+      }
       toast.error('Failed to update project settings', {
         description:
           error instanceof Error ? error.message : 'Unknown error occurred',

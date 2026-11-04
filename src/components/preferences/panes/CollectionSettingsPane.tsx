@@ -23,7 +23,10 @@ import {
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { usePreferences } from '../../../hooks/usePreferences'
 import { useCollectionsQuery } from '../../../hooks/queries/useCollectionsQuery'
-import { getCollectionSettings } from '../../../lib/project-registry/collection-settings'
+import {
+  getCollectionSettings,
+  hasCollectionSettings,
+} from '../../../lib/project-registry/collection-settings'
 import { deserializeCompleteSchema, FieldType } from '../../../lib/schema'
 import { getDefaultFileType } from '../../../lib/project-registry/default-file-type'
 import type { SchemaField } from '../../../lib/schema'
@@ -349,11 +352,8 @@ export const CollectionSettingsPane: React.FC = () => {
           const effectiveSettings = getEffectiveSettings(collection.name)
           const collectionOverride = getCollectionOverride(collection.name)
           const hasOverrides =
-            !!collectionOverride?.settings?.pathOverrides ||
-            !!collectionOverride?.settings?.frontmatterMappings ||
-            !!collectionOverride?.settings?.defaultFileType ||
-            collectionOverride?.settings?.useAbsoluteAssetPaths !== undefined ||
-            !!collectionOverride?.settings?.urlPattern
+            !!collectionOverride &&
+            hasCollectionSettings(collectionOverride.settings)
 
           if (!effectiveSettings) return null
 
