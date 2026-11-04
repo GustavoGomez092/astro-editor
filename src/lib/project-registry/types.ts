@@ -4,6 +4,8 @@
  * Simple type definitions for project identification and persistence
  */
 
+import type { GrammarDialect } from '../bindings'
+
 /**
  * Utility type for deep partial - makes all nested properties optional
  * Used for settings updates where only changed fields need to be passed
@@ -118,10 +120,18 @@ export interface GlobalSettings {
     }
     editorBaseFontSize?: number // 1-30, default 18
   }
+  // Spelling and grammar checking. Unset fields resolve in lib/grammar/settings.ts
+  grammar?: GrammarSettings
   advanced?: {
     // OAuth app client ID for GitHub sign-in, for builds compiled without one.
     // Read by Rust (github::auth::resolve_client_id); null uses the built-in ID
     githubClientId?: string | null
   }
   version: number
+}
+
+export interface GrammarSettings {
+  enabled?: boolean // Default: on
+  dialect?: GrammarDialect // Default: american
+  dictionary?: string[] // Words never flagged as misspelt
 }
