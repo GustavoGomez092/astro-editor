@@ -4,6 +4,7 @@ import { getNestedValue } from '../../../lib/object-utils'
 import { AutoExpandingTextarea } from '../../ui/auto-expanding-textarea'
 import { valueToString } from '../utils'
 import { CopyAsSlugLink } from './CopyAsSlugLink'
+import { UpdateFileNameHint } from './UpdateFileNameHint'
 import { FieldWrapper } from './FieldWrapper'
 import { FormInUseContext } from '../form-in-use'
 import type { FieldProps } from '../../../types/common'
@@ -15,6 +16,7 @@ interface TextareaFieldProps extends FieldProps {
   maxRows?: number
   field?: SchemaField
   showCopyAsSlug?: boolean
+  showFileName?: boolean
 }
 
 export const TextareaField: React.FC<TextareaFieldProps> = ({
@@ -27,6 +29,7 @@ export const TextareaField: React.FC<TextareaFieldProps> = ({
   required,
   field,
   showCopyAsSlug = false,
+  showFileName = false,
 }) => {
   const value = useEditorStore(state => getNestedValue(state.frontmatter, name))
   const updateFrontmatterField = useEditorStore(
@@ -60,6 +63,7 @@ export const TextareaField: React.FC<TextareaFieldProps> = ({
         value={valueToString(value)}
         onChange={e => updateFrontmatterField(name, e.target.value)}
       />
+      {showFileName && <UpdateFileNameHint />}
       {showCopyAsSlug && <CopyAsSlugLink text={valueToString(value)} />}
     </FieldWrapper>
   )

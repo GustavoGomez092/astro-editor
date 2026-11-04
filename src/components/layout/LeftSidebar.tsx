@@ -12,6 +12,7 @@ import { fetchCollectionFiles } from '../../hooks/queries/useCollectionFilesQuer
 import { queryKeys } from '../../lib/query-keys'
 import { openOnlyEntry } from '../../lib/files/only-entry'
 import type { FileEntry, Collection } from '@/types'
+import { openAndRenameToTitle } from '../../lib/files/rename-to-title-action'
 import { useRenameFileMutation } from '../../hooks/mutations/useRenameFileMutation'
 import { Button } from '../ui/button'
 import { Badge } from '../ui/badge'
@@ -239,6 +240,7 @@ const FilesPanel: React.FC = () => {
         void refetchFiles()
       },
       onRename: handleRename,
+      onRenameToTitle: file => void openAndRenameToTitle(file),
     })
   }
 

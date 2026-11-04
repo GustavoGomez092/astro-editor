@@ -258,13 +258,21 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   updateCurrentFileAfterRename: (newPath: string) => {
     const { currentFile } = get()
     if (currentFile) {
+      const name = newPath
+        .substring(newPath.lastIndexOf('/') + 1)
+        .replace(/\.[^.]+$/, '')
+      // The id is the collection and the path inside it without the extension,
+      // so it follows the name (the sidebar picks the open entry by id)
+      const idFolder = currentFile.id.substring(
+        0,
+        currentFile.id.lastIndexOf('/') + 1
+      )
       set({
         currentFile: {
           ...currentFile,
           path: newPath,
-          name: newPath
-            .substring(newPath.lastIndexOf('/') + 1)
-            .replace(/\.[^.]+$/, ''),
+          name,
+          id: `${idFolder}${name}`,
         },
       })
     }

@@ -12,6 +12,7 @@ import { ask } from '@tauri-apps/plugin-dialog'
 import type { FileEntry } from '@/types'
 import { useProjectStore } from '../../store/projectStore'
 import { openInIde } from '../../lib/ide'
+import { canRenameToTitle, titleOf } from '@/lib/files/rename-to-title-action'
 import { getTitle } from '@/lib/files/sorting'
 import { getPlatform } from '@/hooks/usePlatform'
 import { getPlatformString } from '@/lib/platform-strings'
@@ -21,6 +22,7 @@ interface ContextMenuOptions {
   position: { x: number; y: number }
   onRefresh?: () => void
   onRename?: (file: FileEntry) => void
+  onRenameToTitle?: (file: FileEntry) => void
 }
 
 export class FileContextMenu {
@@ -64,6 +66,7 @@ export class FileContextMenu {
     position,
     onRefresh,
     onRename,
+    onRenameToTitle,
   }: ContextMenuOptions): Promise<void> {
     try {
       // Get current IDE setting from global preferences
@@ -176,6 +179,17 @@ export class FileContextMenu {
         },
       })
 
+      // Only when the file's name no longer follows its title
+      const renameToTitleItem =
+        onRenameToTitle &&
+        canRenameToTitle(file, titleOf(file, file.frontmatter ?? {}))
+          ? await MenuItem.new({
+              id: 'rename-to-title',
+              text: 'Rename to Match Title',
+              action: () => onRenameToTitle(file),
+            })
+          : null
+
       // Create "Open in IDE" menu item if IDE is configured
       const openInIdeItem = ideCommand
         ? await MenuItem.new({
@@ -223,6 +237,7 @@ export class FileContextMenu {
         copyPathItem,
         duplicateItem,
         renameItem,
+        ...(renameToTitleItem ? [renameToTitleItem] : []),
         ...(openInIdeItem ? [openInIdeItem] : []),
         separator,
         deleteItem,
