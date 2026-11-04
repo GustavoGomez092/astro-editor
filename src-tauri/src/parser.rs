@@ -660,12 +660,16 @@ fn glob_loader_base(call: &str) -> Option<String> {
 
 /// Whether a glob pattern picks files from a named folder (`posts/*.md`):
 /// a `/` comes before any glob character
+/// Whether a glob pattern picks out files in a named folder, such as `posts/*.md` or
+/// `**/drafts/*.md`: some part before the file name has no glob characters in it.
 fn pattern_names_a_folder(pattern: &str) -> bool {
     let pattern = tidy_folder_prefix(pattern);
-    let glob = pattern
-        .find(['*', '?', '[', '{', '!'])
-        .unwrap_or(pattern.len());
-    pattern.find('/').is_some_and(|slash| slash < glob)
+    let Some((folders, _file)) = pattern.rsplit_once('/') else {
+        return false;
+    };
+    folders
+        .split('/')
+        .any(|part| !part.is_empty() && !part.contains(['*', '?', '[', '{', '!']))
 }
 
 fn tidy_folder_prefix(pattern: &str) -> &str {
@@ -2092,5 +2096,31 @@ export default defineConfig({
 
         // Clean up
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    #[test]
+    fn a_pattern_names_a_folder_when_a_folder_part_has_no_glob_characters() {
+        for pattern in [
+            "posts/*.md",
+            "./posts/**/*.md",
+            "**/drafts/*.md",
+            "*/posts/*.md",
+            "a/b/*.md",
+        ] {
+            assert!(pattern_names_a_folder(pattern), "{pattern} names a folder");
+        }
+        for pattern in [
+            "*.md",
+            "**/*.md",
+            "**/*.{md,mdx}",
+            "*/*.md",
+            "!**/_*",
+            "[a-z]*/*.md",
+        ] {
+            assert!(
+                !pattern_names_a_folder(pattern),
+                "{pattern} doesn't name a folder"
+            );
+        }
     }
 }
