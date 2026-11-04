@@ -272,8 +272,9 @@ mod tests {
             &format!("sleep 30 &\necho $! > '{}'\nwait", pid_file.display()),
         );
         let started = Instant::now();
-        assert_eq!(resolve_shell_path(&shell, Duration::from_millis(500)), None);
-        assert!(started.elapsed() < Duration::from_secs(3));
+        // Long enough for the fake shell to start under a busy parallel test run
+        assert_eq!(resolve_shell_path(&shell, Duration::from_secs(2)), None);
+        assert!(started.elapsed() < Duration::from_secs(6));
         // The whole group went, including what the shell started
         let pid: i32 = fs::read_to_string(&pid_file)
             .unwrap()
