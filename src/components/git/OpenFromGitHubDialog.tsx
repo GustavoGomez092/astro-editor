@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { open as pickFolder } from '@tauri-apps/plugin-dialog'
 import { error as logError } from '@tauri-apps/plugin-log'
 import { Link2, Lock } from 'lucide-react'
@@ -10,7 +10,12 @@ import {
   filterRepos,
   shortenMiddle,
 } from '@/lib/git/clone'
-import { markSitePrepared, prepareSite } from '@/lib/dev-server/prepare'
+import {
+  isAstroSite,
+  markSitePrepared,
+  prepareSite,
+} from '@/lib/dev-server/prepare'
+import { commands } from '@/lib/bindings'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
 import { formatRelativeTime } from '@/lib/dates'
 import { toast } from '@/lib/toast'
@@ -91,8 +96,15 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
   const [chosen, setChosen] = useState<Choice | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
   const [progress, setProgress] = useState<CloneProgress | null>(null)
-  // After the download: installing and reading the collections
-  const [preparing, setPreparing] = useState(false)
+  // After the download: the project being prepared (installing, reading the
+  // collections), which the writer can skip
+  const [preparing, setPreparing] = useState<string | null>(null)
+  const skippedRef = useRef(false)
+  const skipPreparing = () => {
+    if (!preparing) return
+    skippedRef.current = true
+    void commands.devServerStop(preparing)
+  }
   const cloning = useGitStore(state => state.cloneInProgress)
   const setCloning = (value: boolean) =>
     useGitStore.getState().setCloneInProgress(value)
@@ -131,20 +143,30 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
 
   const startClone = () => {
     if (!selection || !parentDir) return
+    skippedRef.current = false
     setCloning(true)
     setError(null)
     setProgress(null)
     const name = folderNameFrom(selection.cloneUrl)
     void cloneRepository(selection.cloneUrl, parentDir, setProgress)
       .then(async projectPath => {
-        // Before opening it, so its forms have their schemas at once
-        setPreparing(true)
         markSitePrepared(projectPath)
-        const prepared = await prepareSite(projectPath)
-        setPreparing(false)
+        // Before opening an Astro site, so its forms have their schemas at once
+        let prepared = true
+        if (await isAstroSite(projectPath)) {
+          setPreparing(projectPath)
+          prepared = await prepareSite(projectPath)
+        }
+        const skipped = skippedRef.current
+        setPreparing(null)
         setCloning(false)
         useProjectStore.getState().setProject(projectPath)
-        if (prepared) {
+        if (skipped) {
+          toast.info(`Opened ${name}`, {
+            description:
+              "It wasn't prepared, so some fields may be missing until Preview runs.",
+          })
+        } else if (prepared) {
           toast.success(`Opened ${name}`)
         } else {
           toast.warning(`Opened ${name}, but some fields may be missing.`, {
@@ -155,7 +177,7 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         onDone()
       })
       .catch((reason: unknown) => {
-        setPreparing(false)
+        setPreparing(null)
         setCloning(false)
         setError(reason instanceof Error ? reason.message : String(reason))
       })
@@ -288,20 +310,34 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
             <div
               className={cn(
                 'h-full rounded-full bg-primary transition-[width]',
-                (percent === null || preparing) && 'w-1/3 animate-pulse'
+                (percent === null || preparing !== null) &&
+                  'w-1/3 animate-pulse'
               )}
               style={
-                percent === null || preparing
+                percent === null || preparing !== null
                   ? undefined
                   : { width: `${percent}%` }
               }
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            {preparing
-              ? 'Preparing your site…'
-              : `Downloading${percent === null ? '…' : ` ${percent}%`}`}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              {preparing
+                ? 'Preparing your site…'
+                : `Downloading${percent === null ? '…' : ` ${percent}%`}`}
+            </p>
+            {preparing && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={skipPreparing}
+              >
+                Skip
+              </Button>
+            )}
+          </div>
         </div>
       )}
       {error && (

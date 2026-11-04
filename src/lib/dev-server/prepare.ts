@@ -9,15 +9,18 @@ import { toast } from '@/lib/toast'
  * every field: it has `astro` in package.json and collections, but none of
  * their JSON schemas in `.astro/collections` (a fresh clone has no `.astro`).
  */
+/** Whether the project's package.json lists `astro`. */
+export async function isAstroSite(projectPath: string): Promise<boolean> {
+  const dependencies = await commands.projectDependencies(projectPath)
+  return dependencies.status === 'ok' && dependencies.data.includes('astro')
+}
+
 export async function siteNeedsPreparing(
   projectPath: string,
   collections: Pick<Collection, 'name'>[]
 ): Promise<boolean> {
   if (collections.length === 0) return false
-  const dependencies = await commands.projectDependencies(projectPath)
-  if (dependencies.status === 'error' || !dependencies.data.includes('astro')) {
-    return false
-  }
+  if (!(await isAstroSite(projectPath))) return false
   const root = projectPath.replace(/\/+$/, '')
   for (const collection of collections) {
     const schema = await commands.readFileContent(
@@ -75,7 +78,8 @@ export async function prepareSiteIfNeeded(
   projectPath: string,
   collections: Pick<Collection, 'name'>[]
 ): Promise<void> {
-  if (checked.has(projectPath)) return
+  // No collections yet may only mean they haven't been read: decide later
+  if (checked.has(projectPath) || collections.length === 0) return
   checked.add(projectPath)
   if (!(await siteNeedsPreparing(projectPath, collections))) return
 
@@ -83,6 +87,11 @@ export async function prepareSiteIfNeeded(
     id: PREPARE_TOAST,
     description: 'Reading its collections, so every field shows.',
     duration: Infinity,
+    // A hung install mustn't leave this up for good
+    action: {
+      label: 'Stop',
+      onClick: () => void commands.devServerStop(projectPath),
+    },
   })
   if (await prepareSite(projectPath)) {
     toast.success('Your site is ready.', { id: PREPARE_TOAST, duration: 4000 })

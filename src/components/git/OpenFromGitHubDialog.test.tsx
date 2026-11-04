@@ -13,6 +13,8 @@ vi.mock('@/lib/bindings', () => ({
     githubListRepos: vi.fn(() => new Promise(() => {})),
     gitClone: vi.fn(),
     devServerPrepare: vi.fn(),
+    devServerStop: vi.fn(),
+    projectDependencies: vi.fn(),
   },
 }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
@@ -44,6 +46,7 @@ describe('OpenFromGitHubDialog', () => {
   describe('signed in', () => {
     const ok = <T,>(data: T) => ({ status: 'ok' as const, data })
     beforeEach(() => {
+      vi.mocked(commands.projectDependencies).mockResolvedValue(ok(['astro']))
       vi.mocked(commands.githubAuthStatus).mockResolvedValue(
         ok({ signedIn: true, login: 'kr', name: null, avatarUrl: null })
       )
@@ -98,6 +101,60 @@ describe('OpenFromGitHubDialog', () => {
       await vi.waitFor(() =>
         expect(setProject).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
       )
+    })
+
+    it('lets the writer skip a preparation that hangs, then opens the site', async () => {
+      vi.mocked(commands.gitClone).mockResolvedValue(
+        ok('/Users/k/Sites/kr-site')
+      )
+      let finishPrepare: (value: unknown) => void = () => {}
+      vi.mocked(commands.devServerPrepare).mockReturnValue(
+        new Promise(resolve => (finishPrepare = resolve)) as never
+      )
+      vi.mocked(commands.devServerStop).mockImplementation(() => {
+        finishPrepare(
+          ok({
+            status: 'stopped',
+            url: null,
+            command: null,
+            pid: null,
+            error: null,
+          })
+        )
+        return Promise.resolve(ok(null)) as never
+      })
+      const setProject = vi.fn()
+      useProjectStore.setState({ setProject })
+      renderWithProviders(<OpenFromGitHubDialog />)
+      await userEvent.click(
+        await screen.findByRole('option', { name: /kr-site/ })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: /Download and open/ })
+      )
+      await userEvent.click(await screen.findByRole('button', { name: 'Skip' }))
+      expect(commands.devServerStop).toHaveBeenCalledWith(
+        '/Users/k/Sites/kr-site'
+      )
+      await vi.waitFor(() =>
+        expect(setProject).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
+      )
+    })
+
+    it("doesn't prepare a project that isn't an Astro site", async () => {
+      vi.mocked(commands.projectDependencies).mockResolvedValue(ok(['vite']))
+      vi.mocked(commands.gitClone).mockResolvedValue(ok('/Users/k/Sites/notes'))
+      const setProject = vi.fn()
+      useProjectStore.setState({ setProject })
+      renderWithProviders(<OpenFromGitHubDialog />)
+      await userEvent.click(
+        await screen.findByRole('option', { name: /kr-site/ })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: /Download and open/ })
+      )
+      await vi.waitFor(() => expect(setProject).toHaveBeenCalled())
+      expect(commands.devServerPrepare).not.toHaveBeenCalled()
     })
 
     it('shortens a long Save in folder in the middle, with the full path in its tooltip', async () => {

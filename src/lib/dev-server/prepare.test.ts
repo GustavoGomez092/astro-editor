@@ -3,13 +3,19 @@ import { commands } from '@/lib/bindings'
 import { queryClient } from '@/lib/query-client'
 import { queryKeys } from '@/lib/query-keys'
 import { mockToast, resetToastMocks } from '@/test/mocks/toast'
-import { prepareSite, prepareSiteIfNeeded, siteNeedsPreparing } from './prepare'
+import {
+  isAstroSite,
+  prepareSite,
+  prepareSiteIfNeeded,
+  siteNeedsPreparing,
+} from './prepare'
 
 vi.mock('@/lib/bindings', () => ({
   commands: {
     projectDependencies: vi.fn(),
     readFileContent: vi.fn(),
     devServerPrepare: vi.fn(),
+    devServerStop: vi.fn(),
   },
 }))
 
@@ -103,5 +109,30 @@ describe('prepareSiteIfNeeded', () => {
       'Preparing your site…',
       expect.anything()
     )
+  })
+
+  it('decides only once the collections are listed', async () => {
+    await prepareSiteIfNeeded('/later', [])
+    await prepareSiteIfNeeded('/later', COLLECTIONS)
+    expect(commands.devServerPrepare).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers to stop a preparation that takes too long', async () => {
+    await prepareSiteIfNeeded('/slow', COLLECTIONS)
+    const options = mockToast.info.mock.calls.at(-1)?.[1] as {
+      action?: { label: string; onClick: () => void }
+    }
+    expect(options.action?.label).toBe('Stop')
+    options.action?.onClick()
+    expect(commands.devServerStop).toHaveBeenCalledWith('/slow')
+  })
+})
+
+describe('isAstroSite', () => {
+  it('reads astro from package.json', async () => {
+    vi.mocked(commands.projectDependencies).mockResolvedValue(ok(['astro']))
+    expect(await isAstroSite('/site')).toBe(true)
+    vi.mocked(commands.projectDependencies).mockResolvedValue(ok(['vite']))
+    expect(await isAstroSite('/site')).toBe(false)
   })
 })
