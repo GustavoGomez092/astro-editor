@@ -128,16 +128,108 @@ export const commands = {
 	 *  if not running on Linux.
 	 */
 	getLinuxUiFont: () => typedError<string | null, string>(__TAURI_INVOKE("get_linux_ui_font")),
+	gitStatus: (projectPath: string) => typedError<GitStatus, string>(__TAURI_INVOKE("git_status", { projectPath })),
+	/**  Working tree vs `HEAD` for one file */
+	gitFileDiff: (projectPath: string, path: string) => typedError<FileDiff, string>(__TAURI_INVOKE("git_file_diff", { projectPath, path })),
+	gitFetch: (projectPath: string) => typedError<GitStatus, string>(__TAURI_INVOKE("git_fetch", { projectPath })),
+	gitSync: (projectPath: string) => typedError<SyncResult, string>(__TAURI_INVOKE("git_sync", { projectPath })),
+	/**  Commit everything, merge incoming changes, push */
+	gitPublish: (projectPath: string, message: string) => typedError<PublishResult, string>(__TAURI_INVOKE("git_publish", { projectPath, message })),
+	gitPush: (projectPath: string) => typedError<GitStatus, string>(__TAURI_INVOKE("git_push", { projectPath })),
+	gitBranches: (projectPath: string) => typedError<BranchInfo[], string>(__TAURI_INVOKE("git_branches", { projectPath })),
+	/**  Safe checkout; never discards changes */
+	gitCheckout: (projectPath: string, name: string, create: boolean) => typedError<GitStatus, string>(__TAURI_INVOKE("git_checkout", { projectPath, name, create })),
+	/**  Topological, newest first */
+	gitLogGraph: (projectPath: string, limit: number) => typedError<GraphCommit[], string>(__TAURI_INVOKE("git_log_graph", { projectPath, limit })),
+	gitCommitDetails: (projectPath: string, id: string) => typedError<CommitDetails, string>(__TAURI_INVOKE("git_commit_details", { projectPath, id })),
+	/**  A commit vs its first parent, for one file */
+	gitCommitFileDiff: (projectPath: string, id: string, path: string) => typedError<FileDiff, string>(__TAURI_INVOKE("git_commit_file_diff", { projectPath, id, path })),
+	/**  "Bring in changes from main": merge the default branch into the current one */
+	gitMergeDefaultBranch: (projectPath: string) => typedError<SyncResult, string>(__TAURI_INVOKE("git_merge_default_branch", { projectPath })),
+	/**  Clone into a new folder inside `parent_dir`; returns the new project path */
+	gitClone: (cloneUrl: string, parentDir: string) => typedError<string, string>(__TAURI_INVOKE("git_clone", { cloneUrl, parentDir })),
+	githubAuthStatus: () => typedError<GitHubAuthStatus, string>(__TAURI_INVOKE("github_auth_status")),
+	githubDeviceStart: () => typedError<DeviceCode, string>(__TAURI_INVOKE("github_device_start")),
+	/**  Resolves when signed in; fails with a readable message on expiry or denial */
+	githubDevicePoll: () => typedError<GitHubAuthStatus, string>(__TAURI_INVOKE("github_device_poll")),
+	githubSignOut: () => typedError<null, string>(__TAURI_INVOKE("github_sign_out")),
+	/**  `None` when `origin` isn't a github.com remote */
+	githubRepoInfo: (projectPath: string) => typedError<RepoInfo | null, string>(__TAURI_INVOKE("github_repo_info", { projectPath })),
+	githubListPullRequests: (projectPath: string) => typedError<PullRequest[], string>(__TAURI_INVOKE("github_list_pull_requests", { projectPath })),
+	githubCreatePullRequest: (projectPath: string, title: string, body: string, base: string, head: string) => typedError<PullRequest, string>(__TAURI_INVOKE("github_create_pull_request", { projectPath, title, body, base, head })),
+	/**  Merges with a merge commit */
+	githubMergePullRequest: (projectPath: string, number: number) => typedError<PullRequest, string>(__TAURI_INVOKE("github_merge_pull_request", { projectPath, number })),
+	/**  Repositories the signed-in user owns or collaborates on, most recently updated first */
+	githubListRepos: () => typedError<RepoSummary[], string>(__TAURI_INVOKE("github_list_repos")),
 };
 
 /* Types */
+export type BranchInfo = {
+	/**  Short name: `main` for a local branch, `origin/main` for a remote one */
+	name: string,
+	isRemote: boolean,
+	isHead: boolean,
+	upstream: string | null,
+	ahead: number,
+	behind: number,
+	/**  Unix seconds of the branch's tip commit */
+	lastCommitTime: number,
+};
+
+export type ChangedFile = {
+	/**  Path relative to the repository root, with forward slashes */
+	path: string,
+	/**  The previous path, for renames */
+	oldPath: string | null,
+	change: FileChange,
+};
+
+/**  Summary of a pull request's checks (combined status and check runs) */
+export type ChecksSummary = "pending" | "success" | "failure" | "none";
+
+/**  Payload of the `git-clone-progress` event */
+export type CloneProgress = {
+	received: number,
+	total: number,
+};
+
 export type Collection = {
 	name: string,
 	path: string,
 	complete_schema?: string | null,
 };
 
+export type CommitDetails = {
+	message: string,
+	authorEmail: string,
+	files: ChangedFile[],
+} & GraphCommit;
+
 export type ComponentFramework = "astro" | "react" | "vue" | "svelte";
+
+export type DeviceCode = {
+	userCode: string,
+	verificationUri: string,
+	/**  Seconds until the code expires */
+	expiresIn: number,
+	/**  Seconds to wait between polls */
+	interval: number,
+};
+
+export type DiffHunk = {
+	header: string,
+	lines: DiffLine[],
+};
+
+export type DiffLine = {
+	kind: DiffLineKind,
+	/**  The line without its trailing newline */
+	text: string,
+	oldNo: number | null,
+	newNo: number | null,
+};
+
+export type DiffLineKind = "add" | "del" | "ctx";
 
 export type DirectoryInfo = {
 	name: string,
@@ -162,6 +254,16 @@ export type EntryImport = {
 	id: string,
 };
 
+/**  How a file differs from `HEAD`. */
+export type FileChange = "added" | "modified" | "deleted" | "renamed" | "untracked" | "conflicted";
+
+export type FileDiff = {
+	path: string,
+	binary: boolean,
+	isImage: boolean,
+	hunks: DiffHunk[],
+};
+
 export type FileEntry = {
 	id: string,
 	path: string,
@@ -170,6 +272,41 @@ export type FileEntry = {
 	collection: string,
 	last_modified: number | null,
 	frontmatter: { [key in string]: Value } | null,
+};
+
+export type GitHubAuthStatus = {
+	signedIn: boolean,
+	login: string | null,
+	name: string | null,
+	avatarUrl: string | null,
+};
+
+export type GitStatus = {
+	isRepo: boolean,
+	branch: string | null,
+	defaultBranch: string | null,
+	/**  The upstream branch's short name, e.g. `origin/main` */
+	upstream: string | null,
+	ahead: number,
+	behind: number,
+	files: ChangedFile[],
+	detached: boolean,
+};
+
+export type GraphCommit = {
+	id: string,
+	shortId: string,
+	parents: string[],
+	summary: string,
+	authorName: string,
+	/**  Unix seconds */
+	time: number,
+	refs: GraphRef[],
+};
+
+export type GraphRef = {
+	name: string,
+	kind: RefKind,
 };
 
 /**  An image picked for an image prop, which the file has to import */
@@ -255,6 +392,58 @@ export type PropKind = { kind: "string" } | { kind: "number" } | { kind: "boolea
 { kind: "image" } | 
 /**  `CollectionEntry<'blog'>` from `astro:content` */
 { kind: "collectionEntry"; collection: string } | { kind: "unknown" };
+
+export type PublishResult = {
+	commitId: string,
+	pushed: boolean,
+	outcome: SyncOutcome,
+	message: string,
+	status: GitStatus,
+};
+
+export type PullRequest = {
+	number: number,
+	title: string,
+	head: string,
+	base: string,
+	state: PullRequestState,
+	draft: boolean,
+	htmlUrl: string,
+	mergeable: boolean | null,
+	checks: ChecksSummary,
+};
+
+export type PullRequestState = "open" | "closed" | "merged";
+
+export type RefKind = "head" | "localBranch" | "remoteBranch" | "tag";
+
+export type RepoInfo = {
+	owner: string,
+	repo: string,
+	defaultBranch: string,
+	htmlUrl: string,
+};
+
+/**  A repository the signed-in user can clone */
+export type RepoSummary = {
+	fullName: string,
+	owner: string,
+	name: string,
+	private: boolean,
+	defaultBranch: string,
+	cloneUrl: string,
+	/**  ISO 8601, as GitHub returns it */
+	updatedAt: string,
+};
+
+export type SyncOutcome = "upToDate" | "fastForwarded" | "merged" | "blockedByLocalChanges" | "conflict" | "noUpstream";
+
+export type SyncResult = {
+	outcome: SyncOutcome,
+	/**  A plain-language sentence for the writer */
+	message: string,
+	status: GitStatus,
+};
 
 export type Value = null | boolean | number | string | Value[] | { [key in string]: Value };
 

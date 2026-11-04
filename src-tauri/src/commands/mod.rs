@@ -2,6 +2,8 @@ pub mod clipboard;
 pub mod diagnostics;
 pub mod files;
 pub mod fonts;
+pub mod git;
+pub mod github;
 pub mod ide;
 pub mod mdx_components;
 pub mod menu;

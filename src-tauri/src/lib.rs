@@ -2,6 +2,8 @@
 mod agent_bridge;
 mod bindings;
 mod commands;
+mod git;
+mod github;
 mod mdx_components;
 mod mdx_esm;
 mod models;
