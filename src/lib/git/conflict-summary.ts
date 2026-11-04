@@ -141,8 +141,9 @@ function display(value: unknown): string {
   if (Array.isArray(value)) {
     return value.length === 0 ? EMPTY : value.map(display).join(', ')
   }
-  if (typeof value === 'object') return JSON.stringify(value)
-  return String(value)
+  if (typeof value === 'string') return value
+  if (typeof value === 'number') return String(value)
+  return JSON.stringify(value)
 }
 
 const labelFor = (key: string) =>
