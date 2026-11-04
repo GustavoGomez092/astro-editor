@@ -23,6 +23,8 @@ struct ProjectWatcher {
     watcher: RecommendedWatcher,
     rx: Receiver<Event>,
     watches_schemas: bool,
+    /// The content and collection folders it watches
+    folders: Vec<PathBuf>,
 }
 
 fn schemas_dir(project_path: &str) -> PathBuf {
@@ -91,9 +93,10 @@ fn create_project_watcher(
     let project_root = PathBuf::from(project_path);
 
     // Watch the content directory (or its override) and collection folders
-    for folder in watched_folders(&project_root, content_directory, collection_folders) {
+    let folders = watched_folders(&project_root, content_directory, collection_folders);
+    for folder in &folders {
         watcher
-            .watch(&folder, RecursiveMode::Recursive)
+            .watch(folder, RecursiveMode::Recursive)
             .map_err(|e| format!("Failed to watch content directory: {e}"))?;
     }
 
@@ -123,6 +126,7 @@ fn create_project_watcher(
         watcher,
         rx,
         watches_schemas,
+        folders,
     })
 }
 
@@ -145,6 +149,7 @@ pub async fn start_watching_project_with_content_dir(
         watcher,
         rx,
         watches_schemas,
+        folders: watched,
     } = create_project_watcher(
         &project_path,
         content_directory.as_deref(),
@@ -176,6 +181,7 @@ pub async fn start_watching_project_with_content_dir(
             ContentFolders {
                 content_directory,
                 collection_folders,
+                watched,
             },
             generation,
             watches_schemas,
@@ -190,6 +196,8 @@ pub async fn start_watching_project_with_content_dir(
 struct ContentFolders {
     content_directory: Option<String>,
     collection_folders: CollectionFolders,
+    /// The folders being watched now
+    watched: Vec<PathBuf>,
 }
 
 /// Event processing loop with automatic recovery and periodic rescan.
@@ -207,7 +215,7 @@ async fn run_event_loop(
     watcher_map: WatcherMap,
     mut rx: Receiver<Event>,
     project_path: String,
-    folders: ContentFolders,
+    mut folders: ContentFolders,
     generation: u64,
     mut watches_schemas: bool,
 ) {
@@ -222,8 +230,12 @@ async fn run_event_loop(
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 // Debounce timeout — process any buffered events
                 if !event_buffer.is_empty() {
-                    process_events(&app, &mut event_buffer).await;
+                    let schema_changed = process_events(&app, &mut event_buffer).await;
                     event_buffer.clear();
+                    // A collection's folder may have moved with the config
+                    if schema_changed {
+                        rewatch_folders(&watcher_map, &project_path, generation, &mut folders);
+                    }
                 }
 
                 if !watches_schemas {
@@ -290,6 +302,7 @@ async fn run_event_loop(
                 }
                 rx = rebuilt.rx;
                 watches_schemas = rebuilt.watches_schemas;
+                folders.watched = rebuilt.folders;
                 last_rescan = Instant::now();
                 log::info!("File watcher rebuilt for {project_path}");
                 let _ = app.emit("watcher-rebuilt", &project_path);
@@ -346,7 +359,53 @@ pub async fn stop_watching_project(app: AppHandle, project_path: String) -> Resu
     }
 }
 
-async fn process_events(app: &AppHandle, events: &mut [Event]) {
+/// The folders in `new` not in `old`, and those in `old` not in `new`
+fn folder_changes(old: &[PathBuf], new: &[PathBuf]) -> (Vec<PathBuf>, Vec<PathBuf>) {
+    let added = new.iter().filter(|f| !old.contains(f)).cloned().collect();
+    let removed = old.iter().filter(|f| !new.contains(f)).cloned().collect();
+    (added, removed)
+}
+
+/// After the content config changes, watch the collections' folders as they
+/// are now: a glob loader's base may have been edited
+fn rewatch_folders(
+    watcher_map: &WatcherMap,
+    project_path: &str,
+    generation: u64,
+    folders: &mut ContentFolders,
+) {
+    let now = watched_folders(
+        Path::new(project_path),
+        folders.content_directory.as_deref(),
+        &folders.collection_folders,
+    );
+    let (added, removed) = folder_changes(&folders.watched, &now);
+    if added.is_empty() && removed.is_empty() {
+        return;
+    }
+
+    let mut watchers = watcher_map.lock().unwrap();
+    // A stopped or replaced watcher is no longer this loop's to change
+    let Some(entry) = watchers
+        .get_mut(project_path)
+        .filter(|entry| entry.generation == generation)
+    else {
+        return;
+    };
+    for folder in &removed {
+        let _ = entry.watcher.unwatch(folder);
+    }
+    for folder in &added {
+        if let Err(e) = entry.watcher.watch(folder, RecursiveMode::Recursive) {
+            log::warn!("Failed to watch {}: {e}", folder.display());
+        }
+    }
+    log::info!("Watching the collection folders of {project_path} again after a config change");
+    folders.watched = now;
+}
+
+/// Tell the frontend about changed files. Whether a schema file changed
+async fn process_events(app: &AppHandle, events: &mut [Event]) -> bool {
     let mut schema_changed = false;
 
     for event in events.iter() {
@@ -389,6 +448,7 @@ async fn process_events(app: &AppHandle, events: &mut [Event]) {
             eprintln!("Failed to emit schema change event: {e}");
         }
     }
+    schema_changed
 }
 
 /// Check if a file path is a schema-related file
@@ -457,6 +517,44 @@ mod tests {
 
         let folders = watched_folders(root, None, &CollectionFolders::new());
         assert_eq!(folders, vec![root.join("src/content"), root.join("posts")]);
+    }
+
+    #[test]
+    fn folder_changes_lists_folders_to_start_and_stop_watching() {
+        let a = PathBuf::from("/site/src/content");
+        let b = PathBuf::from("/site/posts");
+        let c = PathBuf::from("/site/writing");
+        let (added, removed) = folder_changes(&[a.clone(), b.clone()], &[a.clone(), c.clone()]);
+        assert_eq!(added, vec![c]);
+        assert_eq!(removed, vec![b]);
+        assert_eq!(
+            folder_changes(std::slice::from_ref(&a), std::slice::from_ref(&a)),
+            (vec![], vec![])
+        );
+    }
+
+    #[test]
+    fn editing_a_loader_base_changes_the_folders_watched() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src/content")).unwrap();
+        std::fs::create_dir_all(root.join("posts")).unwrap();
+        std::fs::create_dir_all(root.join("writing")).unwrap();
+        let config = |base: &str| {
+            format!(
+                "const blog = defineCollection({{ loader: glob({{ base: '{base}', pattern: '*.md' }}) }});\nexport const collections = {{ blog }};\n"
+            )
+        };
+        std::fs::write(root.join("src/content.config.ts"), config("./posts")).unwrap();
+        let before = watched_folders(root, None, &CollectionFolders::new());
+
+        std::fs::write(root.join("src/content.config.ts"), config("./writing")).unwrap();
+        let after = watched_folders(root, None, &CollectionFolders::new());
+
+        assert_eq!(
+            folder_changes(&before, &after),
+            (vec![root.join("writing")], vec![root.join("posts")])
+        );
     }
 
     #[test]
