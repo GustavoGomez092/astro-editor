@@ -1,12 +1,16 @@
 import React, { useCallback, useMemo } from 'react'
 import { error as logError } from '@tauri-apps/plugin-log'
 import { useShallow } from 'zustand/react/shallow'
+import { useQueryClient } from '@tanstack/react-query'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { useUIStore } from '../../store/uiStore'
 import { useCollectionsQuery } from '../../hooks/queries/useCollectionsQuery'
 import { useDirectoryScanQuery } from '../../hooks/queries/useDirectoryScanQuery'
 import { useCollectionFileCountsQuery } from '../../hooks/queries/useCollectionFileCountsQuery'
+import { fetchCollectionFiles } from '../../hooks/queries/useCollectionFilesQuery'
+import { queryKeys } from '../../lib/query-keys'
+import { openOnlyEntry } from '../../lib/files/only-entry'
 import type { FileEntry, Collection } from '@/types'
 import { useRenameFileMutation } from '../../hooks/mutations/useRenameFileMutation'
 import { Button } from '../ui/button'
@@ -183,8 +187,26 @@ const FilesPanel: React.FC = () => {
     null
   )
 
+  const queryClient = useQueryClient()
+
+  // A collection with exactly one entry opens it too; Back still returns to
+  // the collections list
   const handleCollectionClick = (collection: Collection) => {
     useProjectStore.getState().setSelectedCollection(collection.name)
+    const projectPath = useProjectStore.getState().projectPath ?? ''
+    openOnlyEntry({
+      collectionName: collection.name,
+      count: fileCounts[collection.name],
+      loadFiles: () =>
+        queryClient.fetchQuery({
+          queryKey: queryKeys.collectionFiles(projectPath, collection.name),
+          queryFn: () => fetchCollectionFiles(collection.path, collection.name),
+        }),
+    }).catch((error: unknown) => {
+      void logError(
+        `Failed to open the only entry in ${collection.name}: ${String(error)}`
+      )
+    })
   }
 
   const handleBackClick = () => {
