@@ -1,4 +1,5 @@
 pub mod clipboard;
+pub mod dev_server;
 pub mod diagnostics;
 pub mod files;
 pub mod fonts;

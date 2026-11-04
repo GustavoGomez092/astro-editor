@@ -31,6 +31,7 @@ serde_norway = "0.9.42"
 tokio = { version = "1", features = ["full"] }
 notify = "=9.0.0-rc.7"
 walkdir = "2"
+filetime = "0.2"
 regex = "1.10"
 tauri-plugin-clipboard-manager = "2.3.0"
 tauri-plugin-dialog = "2.3.0"
@@ -81,6 +82,10 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
   "WKWebView",
   "WKSnapshotConfiguration",
 ] }
+
+# Signals the dev server's process group (dev_server/process.rs)
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
 
 [dev-dependencies]
 tempfile = "3.27"

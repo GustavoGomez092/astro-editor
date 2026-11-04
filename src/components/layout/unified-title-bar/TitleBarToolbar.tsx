@@ -18,6 +18,7 @@ import {
   Pilcrow,
 } from 'lucide-react'
 import { cn } from '../../../lib/utils'
+import { PreviewButton } from '../../dev-server'
 
 interface TitleBarToolbarProps {
   /** Window controls for the left side (e.g., macOS traffic lights) */
@@ -126,6 +127,8 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
       </div>
 
       <div className="flex items-center gap-2" data-tauri-drag-region>
+        <PreviewButton />
+
         {selectedCollection && (
           <Button
             onClick={() => void createNewFile()}

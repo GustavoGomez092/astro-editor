@@ -42,6 +42,11 @@ export const queryKeys = {
   // depend on the file, so it's part of the key
   imageSrc: (projectPath: string, filePath: string | null, imagePath: string) =>
     [...queryKeys.all, projectPath, 'imageSrc', filePath, imagePath] as const,
+  // The project's dev server, refetched on every `dev-server-state` event
+  devServer: (projectPath: string) =>
+    [...queryKeys.all, projectPath, 'devServer'] as const,
+  devServerLogs: (projectPath: string) =>
+    [...queryKeys.devServer(projectPath), 'logs'] as const,
   // Not tied to a project
   appVersion: ['appVersion'] as const,
   // Add more keys here as needed

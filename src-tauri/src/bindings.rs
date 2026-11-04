@@ -80,6 +80,11 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::updater::fetch_release_notes,
             // fonts.rs commands
             crate::commands::fonts::get_linux_ui_font,
+            // dev_server.rs commands
+            crate::commands::dev_server::dev_server_start,
+            crate::commands::dev_server::dev_server_stop,
+            crate::commands::dev_server::dev_server_state,
+            crate::commands::dev_server::dev_server_logs,
         ])
 }
 

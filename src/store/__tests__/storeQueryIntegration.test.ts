@@ -63,6 +63,7 @@ describe('Store ↔ Query Integration Tests', () => {
             conjunctions: false,
           },
           defaultFileType: 'md',
+          showPublishingTools: false,
         },
         appearance: {
           headingColor: {

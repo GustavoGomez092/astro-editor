@@ -69,3 +69,7 @@ Dev logs go to `~/Library/Logs/is.gustavogomez.astroeditorplus.dev/`:
 - **`tauri-dev.log`:** the `tauri:dev` terminal output (Vite and cargo), replaced on each run
 
 `bun run app logs` searches both. See the skill for the flags.
+
+## Driving the Preview control
+
+The dev app passes its environment on, but dev servers start without AI-agent markers (`CLAUDECODE`, `AI_AGENT`, …), which make Astro 7 detach its server, so an agent can drive Preview from `tauri:dev` as is. See `dev-server.md`.

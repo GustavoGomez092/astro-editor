@@ -265,6 +265,15 @@ export class ProjectRegistryManager {
       }
     }
 
+    if ('devCommand' in settings) {
+      const devCommand = settings.devCommand?.trim()
+      if (devCommand) {
+        projectData.settings.devCommand = devCommand
+      } else {
+        delete projectData.settings.devCommand
+      }
+    }
+
     // Update collections if property is present
     if ('collections' in settings) {
       if (settings.collections === undefined) {
@@ -347,6 +356,7 @@ export class ProjectRegistryManager {
       // Include useAbsoluteAssetPaths (undefined by default, meaning use relative paths)
       useAbsoluteAssetPaths: projectData.settings.useAbsoluteAssetPaths,
       addComponentImports: projectData.settings.addComponentImports,
+      devCommand: projectData.settings.devCommand,
       // Include collections array if present
       collections: projectData.settings.collections || [],
     }

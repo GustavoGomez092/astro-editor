@@ -142,6 +142,22 @@ export type {
    */
   ComponentFramework,
   /**
+   * A project's dev server, which the title bar's Preview control starts and
+   * stops. Sent with every `dev-server-state` event.
+   *
+   * Fields:
+   * - `status` - `stopped`, `installing` (dependencies), `starting`, `running`, `external` (another server for the project was already running) or `error`
+   * - `url` - The local URL the server printed, once running
+   * - `command` - The command that runs it (the Dev command override, or `<package manager> run dev`)
+   * - `pid` - The shell process, which leads the server's process group
+   * - `error` - Why it stopped or couldn't start, ending with its last output lines
+   */
+  DevServerState,
+  /**
+   * Where a dev server is in its life. See `DevServerState`.
+   */
+  DevServerStatus,
+  /**
    * JSON-compatible value type (serde_json::Value).
    * Used for dynamic frontmatter data.
    */

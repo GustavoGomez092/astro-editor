@@ -2,6 +2,7 @@
 mod agent_bridge;
 mod bindings;
 mod commands;
+mod dev_server;
 mod mdx_components;
 mod mdx_esm;
 mod models;
@@ -126,6 +127,17 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             commands::quit::install_terminate_hook(app.handle());
+
+            // Resolve the user's PATH now, so the first Preview doesn't wait on it
+            std::thread::spawn(dev_server::env_path::user_path);
+
+            // Dev servers report each state change to the frontend
+            let event_handle = app.handle().clone();
+            app.manage(dev_server::DevServers::new(std::sync::Arc::new(
+                move |_project_path, state| {
+                    let _ = event_handle.emit(commands::dev_server::STATE_EVENT, state);
+                },
+            )));
 
             // Fix PATH environment variable for production builds
             // This ensures shell commands can find executables like 'code', 'cursor', etc.
@@ -462,6 +474,8 @@ pub fn run() {
             // Teardown goes here, not in ExitRequested, which doesn't fire for Cmd+Q on macOS
             tauri::RunEvent::Exit => {
                 log::info!("Application exiting");
+                // Normally already done by the quit flow
+                commands::dev_server::stop_dev_servers(app_handle);
                 #[cfg(debug_assertions)]
                 agent_bridge::stop(app_handle);
             }

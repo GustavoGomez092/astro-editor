@@ -35,6 +35,9 @@ export const ProjectSettingsPane: React.FC = () => {
   const contentDirId = React.useId()
   const assetsDirId = React.useId()
   const mdxDirId = React.useId()
+  const devCommandId = React.useId()
+  const showPublishingTools =
+    globalSettings?.general?.showPublishingTools ?? false
   // A select trigger is a button, which htmlFor would click, so it names
   // itself with aria-labelledby
   const fileTypeLabelId = React.useId()
@@ -218,6 +221,29 @@ export const ProjectSettingsPane: React.FC = () => {
           </FieldContent>
         </Field>
       </SettingsSection>
+
+      {showPublishingTools && (
+        <SettingsSection title="Preview">
+          <Field>
+            <FieldLabel htmlFor={devCommandId}>Dev command</FieldLabel>
+            <FieldContent>
+              <PreferencesTextInput
+                id={devCommandId}
+                value={currentProjectSettings?.devCommand ?? ''}
+                onCommit={value =>
+                  void updateProject({ devCommand: value.trim() || null })
+                }
+                placeholder="npm run dev"
+              />
+              <FieldDescription>
+                The command Preview runs, from the project folder. Leave empty
+                to run the project&apos;s <code className="text-xs">dev</code>{' '}
+                script with the package manager its lockfile implies.
+              </FieldDescription>
+            </FieldContent>
+          </Field>
+        </SettingsSection>
+      )}
 
       <SettingsSection title="Experimental">
         <Field>

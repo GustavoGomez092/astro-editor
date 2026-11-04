@@ -170,6 +170,9 @@
     oklch(0.6356 0.2082 25.3782),
     oklch(0.7123 0.1656 22.1776)
   );
+  /* The title bar's dot for a running dev server, and for one that failed */
+  --server-running: light-dark(oklch(0.6 0.15 150), oklch(0.75 0.16 150));
+  --server-error: var(--required);
 
   /* Editor: the iA Writer palette, for the writing surface only. Keep all of
      it, used or not (see docs/developer/editor-styles.md) */
@@ -288,6 +291,8 @@
   --color-filter: var(--filter);
   --color-filter-bg: var(--filter-bg);
   --color-required: var(--required);
+  --color-server-running: var(--server-running);
+  --color-server-error: var(--server-error);
   --color-icon: var(--icon);
   --color-active: var(--active);
   --color-overlay: var(--overlay);

@@ -82,4 +82,4 @@ Decisions a newcomer might be tempted to undo, and why not to:
 - **shadcn on Base UI, not Radix.** It's shadcn's default, and its Combobox needs Base UI anyway. See `ui-patterns.md`.
 - **Every colour is a `light-dark()` token** in `App.css`. See `color-system.md`.
 - **Native menus and context menus** come from Tauri, not HTML, so they behave like macOS menus.
-- **Writer mode only.** No git, publishing, previews or code-editing features; see the product principles in AGENTS.md.
+- **Writer mode only.** No git, publishing, previews or code-editing features; see the product principles in AGENTS.md. The optional Preview control (`dev-server.md`) is off unless the writer turns on **Show preview and publishing tools**.

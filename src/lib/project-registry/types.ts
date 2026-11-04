@@ -40,6 +40,9 @@ export interface ProjectSettings {
   useAbsoluteAssetPaths?: boolean
   // Experimental: the component builder adds the import a component needs to an MDX file. Off unless set.
   addComponentImports?: boolean
+  // Runs the dev server instead of the `dev` script (Rust reads it from the
+  // project file, see src-tauri/src/dev_server/detect.rs). null or absent: none
+  devCommand?: string | null
   // Collection-specific settings overrides
   collections?: CollectionSettings[]
 }
@@ -94,6 +97,8 @@ export interface GlobalSettings {
     }
     autoSaveDelay: number
     defaultFileType: 'md' | 'mdx'
+    // The title bar's Preview control (and the Git panel). Off by default
+    showPublishingTools: boolean
   }
   appearance: {
     headingColor: {

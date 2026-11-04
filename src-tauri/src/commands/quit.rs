@@ -11,6 +11,9 @@
 //! - Windows and Linux: closing the main window, or the Quit menu item, calls
 //!   `request_quit`.
 //!
+//! Quitting also stops every dev server (`commands/dev_server.rs`), which can
+//! take a few seconds, so it happens on a thread of its own before the reply.
+//!
 //! If the frontend doesn't answer within `QUIT_TIMEOUT` (the webview hung, or
 //! the page hasn't loaded yet), the app quits anyway, and if that doesn't end
 //! the process either, it exits outright: a hang is worse than losing edits.
@@ -42,7 +45,9 @@ static PENDING_REQUEST: Mutex<Option<u64>> = Mutex::new(None);
 /// asked and hasn't answered.
 pub fn request_quit(app: &AppHandle) {
     let id = {
-        let mut pending = PENDING_REQUEST.lock().unwrap();
+        let mut pending = PENDING_REQUEST
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
         if pending.is_some() {
             return;
         }
@@ -60,14 +65,19 @@ pub fn request_quit(app: &AppHandle) {
         // Check and take the request in one step, so a `cancel_quit` in between
         // can't be overridden
         {
-            let mut pending = PENDING_REQUEST.lock().unwrap();
+            let mut pending = PENDING_REQUEST
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
             if *pending != Some(id) {
                 return;
             }
             *pending = None;
         }
         log::warn!("The frontend didn't answer the quit request, quitting anyway");
-        finish(&app, true, true);
+        {
+            let _finish = FinishOnDrop::new(&app, true);
+            super::dev_server::stop_dev_servers(&app);
+        }
 
         // Still running means the main thread is stuck
         std::thread::sleep(FORCE_QUIT_DELAY);
@@ -81,7 +91,34 @@ pub fn request_quit(app: &AppHandle) {
 #[tauri::command]
 #[specta::specta]
 pub fn quit_app(app: AppHandle) {
-    finish(&app, true, take_pending_request());
+    let was_pending = take_pending_request();
+    // Off the main thread: stopping waits for the servers to exit
+    std::thread::spawn(move || {
+        let _finish = FinishOnDrop::new(&app, was_pending);
+        super::dev_server::stop_dev_servers(&app);
+    });
+}
+
+/// Quits when dropped, so quitting finishes even if stopping the dev servers
+/// panics first
+struct FinishOnDrop {
+    app: AppHandle,
+    was_pending: bool,
+}
+
+impl FinishOnDrop {
+    fn new(app: &AppHandle, was_pending: bool) -> Self {
+        Self {
+            app: app.clone(),
+            was_pending,
+        }
+    }
+}
+
+impl Drop for FinishOnDrop {
+    fn drop(&mut self) {
+        finish(&self.app, true, self.was_pending);
+    }
 }
 
 /// Stays open: the save failed and the writer is being asked what to do.
@@ -93,7 +130,11 @@ pub fn cancel_quit(app: AppHandle) {
 
 /// Clears the unanswered request. Returns whether there was one.
 fn take_pending_request() -> bool {
-    PENDING_REQUEST.lock().unwrap().take().is_some()
+    PENDING_REQUEST
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .take()
+        .is_some()
 }
 
 /// `was_pending` says whether this answers a request, which on macOS means

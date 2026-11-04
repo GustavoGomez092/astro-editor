@@ -128,6 +128,19 @@ export const commands = {
 	 *  if not running on Linux.
 	 */
 	getLinuxUiFont: () => typedError<string | null, string>(__TAURI_INVOKE("get_linux_ui_font")),
+	/**
+	 *  Starts the project's dev server, installing dependencies first if needed.
+	 *  Returns at once with the new state; later changes arrive as events.
+	 */
+	devServerStart: (projectPath: string) => typedError<DevServerState, string>(__TAURI_INVOKE("dev_server_start", { projectPath })),
+	/**
+	 *  Stops the project's dev server and everything it started. Waits until it's
+	 *  gone (at most a few seconds).
+	 */
+	devServerStop: (projectPath: string) => typedError<DevServerState, string>(__TAURI_INVOKE("dev_server_stop", { projectPath })),
+	devServerState: (projectPath: string) => typedError<DevServerState, string>(__TAURI_INVOKE("dev_server_state", { projectPath })),
+	/**  The server's recent output, oldest first */
+	devServerLogs: (projectPath: string) => typedError<string[], string>(__TAURI_INVOKE("dev_server_logs", { projectPath })),
 };
 
 /* Types */
@@ -138,6 +151,20 @@ export type Collection = {
 };
 
 export type ComponentFramework = "astro" | "react" | "vue" | "svelte";
+
+export type DevServerState = {
+	status: DevServerStatus,
+	url: string | null,
+	command: string | null,
+	pid: number | null,
+	error: string | null,
+};
+
+export type DevServerStatus = "stopped" | 
+/**  Installing dependencies before starting */
+"installing" | "starting" | "running" | 
+/**  Another server for the project was already running, started elsewhere */
+"external" | "error";
 
 export type DirectoryInfo = {
 	name: string,
