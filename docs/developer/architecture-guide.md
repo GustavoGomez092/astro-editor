@@ -55,6 +55,12 @@ Commands, menus and shortcuts are covered in `commands-and-shortcuts.md`.
 
 The sidebar and frontmatter panel are collapsed and expanded through `react-resizable-panels`' `collapse()` and `expand()`, not unmounted, and the same goes for anything else that's expensive to rebuild or holds state. Unmounting loses the panel sizes, the scroll position, the CodeMirror view and any local state. Prefer hiding with CSS over `{visible && <Thing />}` for those.
 
+## Home
+
+The app always starts on Home: `loadPersistedProject` loads the registry but never reopens the last project. Home is not a route or a store flag. It shows whenever `projectPath` is null: `Layout` lays `HomeScreen` over the editor panels, which stay mounted underneath (`inert`) so their sizes and state survive. The title bar shows only the app name and Settings then.
+
+Leaving a site goes through `goHome` (`lib/projects/actions.ts`): save unsaved edits, and only if that works call `projectStore.closeProject`, which closes the file, stops the watcher and the dev server and clears the project. `openSite` saves first the same way before switching sites. Cards read their picture through `useProjectPreviewQuery` (the previews engine's `projectPreview` command, wrapped in `lib/projects/previews.ts`) and refresh on its `project-preview-updated` event. "Edited …" on a card is the registry's `lastOpened`, since nothing else records when a site's files last changed.
+
 ## React Compiler
 
 The React Compiler compiles everything in `src/`, so don't add `useMemo`, `useCallback` or `React.memo` unless profiling shows a need. It doesn't change the Zustand rules: selectors and `getState()` still decide what re-renders.
