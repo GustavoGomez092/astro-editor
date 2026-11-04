@@ -55,8 +55,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   openFile: (file: FileEntry) => {
     const { autoSaveTimeoutId, autoSaveCallback, currentFile, isDirty } = get()
 
-    // Re-opening the open file would reload it from disk over unsaved edits
-    if (isDirty && currentFile?.id === file.id) return
+    // Opening the open file again does nothing. Clearing the store here
+    // would wipe unsaved edits, and a saved file would stay blank: its content
+    // query is cached, so nothing loads it back, and the next edit would save
+    // the blank form over the file
+    if (currentFile?.id === file.id) return
 
     // Clear auto-save timeout if it exists to prevent race condition
     // where previous file's auto-save could fire after opening new file

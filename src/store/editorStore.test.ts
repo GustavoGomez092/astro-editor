@@ -59,4 +59,32 @@ describe('editorStore.openFile', () => {
     expect(useEditorStore.getState().editorContent).toBe('Unsaved edit')
     expect(useEditorStore.getState().isDirty).toBe(true)
   })
+
+  // The file content query is cached and the loader only re-runs when the
+  // file changes, so clearing the store here would leave the form blank and
+  // the next edit would save the blank form over the file
+  it('keeps the content when the open, saved file is opened again', () => {
+    const save = vi.fn(() => Promise.resolve())
+    useEditorStore.setState({
+      autoSaveCallback: save,
+      editorContent: 'Saved body',
+      frontmatter: { title: 'First' },
+      rawFrontmatter: 'title: First',
+      imports: "import X from './x'",
+      isDirty: false,
+      isFrontmatterDirty: false,
+    })
+
+    useEditorStore.getState().openFile(fileEntry('first'))
+
+    const state = useEditorStore.getState()
+    expect(save).not.toHaveBeenCalled()
+    expect(state.currentFile?.id).toBe('first')
+    expect(state.editorContent).toBe('Saved body')
+    expect(state.frontmatter).toEqual({ title: 'First' })
+    expect(state.rawFrontmatter).toBe('title: First')
+    expect(state.imports).toBe("import X from './x'")
+    expect(state.isDirty).toBe(false)
+    expect(state.isFrontmatterDirty).toBe(false)
+  })
 })
