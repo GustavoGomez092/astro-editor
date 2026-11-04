@@ -231,19 +231,119 @@ fn extract_collections_block(content: &str) -> Option<String> {
     None
 }
 
+/// The start of a `defineCollection` call whose loader is `file()`
+const FILE_LOADER_CALL: &str = r"defineCollection\s*\(\s*\{\s*loader:\s*file\s*\(";
+
 /// Detect if a collection uses a file-based loader (should be excluded from main collections list)
-fn is_file_based_collection(full_content: &str, collection_name: &str) -> bool {
+fn is_file_based_collection(full_content: &str, variable: &str) -> bool {
     // Look for: const/let/var collectionName = defineCollection({ loader: file(...)
     // or: collectionName: defineCollection({ loader: file(...)
     // Handles exported variables too: export const collectionName = defineCollection...
-    let file_loader_pattern = format!(
-        r"(?:(?:const|let|var)\s+)?{collection_name}\s*[=:]\s*defineCollection\s*\(\s*\{{\s*loader:\s*file\s*\("
-    );
+    let variable = regex::escape(variable);
+    let file_loader_pattern =
+        format!(r"(?:(?:const|let|var)\s+)?{variable}\s*[=:]\s*{FILE_LOADER_CALL}");
     if let Ok(file_loader_re) = Regex::new(&file_loader_pattern) {
         file_loader_re.is_match(full_content)
     } else {
         false
     }
+}
+
+/// Where an entry of the collections object defines its collection
+enum CollectionBinding<'a> {
+    /// `blog` or `blog: blogCollection`: a variable defined elsewhere in the file
+    Variable(&'a str),
+    /// `blog: defineCollection({ ... })`: the call's text
+    Inline(&'a str),
+}
+
+fn is_identifier(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_' || c == '$')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
+/// Splits text at the commas that aren't nested inside brackets or strings
+fn split_top_level_commas(text: &str) -> Vec<&str> {
+    let mut parts = Vec::new();
+    let mut depth = 0i32;
+    let mut quote: Option<char> = None;
+    let mut part_start = 0;
+
+    for (i, c) in text.char_indices() {
+        match quote {
+            Some(q) if c == q => quote = None,
+            Some(_) => {}
+            None => match c {
+                '\'' | '"' | '`' => quote = Some(c),
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' | '}' => depth -= 1,
+                ',' if depth == 0 => {
+                    parts.push(&text[part_start..i]);
+                    part_start = i + 1;
+                }
+                _ => {}
+            },
+        }
+    }
+    parts.push(&text[part_start..]);
+    parts
+}
+
+/// Reads the entries of the collections object (`{ ... }`, braces included) in
+/// order: `blog`, `blog: blogCollection`, `'case-studies': caseStudies` or
+/// `"case-studies": defineCollection({ ... })`. Keys may be quoted because
+/// collection names often contain hyphens, and a trailing comma or line breaks
+/// make no difference. Entries it can't read (spreads, other expressions) are
+/// skipped.
+fn collection_entries(collections_block: &str) -> Vec<(String, CollectionBinding<'_>)> {
+    let inner = collections_block
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+        .unwrap_or(collections_block);
+
+    split_top_level_commas(inner)
+        .into_iter()
+        .filter_map(|entry| {
+            let entry = entry.trim();
+            let (key, rest, quoted) = match entry.chars().next()? {
+                q @ ('\'' | '"') => {
+                    let close = entry[1..].find(q)? + 1;
+                    (&entry[1..close], &entry[close + 1..], true)
+                }
+                _ => {
+                    let key_end = entry
+                        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '$'))
+                        .unwrap_or(entry.len());
+                    (&entry[..key_end], &entry[key_end..], false)
+                }
+            };
+            if key.is_empty() {
+                return None;
+            }
+
+            let rest = rest.trim();
+            let binding = if rest.is_empty() {
+                // Shorthand (`blog`); a quoted key needs a value
+                if quoted || !is_identifier(key) {
+                    return None;
+                }
+                CollectionBinding::Variable(key)
+            } else {
+                let value = rest.strip_prefix(':')?.trim();
+                if is_identifier(value) {
+                    CollectionBinding::Variable(value)
+                } else if value.starts_with("defineCollection") {
+                    CollectionBinding::Inline(value)
+                } else {
+                    return None;
+                }
+            };
+            Some((key.to_string(), binding))
+        })
+        .collect()
 }
 
 fn parse_collection_definitions(
@@ -252,64 +352,31 @@ fn parse_collection_definitions(
     full_content: &str,
 ) -> Result<Vec<Collection>, String> {
     let mut collections = Vec::new();
+    let file_loader_call = Regex::new(&format!("^{FILE_LOADER_CALL}")).unwrap();
 
-    // For new format, extract collection names from export block: { articles, notes }
-    // This regex matches only simple name lists, not defineCollection definitions
-    let export_names_re =
-        Regex::new(r"\{\s*([a-zA-Z_][a-zA-Z0-9_]*(?:\s*,\s*[a-zA-Z_][a-zA-Z0-9_]*)*)\s*\}")
-            .unwrap();
-
-    if let Some(cap) = export_names_re.captures(collections_block) {
-        let names_str = cap.get(1).unwrap().as_str();
-        // Additional check: if the names_str contains "defineCollection" or ":", it's the old format
-        if !names_str.contains("defineCollection") && !names_str.contains(":") {
-            // Split by comma and clean up names
-            for name in names_str.split(',') {
-                let collection_name = name.trim();
-
-                // Skip file-based collections - they should only be used for references
-                if is_file_based_collection(full_content, collection_name) {
-                    continue;
-                }
-
-                // Only include directory-based collections
-                let collection_path = content_dir.join(collection_name);
-
-                if collection_path.exists() && collection_path.is_dir() {
-                    let mut collection =
-                        Collection::new(collection_name.to_string(), collection_path);
-
-                    if let Some(schema) = extract_basic_schema(full_content, collection_name) {
-                        collection.schema = Some(schema);
-                    }
-
-                    collections.push(collection);
-                }
-            }
-        }
-    }
-
-    // Fallback to old format: collection_name: defineCollection(...)
-    let collection_re = Regex::new(r"(\w+)\s*:\s*defineCollection\s*\(").unwrap();
-
-    for cap in collection_re.captures_iter(collections_block) {
-        let collection_name = cap.get(1).unwrap().as_str();
+    for (collection_name, binding) in collection_entries(collections_block) {
+        let (file_based, schema) = match binding {
+            CollectionBinding::Variable(variable) => (
+                is_file_based_collection(full_content, variable),
+                extract_basic_schema(full_content, variable),
+            ),
+            CollectionBinding::Inline(call) => (
+                file_loader_call.is_match(call),
+                extract_schema_from_collection_block(call),
+            ),
+        };
 
         // Skip file-based collections - they should only be used for references
-        if is_file_based_collection(full_content, collection_name) {
+        if file_based {
             continue;
         }
 
         // Only include directory-based collections
-        let collection_path = content_dir.join(collection_name);
+        let collection_path = content_dir.join(&collection_name);
 
         if collection_path.exists() && collection_path.is_dir() {
-            let mut collection = Collection::new(collection_name.to_string(), collection_path);
-
-            if let Some(schema) = extract_basic_schema(collections_block, collection_name) {
-                collection.schema = Some(schema);
-            }
-
+            let mut collection = Collection::new(collection_name, collection_path);
+            collection.schema = schema;
             collections.push(collection);
         }
     }
@@ -321,6 +388,7 @@ fn extract_basic_schema(content: &str, collection_name: &str) -> Option<String> 
     // Try both formats:
     // 1. const blog = defineCollection(...)
     // 2. blog: defineCollection(...)
+    let collection_name = regex::escape(collection_name);
     let const_pattern = format!(r"const\s+{collection_name}\s*=\s*defineCollection\s*\(");
     let object_pattern = format!(r"{collection_name}\s*:\s*defineCollection\s*\(");
 
@@ -871,6 +939,157 @@ export const collections = {
 
         // Clean up
         fs::remove_dir_all(&temp_dir).ok();
+    }
+
+    // --- `export const collections = { ... }` FORMS ---
+
+    /// Makes `src/content/<name>` for each collection and parses `config`
+    fn parse_with_dirs(config: &str, dirs: &[&str]) -> Vec<Collection> {
+        let temp = tempfile::tempdir().unwrap();
+        for dir in dirs {
+            fs::create_dir_all(temp.path().join("src").join("content").join(dir)).unwrap();
+        }
+        parse_collections_from_content(config, temp.path(), None).unwrap()
+    }
+
+    fn names(collections: &[Collection]) -> Vec<&str> {
+        collections.iter().map(|c| c.name.as_str()).collect()
+    }
+
+    fn has_image_field(collection: &Collection, field: &str) -> bool {
+        let schema: serde_json::Value =
+            serde_json::from_str(collection.schema.as_deref().unwrap_or("{}")).unwrap();
+        schema["fields"].as_array().is_some_and(|fields| {
+            fields
+                .iter()
+                .any(|f| f["name"] == field && f["type"] == "Image")
+        })
+    }
+
+    const IMAGE_COLLECTIONS: &str = r#"
+const settings = defineCollection({
+  loader: glob({ pattern: '**/*.md', base: './src/content/settings' }),
+  schema: z.object({ email: z.string().email() }),
+});
+
+const sketchStrip = defineCollection({
+  loader: glob({ pattern: '**/*.md', base: './src/content/sketch-strip' }),
+  schema: ({ image }) =>
+    z.object({
+      src: image(),
+      alt: z.string(),
+    }),
+});
+
+const floatingSketches = defineCollection({
+  loader: glob({ pattern: '**/*.md', base: './src/content/floating-sketches' }),
+  schema: ({ image }) => z.object({ src: image(), left: z.number() }),
+});
+"#;
+
+    #[test]
+    fn export_with_single_quoted_keys_and_trailing_comma() {
+        let config = format!(
+            "{IMAGE_COLLECTIONS}
+export const collections = {{
+  settings,
+  'sketch-strip': sketchStrip,
+  'floating-sketches': floatingSketches,
+}};
+"
+        );
+        let collections =
+            parse_with_dirs(&config, &["settings", "sketch-strip", "floating-sketches"]);
+
+        assert_eq!(
+            names(&collections),
+            ["settings", "sketch-strip", "floating-sketches"]
+        );
+        assert!(has_image_field(&collections[1], "src"));
+        assert!(has_image_field(&collections[2], "src"));
+    }
+
+    #[test]
+    fn export_with_double_quoted_keys_on_one_line() {
+        let config = format!(
+            r#"{IMAGE_COLLECTIONS}
+export const collections = {{ settings, "sketch-strip": sketchStrip, "floating-sketches": floatingSketches }};
+"#
+        );
+        let collections =
+            parse_with_dirs(&config, &["settings", "sketch-strip", "floating-sketches"]);
+
+        assert_eq!(
+            names(&collections),
+            ["settings", "sketch-strip", "floating-sketches"]
+        );
+        assert!(has_image_field(&collections[1], "src"));
+    }
+
+    #[test]
+    fn export_of_shorthand_names_over_several_lines_with_trailing_comma() {
+        let config = r#"
+const blog = defineCollection({
+  schema: ({ image }) => z.object({ cover: image() }),
+});
+const notes = defineCollection({ schema: z.object({ title: z.string() }) });
+
+export const collections = {
+  blog,
+  notes,
+};
+"#;
+        let collections = parse_with_dirs(config, &["blog", "notes"]);
+
+        assert_eq!(names(&collections), ["blog", "notes"]);
+        assert!(has_image_field(&collections[0], "cover"));
+    }
+
+    #[test]
+    fn export_with_an_unquoted_key_naming_a_variable() {
+        let config = r#"
+const blogCollection = defineCollection({
+  schema: ({ image }) => z.object({ cover: image() }),
+});
+export const collections = { blog: blogCollection, };
+"#;
+        let collections = parse_with_dirs(config, &["blog"]);
+
+        assert_eq!(names(&collections), ["blog"]);
+        assert!(has_image_field(&collections[0], "cover"));
+    }
+
+    #[test]
+    fn export_with_a_quoted_key_and_an_inline_collection() {
+        let config = r#"
+export const collections = {
+  'case-studies': defineCollection({
+    schema: ({ image }) => z.object({ hero: image() }),
+  }),
+};
+"#;
+        let collections = parse_with_dirs(config, &["case-studies"]);
+
+        assert_eq!(names(&collections), ["case-studies"]);
+        assert!(has_image_field(&collections[0], "hero"));
+    }
+
+    #[test]
+    fn export_with_a_quoted_key_skips_file_loader_collections() {
+        let config = r#"
+const teamMembers = defineCollection({
+  loader: file('src/data/team.json'),
+  schema: z.object({ name: z.string() }),
+});
+const posts = defineCollection({ schema: z.object({ title: z.string() }) });
+export const collections = {
+  'team-members': teamMembers,
+  posts,
+};
+"#;
+        let collections = parse_with_dirs(config, &["team-members", "posts"]);
+
+        assert_eq!(names(&collections), ["posts"]);
     }
 
     #[test]
