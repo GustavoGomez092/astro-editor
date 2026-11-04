@@ -64,6 +64,15 @@ my-astro-site
     └── content.config.ts          # Collection definitions
 ```
 
+## Astro Editor+
+
+This is a fork of Astro Editor, published as **Astro Editor+**. It adds git and GitHub publishing and a dev-server panel on top of the original editor, has its own app identity (so it installs alongside the original), updates from this repository's releases, and sends no telemetry.
+
+**Install:**
+
+1. Download the latest `.dmg` from the [Releases page](https://github.com/GustavoGomez092/astro-editor/releases) and drag **Astro Editor+** into Applications.
+2. Releases are signed with a self-signed certificate, not an Apple Developer ID, so macOS blocks the first launch. Try to open the app once, then go to **System Settings -> Privacy & Security**, scroll to the message about "Astro Editor+" and click **Open Anyway**. You only need to do this once; later updates install from inside the app.
+
 ## Installation
 
 Requires macOS 12 or later. Download the [latest Release](https://github.com/dannysmith/astro-editor/releases) or install with Homebrew:

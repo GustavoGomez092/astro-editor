@@ -2,6 +2,8 @@
 
 Releases are built by GitHub Actions from a version tag, left as a draft, and published by hand. Installers live only as GitHub Release assets, and the app updates itself from the release's `latest.json`. Test builds go through the same workflow and are published as prereleases.
 
+> **Fork (Astro Editor+, branch `kr`):** releases here are built by `release.yml` from `v*-plus.*` tags (for example `v1.0.20-plus.1`), universal macOS only, signed with a self-signed certificate (`scripts/make-self-signed-cert.sh`) and not notarised, and published straight away (not as a draft) with `latest.json`. The version is set from the tag in the runner. Secrets: `MACOS_CERT_P12_BASE64`, `MACOS_CERT_PASSWORD`, `TAURI_SIGNING_PRIVATE_KEY`. Variable: `ASTRO_EDITOR_GITHUB_CLIENT_ID`. The rest of this page describes upstream's process, including workflows this fork has removed.
+
 ## Cutting a release
 
 1. On an up-to-date `main`, run `bun run prepare-release` (or `bun run prepare-release v2.0.0` to skip the prompt). It refuses a dirty working tree or a tag that already exists, proposes a patch bump, runs `check:all`, sets the version in `package.json`, `Cargo.toml` and `tauri.conf.json`, runs `bun install` and `cargo check`, then offers to make a GPG-signed commit and tag and push just the branch and that tag.
