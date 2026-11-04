@@ -269,24 +269,31 @@ pub fn run() {
             // On macOS, AppKit's own Quit item sends `terminate:` straight from the
             // menu, like the Dock does, so commands/quit.rs can save first. A custom
             // item would send it from inside a tao event callback, which hangs.
+            // The product name from tauri.conf.json ("Astro Editor+", or the dev overlay's)
+            let app_name = app.package_info().name.clone();
             #[cfg(target_os = "macos")]
-            let quit_item = PredefinedMenuItem::quit(app, Some("Quit Astro Editor"))?;
+            let quit_item = PredefinedMenuItem::quit(app, Some(&format!("Quit {app_name}")))?;
             #[cfg(not(target_os = "macos"))]
-            let quit_item =
-                MenuItem::with_id(app, "quit", "Quit Astro Editor", true, Some("CmdOrCtrl+Q"))?;
+            let quit_item = MenuItem::with_id(
+                app,
+                "quit",
+                format!("Quit {app_name}"),
+                true,
+                Some("CmdOrCtrl+Q"),
+            )?;
 
             let app_menu = Submenu::with_items(
                 app,
-                "Astro Editor",
+                &app_name,
                 true,
                 &[
-                    &MenuItem::with_id(app, "about", "About Astro Editor", true, None::<&str>)?,
+                    &MenuItem::with_id(app, "about", format!("About {app_name}"), true, None::<&str>)?,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, "check_updates", "Check for Updates...", true, None::<&str>)?,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, "preferences", "Preferences...", true, Some("CmdOrCtrl+,"))?,
                     &PredefinedMenuItem::separator(app)?,
-                    &PredefinedMenuItem::hide(app, Some("Hide Astro Editor"))?,
+                    &PredefinedMenuItem::hide(app, Some(&format!("Hide {app_name}")))?,
                     &PredefinedMenuItem::hide_others(app, Some("Hide Others"))?,
                     &PredefinedMenuItem::show_all(app, Some("Show All"))?,
                     &PredefinedMenuItem::separator(app)?,
@@ -356,13 +363,14 @@ pub fn run() {
                         let package_info = app_handle.package_info();
                         let version = package_info.version.to_string();
                         let name = &package_info.name;
+                        let title = format!("About {name}");
 
                         let message = format!(
                             "{name}\nVersion {version}\n\nA native macOS markdown editor for Astro content collections.\n\nBuilt with Tauri and React.\n\nCopyright © 2025 Danny Smith. All rights reserved."
                         );
                         let _ = app_handle.dialog()
                             .message(message)
-                            .title("About Astro Editor")
+                            .title(title)
                             .kind(MessageDialogKind::Info)
                             .blocking_show();
                     });

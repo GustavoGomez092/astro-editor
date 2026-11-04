@@ -12,7 +12,7 @@ import { execFileSync, execSync } from 'child_process'
 import readline from 'readline'
 import { nextTestVersion, remoteTags } from './release-version.js'
 
-const REPO_URL = 'https://github.com/dannysmith/astro-editor'
+const REPO_URL = 'https://github.com/GustavoGomez092/astro-editor'
 
 function git(...args) {
   return execFileSync('git', args, { encoding: 'utf8' }).trim()

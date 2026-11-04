@@ -89,11 +89,13 @@ jobs:
           existing="$(security list-keychains -d user | tr -d '"')"
           # shellcheck disable=SC2086
           security list-keychains -d user -s "$keychain" $existing
-          # Trust the (self-signed) certificate for code signing
+          # Trust the (self-signed) certificate for code signing. The admin
+          # trust domain needs no interactive authorisation, and the runner
+          # has passwordless sudo.
           security find-certificate -c "Astro Editor+ Self-Signed" -p "$keychain" > "$RUNNER_TEMP/cert.pem"
-          security add-trusted-cert -r trustRoot -p codeSign -k "$keychain" "$RUNNER_TEMP/cert.pem"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$RUNNER_TEMP/cert.pem"
           rm "$RUNNER_TEMP/cert.p12"
-          security find-identity -p codesigning "$keychain"
+          security find-identity -v -p codesigning
 
       - name: Build and release
         uses: tauri-apps/tauri-action@v1.0.0

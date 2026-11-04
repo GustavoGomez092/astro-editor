@@ -8,10 +8,19 @@ struct GitHubRelease {
     prerelease: bool,
 }
 
-/// Parse a version string like "1.0.8" or "v1.0.8" into (major, minor, patch)
-fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
+/// A release version: major, minor, patch and the fork's `-plus.N` number.
+/// Upstream's plain `1.0.20` counts as plus number 0, so it sorts with
+/// `1.0.20-plus.0` and below `1.0.20-plus.1`.
+type Version = (u64, u64, u64, u64);
+
+/// Parse a version string like "1.0.8", "v1.0.8" or "v1.0.20-plus.2"
+fn parse_version(version: &str) -> Option<Version> {
     let v = version.strip_prefix('v').unwrap_or(version);
-    let parts: Vec<&str> = v.split('.').collect();
+    let (core, plus) = match v.split_once("-plus.") {
+        Some((core, n)) => (core, n.parse().ok()?),
+        None => (v, 0),
+    };
+    let parts: Vec<&str> = core.split('.').collect();
     if parts.len() != 3 {
         return None;
     }
@@ -19,6 +28,7 @@ fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
         parts[0].parse().ok()?,
         parts[1].parse().ok()?,
         parts[2].parse().ok()?,
+        plus,
     ))
 }
 
@@ -27,8 +37,8 @@ fn parse_version(version: &str) -> Option<(u64, u64, u64)> {
 /// sorted reverse chronologically and joined with horizontal rules.
 fn filter_and_combine_releases(
     releases: Vec<GitHubRelease>,
-    current: (u64, u64, u64),
-    new: (u64, u64, u64),
+    current: Version,
+    new: Version,
 ) -> String {
     let mut relevant: Vec<_> = releases
         .into_iter()
@@ -98,22 +108,22 @@ mod tests {
 
     #[test]
     fn parse_version_basic() {
-        assert_eq!(parse_version("1.0.8"), Some((1, 0, 8)));
+        assert_eq!(parse_version("1.0.8"), Some((1, 0, 8, 0)));
     }
 
     #[test]
     fn parse_version_with_v_prefix() {
-        assert_eq!(parse_version("v1.0.8"), Some((1, 0, 8)));
+        assert_eq!(parse_version("v1.0.8"), Some((1, 0, 8, 0)));
     }
 
     #[test]
     fn parse_version_large_numbers() {
-        assert_eq!(parse_version("10.20.300"), Some((10, 20, 300)));
+        assert_eq!(parse_version("10.20.300"), Some((10, 20, 300, 0)));
     }
 
     #[test]
     fn parse_version_zero() {
-        assert_eq!(parse_version("0.0.0"), Some((0, 0, 0)));
+        assert_eq!(parse_version("0.0.0"), Some((0, 0, 0, 0)));
     }
 
     #[test]
@@ -141,6 +151,59 @@ mod tests {
         assert_eq!(parse_version("v"), None);
     }
 
+    #[test]
+    fn parse_version_plus_suffix() {
+        assert_eq!(parse_version("v1.0.20-plus.2"), Some((1, 0, 20, 2)));
+        assert_eq!(parse_version("1.0.20-plus.0"), Some((1, 0, 20, 0)));
+        assert_eq!(parse_version("1.0.20"), Some((1, 0, 20, 0)));
+    }
+
+    #[test]
+    fn parse_version_plus_invalid() {
+        assert_eq!(parse_version("1.0.20-plus."), None);
+        assert_eq!(parse_version("1.0.20-plus.x"), None);
+        assert_eq!(parse_version("1.0.20-test.1"), None);
+    }
+
+    #[test]
+    fn plus_versions_order() {
+        let v = |s| parse_version(s).unwrap();
+        assert!(v("1.0.20-plus.1") < v("1.0.20-plus.2"));
+        assert!(v("1.0.20-plus.2") < v("1.0.21-plus.1"));
+        assert!(v("1.0.20-plus.10") > v("1.0.20-plus.9"));
+        assert!(v("1.0.20") < v("1.0.20-plus.1"));
+        assert!(v("1.0.20-plus.0") < v("1.0.20-plus.1"));
+    }
+
+    #[test]
+    fn filter_plus_releases() {
+        let releases = vec![
+            make_release("v1.0.20-plus.1", "Notes p1", false, false),
+            make_release("v1.0.20-plus.2", "Notes p2", false, false),
+            make_release("v1.0.21-plus.1", "Notes 21p1", false, false),
+            make_release("v1.0.21-plus.2", "Notes 21p2", false, false),
+        ];
+        let current = parse_version("1.0.20-plus.1").unwrap();
+        let new = parse_version("1.0.21-plus.1").unwrap();
+        let result = filter_and_combine_releases(releases, current, new);
+        assert_eq!(result, "Notes 21p1\n\n---\n\nNotes p2");
+    }
+
+    #[test]
+    fn filter_plus_from_local_build() {
+        // A local build at 1.0.20-plus.0 gets notes for every fork release
+        let releases = vec![
+            make_release("v1.0.20-plus.1", "Notes p1", false, false),
+            make_release("v1.0.20", "Upstream", false, false),
+        ];
+        let current = parse_version("1.0.20-plus.0").unwrap();
+        let new = parse_version("1.0.20-plus.1").unwrap();
+        assert_eq!(
+            filter_and_combine_releases(releases, current, new),
+            "Notes p1"
+        );
+    }
+
     // -- filter_and_combine_releases tests --
 
     fn make_release(tag: &str, body: &str, draft: bool, prerelease: bool) -> GitHubRelease {
@@ -155,7 +218,7 @@ mod tests {
     #[test]
     fn filter_single_release_in_range() {
         let releases = vec![make_release("v1.0.8", "Notes for 1.0.8", false, false)];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "Notes for 1.0.8");
     }
 
@@ -166,7 +229,7 @@ mod tests {
             make_release("v1.0.8", "Notes 1.0.8", false, false),
             make_release("v1.0.7", "Notes 1.0.7", false, false),
         ];
-        let result = filter_and_combine_releases(releases, (1, 0, 5), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 5, 0), (1, 0, 8, 0));
         assert_eq!(
             result,
             "Notes 1.0.8\n\n---\n\nNotes 1.0.7\n\n---\n\nNotes 1.0.6"
@@ -179,14 +242,14 @@ mod tests {
             make_release("v1.0.7", "Notes 1.0.7", false, false),
             make_release("v1.0.8", "Notes 1.0.8", false, false),
         ];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "Notes 1.0.8");
     }
 
     #[test]
     fn filter_includes_new_version() {
         let releases = vec![make_release("v1.0.8", "Notes 1.0.8", false, false)];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "Notes 1.0.8");
     }
 
@@ -196,7 +259,7 @@ mod tests {
             make_release("v1.0.8", "Notes 1.0.8", false, false),
             make_release("v1.0.9", "Notes 1.0.9", false, false),
         ];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "Notes 1.0.8");
     }
 
@@ -206,7 +269,7 @@ mod tests {
             make_release("v1.0.8", "Draft notes", true, false),
             make_release("v1.0.7", "Published notes", false, false),
         ];
-        let result = filter_and_combine_releases(releases, (1, 0, 6), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 6, 0), (1, 0, 8, 0));
         assert_eq!(result, "Published notes");
     }
 
@@ -216,20 +279,20 @@ mod tests {
             make_release("v1.0.8", "Prerelease notes", false, true),
             make_release("v1.0.7", "Stable notes", false, false),
         ];
-        let result = filter_and_combine_releases(releases, (1, 0, 6), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 6, 0), (1, 0, 8, 0));
         assert_eq!(result, "Stable notes");
     }
 
     #[test]
     fn filter_no_matching_releases_returns_empty() {
         let releases = vec![make_release("v1.0.5", "Old notes", false, false)];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "");
     }
 
     #[test]
     fn filter_empty_releases_returns_empty() {
-        let result = filter_and_combine_releases(vec![], (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(vec![], (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "");
     }
 
@@ -239,7 +302,7 @@ mod tests {
             make_release("nightly", "Nightly notes", false, false),
             make_release("v1.0.8", "Notes 1.0.8", false, false),
         ];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "Notes 1.0.8");
     }
 
@@ -251,7 +314,7 @@ mod tests {
             draft: false,
             prerelease: false,
         }];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "");
     }
 
@@ -263,7 +326,7 @@ mod tests {
             draft: false,
             prerelease: false,
         }];
-        let result = filter_and_combine_releases(releases, (1, 0, 7), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 7, 0), (1, 0, 8, 0));
         assert_eq!(result, "");
     }
 
@@ -279,7 +342,7 @@ mod tests {
             },
             make_release("v1.0.6", "Notes 1.0.6", false, false),
         ];
-        let result = filter_and_combine_releases(releases, (1, 0, 5), (1, 0, 8));
+        let result = filter_and_combine_releases(releases, (1, 0, 5, 0), (1, 0, 8, 0));
         assert_eq!(result, "Notes 1.0.8\n\n---\n\nNotes 1.0.6");
     }
 }

@@ -56,3 +56,8 @@ coverage/
 
 # Astro 7 dev server runtime state (pid, port, start time)
 **/.astro/dev.json
+
+# Signing material, never commit
+*.p12
+*.key
+*.pem

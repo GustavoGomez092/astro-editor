@@ -212,10 +212,10 @@ async function prepareRelease() {
 
       console.log(`\n🎊 Release ${tagVersion} has been published!`)
       console.log(
-        '📱 Check GitHub Actions: https://github.com/dannysmith/astro-editor/actions'
+        '📱 Check GitHub Actions: https://github.com/GustavoGomez092/astro-editor/actions'
       )
       console.log(
-        '📦 Draft release will appear at: https://github.com/dannysmith/astro-editor/releases'
+        '📦 Draft release will appear at: https://github.com/GustavoGomez092/astro-editor/releases'
       )
       console.log(
         '\n⚠️  Remember: You need to manually publish the draft release on GitHub!'

@@ -75,13 +75,9 @@ This is a fork of Astro Editor, published as **Astro Editor+**. It adds git and 
 
 ## Installation
 
-Requires macOS 12 or later. Download the [latest Release](https://github.com/dannysmith/astro-editor/releases) or install with Homebrew:
+See [Astro Editor+](#astro-editor) above. Requires macOS 12 or later. Download the `.dmg` from this fork's [Releases](https://github.com/GustavoGomez092/astro-editor/releases); the Homebrew cask belongs to the original app and does not install this fork.
 
-```
-brew install --cask astro-editor
-```
-
-**Other Platforms:** Windows (.msi) and Linux (.AppImage, .deb, .rpm) builds are available from the releases page but are not officially supported yet. Use at your own risk.
+**Other Platforms:** The fork's releases are macOS-only. To run on Windows or Linux, build from source (see [Contributing](docs/CONTRIBUTING.md)); these are not officially supported.
 
 ## Documentation
 
