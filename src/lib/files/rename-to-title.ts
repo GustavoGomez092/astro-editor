@@ -33,6 +33,26 @@ function escapeRegExp(text: string): string {
 }
 
 /**
+ * Whether to point out the rename under the title field: the file was named
+ * after its title as it was loaded (`baselineTitle`), and the title has been
+ * changed since, so the name is now behind. A file that was never named after
+ * its title isn't nagged about, however its title is edited. The palette and
+ * the sidebar's menu don't use this: they're offered for any file whose name
+ * doesn't match.
+ */
+export function titleEditedAwayFromName(
+  title: unknown,
+  baselineTitle: unknown,
+  fileName: string
+): boolean {
+  const before = titleText(baselineTitle)
+  if (!slugFromTitle(before) || !fileNameMatchesTitle(before, fileName)) {
+    return false
+  }
+  return titleText(title) !== before && !fileNameMatchesTitle(title, fileName)
+}
+
+/**
  * The name to rename `currentFileName` to so it matches `title`, or null when
  * there's nothing to do: no usable title, or the name already follows it.
  * `siblingNames` are the file names in the same folder (the file itself may

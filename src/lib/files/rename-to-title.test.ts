@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   fileNameMatchesTitle,
   renameTargetFor,
+  titleEditedAwayFromName,
   titleText,
   withSlugField,
 } from './rename-to-title'
@@ -110,5 +111,39 @@ describe('titleText', () => {
   it('trims text and ignores other values', () => {
     expect(titleText('  Hi ')).toBe('Hi')
     expect(titleText(null)).toBe('')
+  })
+})
+
+describe('titleEditedAwayFromName', () => {
+  it('is true when a file named after its title gets a new title', () => {
+    expect(
+      titleEditedAwayFromName('Fresh Heading', 'Old Heading', 'old-heading.md')
+    ).toBe(true)
+    expect(
+      titleEditedAwayFromName(
+        'Fresh Heading',
+        'Old Heading',
+        'old-heading-2.md'
+      )
+    ).toBe(true)
+  })
+
+  it('is false when the title is unchanged', () => {
+    expect(
+      titleEditedAwayFromName('Old Heading', 'Old Heading', 'old-heading.md')
+    ).toBe(false)
+  })
+
+  it('is false for a file that was never named after its title', () => {
+    expect(
+      titleEditedAwayFromName('Fresh Heading', 'Old Heading', 'colorkraft.md')
+    ).toBe(false)
+  })
+
+  it('is false without a loaded title or with an empty one', () => {
+    expect(titleEditedAwayFromName('Fresh', undefined, 'a.md')).toBe(false)
+    expect(titleEditedAwayFromName('', 'Old Heading', 'old-heading.md')).toBe(
+      false
+    )
   })
 })

@@ -21,6 +21,9 @@ interface EditorState {
   frontmatterBaseline: FrontmatterBaseline | null
   lastWrittenFrontmatter: Record<string, unknown> | null
   imports: string // MDX imports (hidden from editor)
+  // The title a rename to match the title started from, for the open file:
+  // after one, the new title is what later edits are compared with
+  titleBaseline: { path: string; title: unknown } | null
 
   // Status state
   isDirty: boolean // True if ANY changes need to be saved
@@ -77,6 +80,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   frontmatterBaseline: null,
   lastWrittenFrontmatter: null,
   imports: '',
+  titleBaseline: null,
   isDirty: false,
   isFrontmatterDirty: false,
   autoSaveTimeoutId: null,
@@ -121,6 +125,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       frontmatterBaseline: null,
       lastWrittenFrontmatter: null,
       imports: '',
+      titleBaseline: null,
       currentFile: file,
       isDirty: false,
       isFrontmatterDirty: false,
@@ -150,6 +155,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       frontmatterBaseline: null,
       lastWrittenFrontmatter: null,
       imports: '',
+      titleBaseline: null,
       isDirty: false,
       isFrontmatterDirty: false,
       autoSaveTimeoutId: null,

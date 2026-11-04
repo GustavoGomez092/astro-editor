@@ -4,10 +4,13 @@ import { useGitBusy } from '../../../hooks/useGitBusy'
 import { useShallow } from 'zustand/react/shallow'
 import { useProjectStore } from '../../../store/projectStore'
 import { queryKeys } from '../../../lib/query-keys'
-import { renameTargetFor } from '../../../lib/files/rename-to-title'
+import {
+  renameTargetFor,
+  titleEditedAwayFromName,
+} from '../../../lib/files/rename-to-title'
 import { useEditorStore } from '../../../store/editorStore'
 import {
-  canRenameToTitle,
+  baselineTitleOf,
   fullName,
   nameForTitle,
   GIT_BUSY_MESSAGE,
@@ -17,7 +20,8 @@ import {
 } from '../../../lib/files/rename-to-title-action'
 
 /**
- * Under the title field, once the file's name no longer follows the title:
+ * Under the title field, when a file that was named after its title gets a new
+ * title (a file never named after its title isn't nagged about):
  * "File name: old-name.md · Update to new-name.md". The writer decides when to
  * rename; nothing renames by itself. Hidden while the title is empty.
  */
@@ -26,8 +30,14 @@ export const UpdateFileNameHint: React.FC = () => {
   const title = useEditorStore(state =>
     state.currentFile ? titleOf(state.currentFile, state.frontmatter) : ''
   )
+  const baselineTitle = useEditorStore(state =>
+    state.currentFile ? baselineTitleOf(state.currentFile, state) : undefined
+  )
   const gitBusy = useGitBusy()
-  const show = file !== null && canRenameToTitle(file, title)
+  // Only for a file named after its title, once that title has been changed
+  const show =
+    file !== null &&
+    titleEditedAwayFromName(title, baselineTitle, fullName(file))
   const projectPath = useProjectStore(state => state.projectPath)
   const directory = file?.path.substring(0, file.path.lastIndexOf('/')) ?? ''
   // The other names in the folder, to show the name the rename will really

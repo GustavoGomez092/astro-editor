@@ -43,6 +43,16 @@ export function titleOf(
  * Whether the file's name no longer follows its title: there is a title with
  * letters or digits in it, and the name isn't its slug.
  */
+export function baselineTitleOf(
+  file: FileEntry,
+  state: ReturnType<typeof useEditorStore.getState>
+): unknown {
+  const field = titleFieldName(file.collection)
+  return state.titleBaseline?.path === file.path
+    ? state.titleBaseline.title
+    : state.frontmatterBaseline?.values[field]
+}
+
 export function canRenameToTitle(file: FileEntry | null, title: unknown) {
   return (
     file !== null &&
@@ -155,6 +165,13 @@ async function run(): Promise<void> {
   if (result.status === 'error') throw new Error(result.error)
 
   useEditorStore.getState().updateCurrentFileAfterRename(newPath)
+  // The file is named after this title now: later edits are compared with it
+  useEditorStore.setState({
+    titleBaseline: {
+      path: newPath,
+      title: useEditorStore.getState().frontmatter[titleField],
+    },
+  })
   // The old id has no entry any more; A to B and back to A must not show B's
   // content from the cache
   queryClient.removeQueries({
