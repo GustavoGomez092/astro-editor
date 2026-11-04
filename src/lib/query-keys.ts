@@ -70,6 +70,9 @@ export const queryKeys = {
     [...queryKeys.git(projectPath), 'aheadOfDefault'] as const,
   gitLog: (projectPath: string, limit: number) =>
     [...queryKeys.git(projectPath), 'log', limit] as const,
+  // Files that conflict between the branch and its upstream
+  gitConflicts: (projectPath: string) =>
+    [...queryKeys.git(projectPath), 'conflicts'] as const,
   // Working tree vs HEAD for one file
   gitFileDiff: (projectPath: string, path: string) =>
     [...queryKeys.git(projectPath), 'diff', 'workingTree', path] as const,

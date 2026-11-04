@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { GitPullRequest } from 'lucide-react'
-import type { GitStatus, PullRequest, SyncOutcome } from '@/lib/bindings'
+import type {
+  ConflictResolution,
+  GitStatus,
+  PullRequest,
+  SyncOutcome,
+} from '@/lib/bindings'
 import {
   bringInBlocker,
   checkedLabel,
@@ -37,6 +42,8 @@ import { useGitBranchesQuery } from '../../hooks/queries/useGitBranchesQuery'
 import { useGitBehindDefaultQuery } from '../../hooks/queries/useGitBehindDefaultQuery'
 import { useGitAheadOfDefaultQuery } from '../../hooks/queries/useGitAheadOfDefaultQuery'
 import { useGitLogQuery } from '../../hooks/queries/useGitLogQuery'
+import { useGitConflictsQuery } from '../../hooks/queries/useGitConflictsQuery'
+import { useResolveConflictsMutation } from '../../hooks/mutations/useResolveConflictsMutation'
 import { usePullRequestsQuery } from '../../hooks/queries/usePullRequestsQuery'
 import { useEntryLookup } from '../../hooks/queries/useEntryLookup'
 import { useGitPublishMutation } from '../../hooks/mutations/useGitPublishMutation'
@@ -61,6 +68,7 @@ import { BranchMenu, NewBranchDialog } from './BranchMenu'
 import { ChangesView } from './ChangesView'
 import { OpenPullRequestDialog } from './OpenPullRequestDialog'
 import { PullRequestCard } from './PullRequestCard'
+import { ResolveConflictsDialog } from './ResolveConflictsDialog'
 
 /** A conflict or blocked attempt, kept on screen until it's dismissed. */
 interface StoredNotice {
@@ -148,8 +156,27 @@ export function ChangesPanel() {
   const signature = status ? gitStateSignature(status, behindDefaultCount) : ''
   // Only a conflict repeats for sure. A blocked attempt can be cleared by
   // something git doesn't see (moving an ignored file), so it stays enabled
+  // Conflicts with the branch's copy on GitHub, which the writer can resolve
+  // by picking versions: only possible when both sides have new commits
+  const diverged =
+    isRepo &&
+    !status?.detached &&
+    !!status?.upstream &&
+    (status?.ahead ?? 0) > 0 &&
+    (status?.behind ?? 0) > 0
+  const conflictsQuery = useGitConflictsQuery(projectPath, {
+    enabled: diverged,
+  })
+  const conflicts = diverged ? (conflictsQuery.data ?? []) : []
+  const hasConflicts = conflicts.length > 0
+  const [resolveOpen, setResolveOpen] = useState(false)
+  // While there are conflicts to resolve, Publish and Sync open the Resolve
+  // view instead, so they're never held back
   const heldBack =
-    notice && notice.outcome === 'conflict' && notice.signature === signature
+    notice &&
+    notice.outcome === 'conflict' &&
+    notice.signature === signature &&
+    !(hasConflicts && notice.action !== 'bringIn')
       ? notice.action
       : null
 
@@ -159,9 +186,10 @@ export function ChangesPanel() {
   const lookup = useEntryLookup(projectPath, [
     ...files.map(file => file.path),
     ...(notice ? pathsIn(notice.raw) : []),
+    ...conflicts.map(file => file.path),
   ])
   const titles = new Map<string, string>()
-  for (const file of files) {
+  for (const file of [...files, ...conflicts]) {
     const title = lookup.titleFor(file.path)
     if (title) titles.set(file.path, title)
   }
@@ -219,6 +247,11 @@ export function ChangesPanel() {
       })
       // From the palette the panel may be out of sight
       showChanges()
+      // A conflict with GitHub's copy has a way out: the Resolve view, once
+      // the conflicts are listed (refreshGit reloads them)
+      if (result.outcome === 'conflict' && action !== 'bringIn') {
+        setResolveOpen(true)
+      }
     }
 
   const publish = useGitPublishMutation({
@@ -234,6 +267,7 @@ export function ChangesPanel() {
     onNeedsAttention: keepNotice('bringIn'),
   })
   const checkout = useGitCheckoutMutation({ present })
+  const resolveConflicts = useResolveConflictsMutation({ present })
   const discardFile = useGitDiscardFileMutation({ present })
   // The file whose changes the writer asked to throw away, while confirming
   const [discarding, setDiscarding] = useState<string | null>(null)
@@ -255,6 +289,10 @@ export function ChangesPanel() {
     if (!projectPath) return
     if (needsSignIn) {
       void startGitHubSignIn()
+      return
+    }
+    if (hasConflicts && !busy) {
+      setResolveOpen(true)
       return
     }
     const reason = syncBlocker(guard)
@@ -298,6 +336,10 @@ export function ChangesPanel() {
       void startGitHubSignIn()
       return
     }
+    if (hasConflicts && !busy) {
+      setResolveOpen(true)
+      return
+    }
     const unsaved = unsavedFilePath(projectPath)
     const reason = publishBlocker({
       ...guard,
@@ -319,6 +361,24 @@ export function ChangesPanel() {
         else runPublish()
       })
       .catch(() => runPublish())
+  }
+
+  /** Combines with the chosen versions, then publishes straight away. */
+  const handleCombine = (choices: ConflictResolution[]) => {
+    if (!projectPath) return
+    void resolveConflicts
+      .mutateAsync({ projectPath, choices })
+      .then(result => {
+        if (needsAttention(result.outcome)) {
+          // GitHub moved again meanwhile: the fresh list is shown
+          keepNotice('publish')(result)
+          return
+        }
+        setResolveOpen(false)
+        setStored(null)
+        runPublish()
+      })
+      .catch(() => {})
   }
 
   const handleBringIn = () => {
@@ -467,9 +527,15 @@ export function ChangesPanel() {
                 message: present(notice.raw),
                 outcome: notice.outcome,
                 url: repo?.htmlUrl ?? null,
+                resolvable: hasConflicts && notice.action !== 'bringIn',
+                publishFirst:
+                  notice.action === 'bringIn' &&
+                  (files.length > 0 || (status?.ahead ?? 0) > 0),
               }
             : null
         }
+        conflictCount={conflicts.length}
+        onResolve={() => setResolveOpen(true)}
         onDismissNotice={() => setStored(null)}
         busy={busy}
         heldBack={heldBack}
@@ -484,6 +550,15 @@ export function ChangesPanel() {
         unsavedEdits={unsavedEdits}
         onPublish={handlePublish}
         publishing={publish.isPending}
+      />
+      <ResolveConflictsDialog
+        open={resolveOpen && hasConflicts}
+        onOpenChange={setResolveOpen}
+        files={conflicts}
+        titles={titles}
+        onGitHub={onGitHub}
+        onCombine={handleCombine}
+        pending={resolveConflicts.isPending || publish.isPending}
       />
       <AlertDialog
         open={checked !== null}

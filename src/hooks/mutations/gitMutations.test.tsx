@@ -21,6 +21,7 @@ import { useCreatePullRequestMutation } from './useCreatePullRequestMutation'
 import { useMergePullRequestMutation } from './useMergePullRequestMutation'
 import { useMergeDefaultBranchMutation } from './useMergeDefaultBranchMutation'
 import { useGitDiscardFileMutation } from './useGitDiscardFileMutation'
+import { useResolveConflictsMutation } from './useResolveConflictsMutation'
 
 vi.mock('@/lib/bindings', () => ({
   commands: {
@@ -451,6 +452,28 @@ describe('git mutations', () => {
         P,
         'src/content/pages/about.md'
       )
+      expectGitRefreshed(client)
+      expect(client.getQueryState(content)?.isInvalidated).toBe(true)
+    })
+
+    it('resolving saves first, combines with the choices and reloads files', async () => {
+      const order: string[] = []
+      dirtyEditor(order)
+      vi.mocked(commands.gitResolveConflicts).mockImplementation(() => {
+        order.push('resolve')
+        return Promise.resolve(
+          ok({ outcome: 'merged', message: 'Combined', status: STATUS })
+        )
+      })
+      const { client, result } = setup(useResolveConflictsMutation)
+      const content = queryKeys.fileContent(P, OPEN_FILE.id)
+      client.setQueryData(content, {})
+      const choices = [
+        { path: 'src/content/pages/about.md', choice: 'theirs' as const },
+      ]
+      await act(() => result.current.mutateAsync({ projectPath: P, choices }))
+      expect(order).toEqual(['save', 'resolve'])
+      expect(commands.gitResolveConflicts).toHaveBeenCalledWith(P, choices)
       expectGitRefreshed(client)
       expect(client.getQueryState(content)?.isInvalidated).toBe(true)
     })

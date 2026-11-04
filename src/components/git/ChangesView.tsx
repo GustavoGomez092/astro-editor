@@ -34,6 +34,10 @@ export interface GitNotice {
   outcome: SyncOutcome
   /** Where to sort it out: the repository on GitHub */
   url: string | null
+  /** A conflict the Resolve view can sort out (one with GitHub's copy) */
+  resolvable?: boolean
+  /** A conflict with the default branch while there's local work to publish */
+  publishFirst?: boolean
 }
 
 export interface ChangesViewProps {
@@ -61,6 +65,9 @@ export interface ChangesViewProps {
   pullRequest: React.ReactNode
   notice: GitNotice | null
   onDismissNotice: () => void
+  /** Files that conflict with GitHub's copy; Resolve sorts them out */
+  conflictCount?: number
+  onResolve?: () => void
   /** A git operation that changes the repository is running */
   busy: boolean
   /** The action that last hit a conflict, while nothing has changed since */
@@ -143,6 +150,8 @@ function RepoChanges({
   pullRequest,
   notice,
   onDismissNotice,
+  conflictCount = 0,
+  onResolve,
   busy,
   heldBack,
   selectedPath,
@@ -202,14 +211,27 @@ function RepoChanges({
         {notice && (
           <Callout tone="warning" onDismiss={onDismissNotice}>
             <p>{notice.message}</p>
-            {notice.outcome === 'conflict' && (
+            {notice.outcome === 'conflict' && notice.resolvable && (
+              <>
+                <p className="text-muted-foreground">
+                  Choose which version to keep, and it's published.
+                </p>
+                <Button size="sm" onClick={onResolve} disabled={busy}>
+                  Choose which to keep
+                </Button>
+              </>
+            )}
+            {notice.outcome === 'conflict' && !notice.resolvable && (
               <p className="text-muted-foreground">
+                {notice.publishFirst
+                  ? "Publish your edits first, so they're safe. "
+                  : ''}
                 {notice.url
                   ? 'Open it on GitHub, or ask whoever manages the site.'
                   : 'Ask whoever manages the site to sort it out.'}
               </p>
             )}
-            {notice.url && (
+            {notice.url && !notice.resolvable && (
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-xs font-medium underline underline-offset-2"
@@ -218,6 +240,19 @@ function RepoChanges({
                 Open on GitHub <ExternalLink className="size-3" />
               </button>
             )}
+          </Callout>
+        )}
+
+        {!notice && conflictCount > 0 && (
+          <Callout tone="warning">
+            <p>
+              Your changes and the changes on {remoteName} both changed the same{' '}
+              {conflictCount === 1 ? 'file' : 'files'}, so they can't be
+              published together yet.
+            </p>
+            <Button size="sm" onClick={onResolve} disabled={busy}>
+              Choose which to keep
+            </Button>
           </Callout>
         )}
 

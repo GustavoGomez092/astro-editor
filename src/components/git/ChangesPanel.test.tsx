@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, screen } from '@testing-library/react'
+import { act, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { commands, type GitStatus } from '@/lib/bindings'
 import { ASTRO_PATHS } from '@/lib/constants'
@@ -25,6 +25,7 @@ vi.mock('@/lib/bindings', () => ({
     gitLogGraph: vi.fn(),
     gitConflicts: vi.fn(),
     gitDiscardFile: vi.fn(),
+    gitResolveConflicts: vi.fn(),
     gitPublish: vi.fn(),
     gitSync: vi.fn(),
     scanProject: vi.fn(),
@@ -407,5 +408,81 @@ describe('ChangesPanel', () => {
     await vi.waitFor(() =>
       expect(commands.gitDiscardFile).toHaveBeenCalledWith(SITE, ABOUT)
     )
+  })
+
+  describe('resolving a conflict', () => {
+    const DIVERGED: GitStatus = { ...CLEAN, ahead: 1, behind: 1 }
+    const CONFLICT = {
+      path: ABOUT,
+      mine: '---\ntitle: About me\n---\nMine',
+      theirs: '---\ntitle: About me\n---\nTheirs',
+      binary: false,
+    }
+
+    beforeEach(() => {
+      withStatus(DIVERGED)
+      vi.mocked(commands.gitConflicts).mockResolvedValue(ok([CONFLICT]))
+      vi.mocked(commands.gitResolveConflicts).mockResolvedValue(
+        ok({
+          outcome: 'merged',
+          message: 'Combined',
+          status: { ...CLEAN, ahead: 2 },
+        })
+      )
+    })
+
+    it('after a conflict, lets the writer pick versions, then combines and publishes', async () => {
+      vi.mocked(commands.gitPublish)
+        .mockResolvedValueOnce(
+          ok({
+            commitId: 'abc',
+            pushed: false,
+            outcome: 'conflict',
+            message: `Your changes and the changes on the remote both edited ${ABOUT}.`,
+            status: DIVERGED,
+          })
+        )
+        .mockResolvedValueOnce(
+          ok({
+            commitId: 'def',
+            pushed: true,
+            outcome: 'upToDate',
+            message: 'Published to main.',
+            status: CLEAN,
+          })
+        )
+      vi.mocked(commands.gitConflicts).mockResolvedValue(ok([]))
+      renderWithProviders(<ChangesPanel />)
+      await screen.findByText(/1 new on GitHub/)
+      vi.mocked(commands.gitConflicts).mockResolvedValue(ok([CONFLICT]))
+      await userEvent.click(screen.getByRole('button', { name: /^Publish$/ }))
+
+      const entry = await screen.findByRole('group', { name: 'About me' })
+      await userEvent.click(
+        within(entry).getByRole('button', { name: "Use GitHub's" })
+      )
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Combine and publish' })
+      )
+      await vi.waitFor(() =>
+        expect(commands.gitResolveConflicts).toHaveBeenCalledWith(SITE, [
+          { path: ABOUT, choice: 'theirs' },
+        ])
+      )
+      await vi.waitFor(() =>
+        expect(commands.gitPublish).toHaveBeenCalledTimes(2)
+      )
+    })
+
+    it('while a conflict stands, Publish and Sync open the Resolve view instead of trying again', async () => {
+      renderWithProviders(<ChangesPanel />)
+      await screen.findByText(/Choose which version to keep|both changed/)
+      await userEvent.click(screen.getByRole('button', { name: /^Publish$/ }))
+      expect(
+        await screen.findByRole('group', { name: 'About me' })
+      ).toBeInTheDocument()
+      expect(commands.gitPublish).not.toHaveBeenCalled()
+      expect(commands.gitSync).not.toHaveBeenCalled()
+    })
   })
 })
