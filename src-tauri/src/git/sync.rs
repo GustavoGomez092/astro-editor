@@ -6,7 +6,7 @@
 
 use super::remote::{fetch, has_origin, is_github_https, push_current_branch};
 use super::status::{changed_files, current_branch_name, default_branch, repo_status};
-use super::{describe, PublishResult, SyncOutcome, SyncResult};
+use super::{describe, name_files, PublishResult, SyncOutcome, SyncResult};
 use crate::github::auth::GitHubUser;
 use git2::{
     build::CheckoutBuilder, BranchType, IndexAddOption, Oid, Repository, RepositoryState,
@@ -307,16 +307,6 @@ fn plural(n: usize, word: &str) -> String {
         format!("1 {word}")
     } else {
         format!("{n} {word}s")
-    }
-}
-
-/// Names a few files for a message: "a.md", "a.md and b.md", "a.md, b.md and 3 more"
-fn name_files(files: &[String]) -> String {
-    match files {
-        [] => String::new(),
-        [one] => one.clone(),
-        [a, b] => format!("{a} and {b}"),
-        [a, b, rest @ ..] => format!("{a}, {b} and {} more", rest.len()),
     }
 }
 

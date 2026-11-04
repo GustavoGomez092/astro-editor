@@ -104,8 +104,11 @@ pub async fn git_push(project_path: String) -> Result<GitStatus, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn git_branches(project_path: String) -> Result<Vec<BranchInfo>, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::branches::branches(&repo)
+    })
+    .await
 }
 
 /// Safe checkout; never discards changes
@@ -116,23 +119,32 @@ pub async fn git_checkout(
     name: String,
     create: bool,
 ) -> Result<GitStatus, String> {
-    let _ = (project_path, name, create);
-    Err(NOT_IMPLEMENTED.to_string())
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::branches::checkout(&repo, &name, create)
+    })
+    .await
 }
 
 /// Topological, newest first
 #[tauri::command]
 #[specta::specta]
 pub async fn git_log_graph(project_path: String, limit: u32) -> Result<Vec<GraphCommit>, String> {
-    let _ = (project_path, limit);
-    Err(NOT_IMPLEMENTED.to_string())
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::log::log_graph(&repo, limit)
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_commit_details(project_path: String, id: String) -> Result<CommitDetails, String> {
-    let _ = (project_path, id);
-    Err(NOT_IMPLEMENTED.to_string())
+    blocking(move || {
+        let repo = git::open_required(&PathBuf::from(project_path))?;
+        git::log::commit_details(&repo, &id)
+    })
+    .await
 }
 
 /// A commit vs its first parent, for one file

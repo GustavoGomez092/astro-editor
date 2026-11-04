@@ -172,7 +172,9 @@ pub struct CloneProgress {
     pub total: u32,
 }
 
+pub mod branches;
 pub mod diff;
+pub mod log;
 pub mod remote;
 pub mod status;
 pub mod sync;
@@ -200,4 +202,14 @@ pub(crate) fn open_required(project_path: &Path) -> Result<Repository, String> {
 /// Plain-language text for a libgit2 error, prefixed with what was being done
 pub(crate) fn describe(action: &str, e: &git2::Error) -> String {
     format!("{action}: {}", e.message())
+}
+
+/// Names a few files for a message: "a.md", "a.md and b.md", "a.md, b.md and 3 more"
+pub(crate) fn name_files(files: &[String]) -> String {
+    match files {
+        [] => String::new(),
+        [one] => one.clone(),
+        [a, b] => format!("{a} and {b}"),
+        [a, b, rest @ ..] => format!("{a}, {b} and {} more", rest.len()),
+    }
 }
