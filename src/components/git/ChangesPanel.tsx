@@ -24,7 +24,7 @@ import {
   publishCheckMessage,
   type EntryNeedingAttention,
 } from '@/lib/git/publish-check'
-import { needsAttention } from '@/lib/git/repo-change'
+import { GIT_CHANGE_MUTATION_KEY, needsAttention } from '@/lib/git/repo-change'
 import { applyFetchedStatus } from '@/lib/git/cache'
 import { fetchIfStale } from '@/lib/git/status'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
@@ -211,6 +211,9 @@ export function ChangesPanel() {
   const unsavedEdits = useEditorStore(state => state.isDirty)
   // Changed entries with fields that need attention, while Publish asks
   const [checked, setChecked] = useState<EntryNeedingAttention[] | null>(null)
+  // Publish is checking fields: it stays disabled meanwhile
+  const [checking, setChecking] = useState(false)
+  const checkingRef = useRef(false)
 
   // Fresh when it comes into view: a fetch, unless one ran in the last 30 s
   const panelTab = useGitStore(state => state.panelTab)
@@ -310,6 +313,10 @@ export function ChangesPanel() {
   /** Publishes, with the message written from the status read after saving. */
   const runPublish = () => {
     if (!projectPath) return
+    // A second press, or the palette, while one is already on its way
+    if (queryClient.isMutating({ mutationKey: GIT_CHANGE_MUTATION_KEY }) > 0) {
+      return
+    }
     void publish
       .mutateAsync({
         projectPath,
@@ -351,17 +358,29 @@ export function ChangesPanel() {
       toast.info(reason)
       return
     }
-    // Fields the build may reject: ask, but never refuse
+    // Fields the build may reject: ask, but never refuse. Once at a time:
+    // the ref catches a second press before the state has re-rendered
+    if (checkingRef.current) return
+    checkingRef.current = true
+    setChecking(true)
+    const doneChecking = () => {
+      checkingRef.current = false
+      setChecking(false)
+    }
     const toCheck = [...files]
     if (unsaved && !files.some(file => file.path === unsaved)) {
       toCheck.push({ path: unsaved, oldPath: null, change: 'modified' })
     }
     void entriesNeedingAttention(queryClient, projectPath, toCheck)
       .then(problems => {
+        doneChecking()
         if (problems.length > 0) setChecked(problems)
         else runPublish()
       })
-      .catch(() => runPublish())
+      .catch(() => {
+        doneChecking()
+        runPublish()
+      })
   }
 
   /** Combines with the chosen versions, then publishes straight away. */
@@ -550,7 +569,7 @@ export function ChangesPanel() {
         onMessageChange={setDraft}
         unsavedEdits={unsavedEdits}
         onPublish={handlePublish}
-        publishing={publish.isPending}
+        publishing={publish.isPending || checking}
       />
       <ResolveConflictsDialog
         open={resolveOpen && hasConflicts}

@@ -318,6 +318,33 @@ describe('ChangesPanel', () => {
     })
   })
 
+  it('publishes once, however often Publish is pressed while fields are checked', async () => {
+    withStatus({
+      ...CLEAN,
+      files: [{ path: ABOUT, oldPath: null, change: 'modified' }],
+    })
+    // Still on its way when the other presses come
+    vi.mocked(commands.gitPublish).mockReturnValue(new Promise(() => {}))
+    renderWithProviders(<ChangesPanel />)
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText('Describe your changes')).toHaveValue(
+        'Update About me'
+      )
+    )
+    const button = screen.getByRole('button', { name: /^Publish$/ })
+    act(() => {
+      window.dispatchEvent(new CustomEvent('git-publish'))
+      window.dispatchEvent(new CustomEvent('git-publish'))
+    })
+    await vi.waitFor(() => expect(commands.gitPublish).toHaveBeenCalled())
+    act(() => {
+      window.dispatchEvent(new CustomEvent('git-publish'))
+    })
+    expect(button).toBeDisabled()
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(commands.gitPublish).toHaveBeenCalledTimes(1)
+  })
+
   describe('pull requests', () => {
     const SPRING: GitStatus = {
       ...CLEAN,
