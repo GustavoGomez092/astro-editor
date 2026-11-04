@@ -18,7 +18,10 @@ describe('getCollectionFolderOverrides', () => {
             name: 'blog',
             settings: { pathOverrides: { contentDirectory: 'writing/' } },
           },
-          { name: 'notes', settings: { pathOverrides: { assetsDirectory: 'x' } } },
+          {
+            name: 'notes',
+            settings: { pathOverrides: { assetsDirectory: 'x' } },
+          },
           { name: 'ideas', settings: { defaultFileType: 'mdx' } },
         ])
       )

@@ -23,6 +23,7 @@ function fakeAppData(files: Record<string, string>) {
         const content = files[a.filePath!]
         return content === undefined
           ? // Tauri rejects with the command's error string
+            // oxlint-disable-next-line typescript/prefer-promise-reject-errors
             Promise.reject('Failed to read app data file: not found')
           : Promise.resolve(content)
       }

@@ -86,11 +86,7 @@ export function explainCollectionSettings(
     ),
     draft: explainField('draft', own?.frontmatterMappings?.draft, input),
     publishedDate,
-    sort: explainSort(
-      own?.sort ?? null,
-      publishedDate,
-      fields
-    ),
+    sort: explainSort(own?.sort ?? null, publishedDate, fields),
     fileType: explainFileType(
       own?.defaultFileType,
       projectSettings,

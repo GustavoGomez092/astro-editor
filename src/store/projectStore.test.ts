@@ -173,6 +173,7 @@ describe('projectStore.updateProjectSettings with collection folders', () => {
     globalThis.mockTauri.invoke.mockResolvedValue(undefined)
     globalThis.mockTauri.listen.mockResolvedValue(() => {})
     vi.restoreAllMocks()
+    // oxlint-disable-next-line @typescript-eslint/unbound-method
     vi.mocked(queryClient.invalidateQueries).mockClear()
     useProjectStore.setState({
       currentProjectId: 'project',
@@ -207,6 +208,7 @@ describe('projectStore.updateProjectSettings with collection folders', () => {
     expect(stop).toHaveBeenCalledWith('/project')
     expect(start).toHaveBeenCalled()
     const invalidated = vi
+      // oxlint-disable-next-line @typescript-eslint/unbound-method
       .mocked(queryClient.invalidateQueries)
       .mock.calls.map(([filters]) => filters?.queryKey)
     // The collections first, as the other queries read their folders

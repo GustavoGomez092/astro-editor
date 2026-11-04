@@ -1,7 +1,7 @@
-use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use std::collections::HashMap;
 use crate::commands::project::discover_collections;
 use crate::parser::{project_folder, CollectionFolders};
+use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
@@ -55,9 +55,8 @@ fn watched_folders(
         None => project_root.join("src").join("content"),
     };
     let mut folders = vec![content_path];
-    let collections =
-        discover_collections(project_root, content_directory, collection_folders)
-            .unwrap_or_default();
+    let collections = discover_collections(project_root, content_directory, collection_folders)
+        .unwrap_or_default();
     for collection in collections {
         if !folders.iter().any(|f| collection.path.starts_with(f)) {
             folders.push(collection.path);
@@ -174,8 +173,10 @@ pub async fn start_watching_project_with_content_dir(
             watcher_map_arc,
             rx,
             project_path,
-            content_directory,
-            collection_folders,
+            ContentFolders {
+                content_directory,
+                collection_folders,
+            },
             generation,
             watches_schemas,
         )
@@ -183,6 +184,12 @@ pub async fn start_watching_project_with_content_dir(
     });
 
     Ok(())
+}
+
+/// Where a project's content is, kept to rebuild its watcher
+struct ContentFolders {
+    content_directory: Option<String>,
+    collection_folders: CollectionFolders,
 }
 
 /// Event processing loop with automatic recovery and periodic rescan.
@@ -200,8 +207,7 @@ async fn run_event_loop(
     watcher_map: WatcherMap,
     mut rx: Receiver<Event>,
     project_path: String,
-    content_directory: Option<String>,
-    collection_folders: CollectionFolders,
+    folders: ContentFolders,
     generation: u64,
     mut watches_schemas: bool,
 ) {
@@ -255,19 +261,18 @@ async fn run_event_loop(
 
                 // Built without holding the lock, so a slow path can't block
                 // starting or stopping other projects' watchers
-                let rebuilt =
-                    match create_project_watcher(
-                        &project_path,
-                        content_directory.as_deref(),
-                        &collection_folders,
-                    ) {
-                        Ok(built) => built,
-                        Err(e) => {
-                            log::error!("Failed to rebuild file watcher for {project_path}: {e}");
-                            let _ = app.emit("watcher-error", &project_path);
-                            break;
-                        }
-                    };
+                let rebuilt = match create_project_watcher(
+                    &project_path,
+                    folders.content_directory.as_deref(),
+                    &folders.collection_folders,
+                ) {
+                    Ok(built) => built,
+                    Err(e) => {
+                        log::error!("Failed to rebuild file watcher for {project_path}: {e}");
+                        let _ = app.emit("watcher-error", &project_path);
+                        break;
+                    }
+                };
                 {
                     let mut watchers = watcher_map.lock().unwrap();
                     // A start or stop may have happened while the watcher was built
@@ -427,11 +432,15 @@ mod tests {
         std::fs::create_dir_all(root.join("src/content/notes")).unwrap();
         std::fs::create_dir_all(root.join("writing")).unwrap();
 
-        let overrides: CollectionFolders =
-            [("blog".to_string(), "writing".to_string())].into_iter().collect();
+        let overrides: CollectionFolders = [("blog".to_string(), "writing".to_string())]
+            .into_iter()
+            .collect();
         let folders = watched_folders(root, None, &overrides);
 
-        assert_eq!(folders, vec![root.join("src/content"), root.join("writing")]);
+        assert_eq!(
+            folders,
+            vec![root.join("src/content"), root.join("writing")]
+        );
     }
 
     #[test]

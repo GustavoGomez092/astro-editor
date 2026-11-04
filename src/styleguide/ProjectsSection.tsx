@@ -26,9 +26,7 @@ const PROJECTS: ProjectMetadata[] = [
 // The dialog reads the registry and checks each folder, as in the app. Here
 // both are stand-ins, and the archived folder is gone. Module level, like
 // GitSection's query cache setup
-if (
-  new URLSearchParams(window.location.search).get('section') === 'projects'
-) {
+if (new URLSearchParams(window.location.search).get('section') === 'projects') {
   projectRegistryManager.getRegistry = () => ({
     projects: Object.fromEntries(PROJECTS.map(p => [p.id, p])),
     lastOpenedProject: PROJECTS[0]!.id,

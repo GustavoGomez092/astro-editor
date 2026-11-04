@@ -511,26 +511,37 @@ describe('collectionPathsChanged', () => {
   const blog = (pathOverrides?: {
     contentDirectory?: string
     assetsDirectory?: string
-  }) => [
-    {
-      name: 'blog',
-      settings: { pathOverrides, sort: { mode: 'title', direction: 'asc' } },
-    },
-  ] as ProjectSettings['collections']
+  }) =>
+    [
+      {
+        name: 'blog',
+        settings: { pathOverrides, sort: { mode: 'title', direction: 'asc' } },
+      },
+    ] as ProjectSettings['collections']
 
   it('is true when a collection folder is set, changed or cleared', () => {
-    expect(collectionPathsChanged(blog(), blog({ contentDirectory: 'a' }))).toBe(true)
     expect(
-      collectionPathsChanged(blog({ contentDirectory: 'a' }), blog({ contentDirectory: 'b' }))
+      collectionPathsChanged(blog(), blog({ contentDirectory: 'a' }))
     ).toBe(true)
-    expect(collectionPathsChanged(blog({ assetsDirectory: 'a' }), [])).toBe(true)
+    expect(
+      collectionPathsChanged(
+        blog({ contentDirectory: 'a' }),
+        blog({ contentDirectory: 'b' })
+      )
+    ).toBe(true)
+    expect(collectionPathsChanged(blog({ assetsDirectory: 'a' }), [])).toBe(
+      true
+    )
   })
 
   it('is false when only other settings change', () => {
     const before = blog({ contentDirectory: 'a' })
     const after = before!.map(c => ({
       ...c,
-      settings: { ...c.settings, sort: { mode: 'order', direction: 'desc' as const } },
+      settings: {
+        ...c.settings,
+        sort: { mode: 'order', direction: 'desc' as const },
+      },
     }))
     expect(collectionPathsChanged(before, after)).toBe(false)
     expect(collectionPathsChanged(undefined, [])).toBe(false)

@@ -85,7 +85,10 @@ pub type CollectionFolders = HashMap<String, String>;
 
 /// A folder given relative to the project root (`./src/blog/`, `src/blog`)
 pub fn project_folder(project_path: &Path, relative: &str) -> PathBuf {
-    let trimmed = relative.trim().trim_start_matches("./").trim_end_matches('/');
+    let trimmed = relative
+        .trim()
+        .trim_start_matches("./")
+        .trim_end_matches('/');
     project_path.join(trimmed)
 }
 

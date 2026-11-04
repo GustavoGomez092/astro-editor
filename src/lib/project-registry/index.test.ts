@@ -10,6 +10,7 @@ vi.unmock('./defaults')
 vi.unmock('./persistence')
 vi.unmock('./utils')
 
+import { invoke } from '@tauri-apps/api/core'
 import { ProjectRegistryManager } from '.'
 import { DEFAULT_PROJECT_SETTINGS } from './defaults'
 
@@ -135,7 +136,7 @@ describe('Project Registry System', () => {
     packages: Record<string, string>
     folders: Set<string>
   }) {
-    mockInvoke.mockImplementation((command: string, args?: unknown) => {
+    vi.mocked(invoke).mockImplementation((command: string, args?: unknown) => {
       const a = (args ?? {}) as Record<string, unknown>
       if (command === 'get_app_data_dir')
         return Promise.resolve('/mock/app/data')
@@ -225,7 +226,9 @@ describe('Project Registry System', () => {
     const written = mockInvoke.mock.calls
       .filter(([command]) => command === 'write_app_data_file')
       .map(([, args]) => (args as { filePath: string }).filePath)
-    expect(written).toContain('/mock/app/data/preferences/project-registry.json')
+    expect(written).toContain(
+      '/mock/app/data/preferences/project-registry.json'
+    )
     expect(written.some(path => path.includes('/projects/b'))).toBe(false)
   })
 

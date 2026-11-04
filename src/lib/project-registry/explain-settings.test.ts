@@ -195,8 +195,9 @@ describe('explainCollectionSettings: sort and file type', () => {
       reason: 'the app setting',
     })
     expect(
-      explain({ project: { ...DEFAULT_PROJECT_SETTINGS, defaultFileType: 'mdx' } })
-        .fileType
+      explain({
+        project: { ...DEFAULT_PROJECT_SETTINGS, defaultFileType: 'mdx' },
+      }).fileType
     ).toMatchObject({ value: 'MDX (.mdx)', reason: "the project's setting" })
     expect(explain({ settings: { defaultFileType: 'mdx' } }).fileType).toEqual({
       state: 'set',

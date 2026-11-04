@@ -221,8 +221,7 @@ pub async fn scan_project_with_content_dir(
     )?;
 
     for collection in &mut collections {
-        if let Ok(json_schema) = load_json_schema_for_collection(&project_path, &collection.name)
-        {
+        if let Ok(json_schema) = load_json_schema_for_collection(&project_path, &collection.name) {
             debug!(
                 "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
                 collection.name
@@ -244,8 +243,11 @@ pub fn discover_collections(
     collection_folders: &CollectionFolders,
 ) -> Result<Vec<Collection>, String> {
     debug!("Astro Editor [PROJECT_SCAN] Attempting to parse Astro config");
-    let mut collections = match parse_astro_config(project_path, content_directory, collection_folders)
-    {
+    let mut collections = match parse_astro_config(
+        project_path,
+        content_directory,
+        collection_folders,
+    ) {
         Ok(collections) if !collections.is_empty() => {
             info!(
                 "Astro Editor [PROJECT_SCAN] Found {} collections from Astro config",
@@ -1008,12 +1010,9 @@ mod tests {
         // Only the overridden folder exists: without the override, there's no blog
         std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
 
-        let collections = discover_collections(
-            temp.path(),
-            None,
-            &folders(&[("blog", "./writing/posts/")]),
-        )
-        .unwrap();
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "./writing/posts/")]))
+                .unwrap();
 
         assert_eq!(collections.len(), 1);
         assert_eq!(collections[0].name, "blog");
@@ -1097,19 +1096,22 @@ mod tests {
     async fn a_file_in_an_overridden_folder_resolves_to_its_collection() {
         let temp = tempfile::tempdir().unwrap();
         write_entry(&temp.path().join("src"), "content.config.ts", BLOG_CONFIG);
-        write_entry(&temp.path().join("writing"), "hello.md", "---\ntitle: Hi\n---\n");
+        write_entry(
+            &temp.path().join("writing"),
+            "hello.md",
+            "---\ntitle: Hi\n---\n",
+        );
         let project = temp.path().to_string_lossy().to_string();
-        let file = temp.path().join("writing/hello.md").to_string_lossy().to_string();
+        let file = temp
+            .path()
+            .join("writing/hello.md")
+            .to_string_lossy()
+            .to_string();
 
-        let entry = resolve_file_entry(
-            file,
-            project,
-            None,
-            Some(folders(&[("blog", "writing")])),
-        )
-        .await
-        .unwrap()
-        .expect("the file belongs to blog");
+        let entry = resolve_file_entry(file, project, None, Some(folders(&[("blog", "writing")])))
+            .await
+            .unwrap()
+            .expect("the file belongs to blog");
         assert_eq!(entry.collection, "blog");
     }
 

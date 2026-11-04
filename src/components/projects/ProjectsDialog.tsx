@@ -5,11 +5,7 @@ import { FolderOpen, FolderX } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { projectRegistryManager } from '@/lib/project-registry'
 import { foldersExist } from '@/lib/project-registry/utils'
-import {
-  filterProjects,
-  folderName,
-  shortenHome,
-} from '@/lib/projects/recent'
+import { filterProjects, folderName, shortenHome } from '@/lib/projects/recent'
 import { shortenMiddle } from '@/lib/git/clone'
 import { openProjectViaDialog } from '@/lib/projects/actions'
 import { formatRelativeTime } from '@/lib/dates'
@@ -92,7 +88,9 @@ function ProjectsList() {
   const removeProject = (project: ListedProject) => {
     void projectRegistryManager
       .removeProject(project.id)
-      .then(() => queryClient.invalidateQueries({ queryKey: queryKeys.projectsList }))
+      .then(() =>
+        queryClient.invalidateQueries({ queryKey: queryKeys.projectsList })
+      )
       .catch((reason: unknown) => {
         toast.error("Couldn't remove the project from the list")
         void logError(

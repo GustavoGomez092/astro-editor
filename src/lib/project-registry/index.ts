@@ -378,8 +378,9 @@ export class ProjectRegistryManager {
     }
     if (!(projectId in this.registry.projects)) return
 
-    const { [projectId]: _removed, ...projects } = this.registry.projects
-    this.registry.projects = projects
+    this.registry.projects = Object.fromEntries(
+      Object.entries(this.registry.projects).filter(([id]) => id !== projectId)
+    )
     if (this.registry.lastOpenedProject === projectId) {
       this.registry.lastOpenedProject = null
     }

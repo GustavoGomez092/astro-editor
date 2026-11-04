@@ -39,6 +39,8 @@ describe('ProjectsDialog', () => {
             : null
         )
     )
+    // The registry is mocked globally (src/test/setup.ts)
+    // oxlint-disable-next-line @typescript-eslint/unbound-method
     vi.mocked(projectRegistryManager.getRegistry).mockReturnValue(registry)
     useProjectStore.setState({ projectPath: null })
     useProjectsScreenStore.setState({ isOpen: true })
