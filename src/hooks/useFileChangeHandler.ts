@@ -64,7 +64,11 @@ export function useFileChangeHandler() {
       const holding = collectionsHolding(path, collections)
       if (holding.length === 0) return
       for (const collection of holding) {
-        const key = queryKeys.collectionFileCount(projectPath, collection.name)
+        const key = queryKeys.collectionFileCount(
+          projectPath,
+          collection.name,
+          collection.path
+        )
         pendingCounts.set(JSON.stringify(key), key)
       }
       clearTimeout(countTimer)

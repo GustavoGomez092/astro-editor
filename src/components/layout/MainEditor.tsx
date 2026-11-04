@@ -11,11 +11,16 @@ import { useGitEditGuard } from '../../hooks/useGitEditGuard'
 import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
 import { useGitStore } from '../../store/gitStore'
 import { FrontmatterPanel } from '../frontmatter'
+import { FolderOpen } from 'lucide-react'
+import { useProjectsListQuery } from '../../hooks/queries/useProjectsListQuery'
+import { useProjectsScreenStore } from '../../store/projectsScreenStore'
 
 // Welcome screen component for better organization
 const WelcomeScreen: React.FC = () => {
   const projectPath = useProjectStore(state => state.projectPath)
   const publishingTools = useShowPublishingTools()
+  const projects = useProjectsListQuery(projectPath == null)
+  const hasProjects = (projects.data?.length ?? 0) > 0
   return (
     <div className="flex h-full items-center justify-center">
       <div className="flex flex-col gap-4 text-center text-muted-foreground">
@@ -27,13 +32,8 @@ const WelcomeScreen: React.FC = () => {
         </p>
         {projectPath == null && (
           <div className="flex justify-center gap-2">
-            <Button
-              onClick={() => void openProjectViaDialog()}
-              variant="outline"
-              size="sm"
-              title="Open Project"
-            >
-              Open Project
+            <Button onClick={() => void openProjectViaDialog()} size="sm">
+              <FolderOpen /> Open Project…
             </Button>
             {publishingTools && (
               <Button
@@ -44,6 +44,15 @@ const WelcomeScreen: React.FC = () => {
                 size="sm"
               >
                 Open from GitHub
+              </Button>
+            )}
+            {hasProjects && (
+              <Button
+                onClick={() => useProjectsScreenStore.getState().open()}
+                variant="outline"
+                size="sm"
+              >
+                Recent Projects
               </Button>
             )}
           </div>

@@ -775,6 +775,90 @@ pub async fn read_app_data_file(
         .map_err(|e| format!("Failed to read app data file: {e}"))
 }
 
+fn app_data_dir(app: &tauri::AppHandle) -> Result<String, String> {
+    Ok(app
+        .path()
+        .resolve("", BaseDirectory::AppLocalData)
+        .map_err(|e| format!("Failed to resolve app data directory: {e}"))?
+        .to_string_lossy()
+        .to_string())
+}
+
+/// A file's text, or None when there's no file. Any other failure (no
+/// permission, not text, a cloud placeholder that won't download) is an error,
+/// so the caller can tell a new install from a file it couldn't read
+fn read_if_present(path: &Path) -> Result<Option<String>, String> {
+    match std::fs::read_to_string(path) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+        Err(e) => Err(format!("Couldn't read {}: {e}", path.display())),
+    }
+}
+
+/// Copy a file so the copy is either whole or not there: written to a
+/// temporary file beside it, then renamed into place
+fn copy_atomically(from: &Path, to: &Path) -> Result<(), String> {
+    let name = to
+        .file_name()
+        .ok_or_else(|| format!("Invalid file path: {}", to.display()))?
+        .to_string_lossy();
+    let temporary = to.with_file_name(format!(".{name}.tmp"));
+    let result = std::fs::copy(from, &temporary)
+        .map_err(|e| format!("Couldn't copy {}: {e}", from.display()))
+        .and_then(|_| {
+            std::fs::rename(&temporary, to)
+                .map_err(|e| format!("Couldn't save {}: {e}", to.display()))
+        });
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
+}
+
+fn move_file(from: &Path, to: &Path) -> Result<(), String> {
+    std::fs::rename(from, to).map_err(|e| format!("Couldn't rename {}: {e}", from.display()))
+}
+
+/// A preferences file's text, or null when there isn't one. Errors for a file
+/// that's there but can't be read
+#[tauri::command]
+#[specta::specta]
+pub async fn read_app_data_file_if_present(
+    app: tauri::AppHandle,
+    file_path: String,
+) -> Result<Option<String>, String> {
+    let validated_path = validate_app_data_path(&file_path, &app_data_dir(&app)?)?;
+    read_if_present(&validated_path)
+}
+
+/// Copy a preferences file within the app data folder, all or nothing
+#[tauri::command]
+#[specta::specta]
+pub async fn copy_app_data_file(
+    app: tauri::AppHandle,
+    from_path: String,
+    to_path: String,
+) -> Result<(), String> {
+    let dir = app_data_dir(&app)?;
+    let from = validate_app_data_path(&from_path, &dir)?;
+    let to = validate_app_data_path(&to_path, &dir)?;
+    copy_atomically(&from, &to)
+}
+
+/// Rename a preferences file within the app data folder
+#[tauri::command]
+#[specta::specta]
+pub async fn move_app_data_file(
+    app: tauri::AppHandle,
+    from_path: String,
+    to_path: String,
+) -> Result<(), String> {
+    let dir = app_data_dir(&app)?;
+    let from = validate_app_data_path(&from_path, &dir)?;
+    let to = validate_app_data_path(&to_path, &dir)?;
+    move_file(&from, &to)
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn read_file_content(file_path: String, project_root: String) -> Result<String, String> {
@@ -1535,6 +1619,72 @@ Regular markdown content here."#;
         assert_eq!(lines[second_frontmatter_end + 1], "");
         // Should have imports next
         assert!(lines[second_frontmatter_end + 2].starts_with("import"));
+    }
+
+    // --- reading and keeping preferences files ---
+
+    #[test]
+    fn a_missing_preferences_file_reads_as_none() {
+        let temp = tempfile::tempdir().unwrap();
+        assert_eq!(
+            read_if_present(&temp.path().join("settings.json")),
+            Ok(None)
+        );
+    }
+
+    #[test]
+    fn a_preferences_file_that_is_not_text_is_an_error_not_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        std::fs::write(&path, [0xff, 0xfe, 0x00, 0x7b]).unwrap();
+        assert!(read_if_present(&path).is_err());
+    }
+
+    #[test]
+    fn a_readable_preferences_file_reads_as_its_text() {
+        let temp = tempfile::tempdir().unwrap();
+        let path = temp.path().join("settings.json");
+        std::fs::write(&path, "{}").unwrap();
+        assert_eq!(read_if_present(&path), Ok(Some("{}".to_string())));
+    }
+
+    #[test]
+    fn copying_a_file_leaves_a_whole_copy_and_no_temporary_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let from = temp.path().join("settings.json");
+        let to = temp.path().join("settings.broken-1.json");
+        std::fs::write(&from, [0xff, 0x00, 0x01]).unwrap();
+
+        copy_atomically(&from, &to).unwrap();
+
+        assert_eq!(std::fs::read(&to).unwrap(), vec![0xff, 0x00, 0x01]);
+        assert_eq!(std::fs::read(&from).unwrap(), vec![0xff, 0x00, 0x01]);
+        let names: Vec<_> = std::fs::read_dir(temp.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(names.len(), 2, "{names:?}");
+    }
+
+    #[test]
+    fn copying_a_file_that_is_not_there_fails_and_writes_nothing() {
+        let temp = tempfile::tempdir().unwrap();
+        let to = temp.path().join("copy.json");
+        assert!(copy_atomically(&temp.path().join("gone.json"), &to).is_err());
+        assert_eq!(std::fs::read_dir(temp.path()).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn moving_a_file_renames_it() {
+        let temp = tempfile::tempdir().unwrap();
+        let from = temp.path().join("site.json");
+        let to = temp.path().join("site.removed-1.json");
+        std::fs::write(&from, "{}").unwrap();
+
+        move_file(&from, &to).unwrap();
+
+        assert!(!from.exists());
+        assert_eq!(std::fs::read_to_string(&to).unwrap(), "{}");
     }
 
     #[test]

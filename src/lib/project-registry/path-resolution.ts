@@ -77,3 +77,57 @@ export function getEffectiveAssetsDirectory(
   // Fall back to default
   return ASTRO_PATHS.ASSETS_DIR
 }
+
+/** `./src/blog/` → `src/blog` */
+export function tidyFolder(folder: string): string {
+  return folder
+    .trim()
+    .replace(/^(\.\/)+/, '')
+    .replace(/[/\\]+$/, '')
+}
+
+/**
+ * Why a collection's content folder can't be used, or null when it can. It
+ * must be inside the project, given relative to it, and not the project or
+ * the content folder itself (that holds every collection). Rust checks the
+ * same again, and refuses a folder that leads out through a link
+ */
+export function checkCollectionFolder(
+  folder: string,
+  /** Null to allow the content folder (for an assets folder) */
+  contentDirectory: string | null
+): string | null {
+  const tidy = tidyFolder(folder)
+  if (tidy === '' || tidy === '.') {
+    return `"${folder.trim()}" is the project folder itself. Choose the folder that holds this collection's entries.`
+  }
+  const absolute = /^([/\\]|[A-Za-z]:)/.test(tidy)
+  const climbs = tidy.split(/[/\\]/).includes('..')
+  if (absolute || climbs) {
+    return `"${folder.trim()}" isn't inside the project folder. Give a folder inside it, like src/content/blog.`
+  }
+  if (contentDirectory !== null && tidy === tidyFolder(contentDirectory)) {
+    return `"${folder.trim()}" is the content folder itself, which holds every collection. Choose this collection's own folder inside it.`
+  }
+  return null
+}
+
+/**
+ * The content folder set for each collection that has one, by collection
+ * name, relative to the project root. Rust uses these as the collections'
+ * folders when it scans, resolves links and watches. A folder that can't be
+ * used is left out, so its collection is found automatically (Collection
+ * Settings says why). Null when there are none
+ */
+export function getCollectionFolderOverrides(
+  projectSettings?: ProjectSettings | null
+): Record<string, string> | null {
+  const contentDirectory = getEffectiveContentDirectory(projectSettings)
+  const entries = (projectSettings?.collections ?? []).flatMap(c => {
+    const folder = c.settings.pathOverrides?.contentDirectory
+    return folder && !checkCollectionFolder(folder, contentDirectory)
+      ? [[c.name, folder] as const]
+      : []
+  })
+  return entries.length > 0 ? Object.fromEntries(entries) : null
+}

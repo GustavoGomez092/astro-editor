@@ -36,6 +36,7 @@ import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTo
 import { useGitStore } from '../../store/gitStore'
 import { SignInSheet } from '../git/SignInSheet'
 import { OpenFromGitHubDialog } from '../git/OpenFromGitHubDialog'
+import { ProjectsDialog } from '../projects/ProjectsDialog'
 import { useEditorStore } from '../../store/editorStore'
 import { useBodyEditorHidden } from '../../hooks/editor/useBodyEditorHidden'
 import { focusEditor } from '../../lib/focus-utils'
@@ -287,6 +288,7 @@ export const Layout: React.FC = () => {
       <ComponentBuilderDialog />
       <ContentLinkerDialog />
       <NewFileDialog />
+      <ProjectsDialog />
       <PreferencesDialog
         open={preferencesOpen}
         onOpenChange={handleSetPreferencesOpen}

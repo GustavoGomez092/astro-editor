@@ -5,6 +5,7 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { commands, type Collection } from '@/lib/bindings'
 import { ASTRO_PATHS } from '@/lib/constants'
 import { queryClient } from '@/lib/query-client'
+import { queryKeys } from '@/lib/query-keys'
 import { reloadProjectFiles } from '@/lib/git/repo-change'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
@@ -17,6 +18,7 @@ import { useCreateFileMutation } from '../mutations/useCreateFileMutation'
 vi.mock('@/lib/bindings', () => ({
   commands: {
     scanProject: vi.fn(),
+    scanProjectWithContentDir: vi.fn(),
     countCollectionFilesRecursive: vi.fn(),
     readFileContent: vi.fn(),
     createFile: vi.fn(),
@@ -174,5 +176,56 @@ describe('useCollectionFileCountsQuery', () => {
     await act(() => reloadProjectFiles(queryClient, '/site'))
 
     await vi.waitFor(() => expect(result.current).toEqual({ posts: 27 }))
+  })
+
+  it("counts the new folder when a collection's folder changes", async () => {
+    const { result } = renderCounts()
+    await vi.waitFor(() => expect(result.current).toEqual({ posts: 28 }))
+
+    // The collection's folder is set elsewhere; the collections come back
+    // with the new folder, and nothing else is refreshed
+    const moved = { ...POSTS, path: '/site/writing/posts' }
+    vi.mocked(commands.scanProject).mockResolvedValue(ok([moved]))
+    vi.mocked(commands.countCollectionFilesRecursive).mockImplementation(path =>
+      Promise.resolve(ok(path === moved.path ? 3 : 28))
+    )
+    await act(() =>
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections('/site'),
+        exact: true,
+      })
+    )
+
+    await vi.waitFor(() => expect(result.current).toEqual({ posts: 3 }))
+  })
+
+  it('reads the collection folders set when it scans, not when it rendered', async () => {
+    const { result } = renderCounts()
+    await vi.waitFor(() => expect(result.current).toEqual({ posts: 28 }))
+    vi.mocked(commands.scanProjectWithContentDir).mockResolvedValue(ok([POSTS]))
+
+    useProjectStore.setState({
+      currentProjectSettings: {
+        pathOverrides: {},
+        frontmatterMappings: {},
+        collections: [
+          {
+            name: 'posts',
+            settings: { pathOverrides: { contentDirectory: 'writing/posts' } },
+          },
+        ],
+      },
+    })
+    await act(() =>
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections('/site'),
+      })
+    )
+
+    expect(commands.scanProjectWithContentDir).toHaveBeenCalledWith(
+      '/site',
+      null,
+      { posts: 'writing/posts' }
+    )
   })
 })

@@ -21,8 +21,9 @@ import {
   saveGlobalSettings,
   loadProjectData,
   saveProjectData,
+  setProjectDataAside,
 } from './persistence'
-import { discoverProject, isSameProject } from './utils'
+import { discoverProject, folderStates, isSameProject } from './utils'
 import { DEFAULT_PROJECT_SETTINGS } from './defaults'
 
 export class ProjectRegistryManager {
@@ -155,14 +156,21 @@ export class ProjectRegistryManager {
   }
 
   /**
-   * Find a project that may have been moved
+   * Find the registered project that moved to `newPath`: one whose folder is
+   * missing and whose package.json name the new folder has. A project whose
+   * folder is still there is never moved, so two copies of the same template
+   * stay two projects; nor is one whose folder can't be checked (its drive is
+   * unplugged, or it can't be read), so it keeps its settings for when it's back
    */
   private async findMovedProject(
     newPath: string
   ): Promise<ProjectMetadata | null> {
     if (!this.registry) return null
 
-    for (const project of Object.values(this.registry.projects)) {
+    const projects = Object.values(this.registry.projects)
+    const states = await folderStates(projects.map(p => p.path))
+    for (const [index, project] of projects.entries()) {
+      if (states[index] !== 'missing') continue
       if (await isSameProject(project, newPath)) {
         return project
       }
@@ -360,6 +368,28 @@ export class ProjectRegistryManager {
       // Include collections array if present
       collections: projectData.settings.collections || [],
     }
+  }
+
+  /**
+   * Take a project off the list. Its folder isn't touched. Its settings file
+   * is renamed rather than deleted, so a project that later gets the same id
+   * starts afresh, and the old settings can still be recovered by hand
+   */
+  async removeProject(projectId: string): Promise<void> {
+    if (!this.registry) {
+      throw new Error('Registry not initialized')
+    }
+    if (!(projectId in this.registry.projects)) return
+
+    this.registry.projects = Object.fromEntries(
+      Object.entries(this.registry.projects).filter(([id]) => id !== projectId)
+    )
+    if (this.registry.lastOpenedProject === projectId) {
+      this.registry.lastOpenedProject = null
+    }
+    this.projectDataCache.delete(projectId)
+    await saveProjectRegistry(this.registry)
+    await setProjectDataAside(projectId)
   }
 
   /**

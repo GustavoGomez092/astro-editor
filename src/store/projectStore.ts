@@ -17,6 +17,8 @@ import {
   DeepPartial,
 } from '../lib/project-registry'
 import { useEditorStore } from './editorStore'
+import { getCollectionFolderOverrides } from '../lib/project-registry/path-resolution'
+import { collectionPathsChanged } from '../lib/project-registry/collection-settings'
 import { queryClient } from '../lib/query-client'
 import { queryKeys } from '../lib/query-keys'
 import { wasStartupClaimedByDeepLink } from '../lib/deep-link'
@@ -175,23 +177,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!projectPath) return
 
     try {
-      // Use path override if configured
+      // Watch the content directory (or its override) and any collection
+      // folder set outside it
       const contentDirectory =
         currentProjectSettings?.pathOverrides?.contentDirectory
-
-      if (contentDirectory && contentDirectory !== ASTRO_PATHS.CONTENT_DIR) {
-        const result = await commands.startWatchingProjectWithContentDir(
-          projectPath,
-          contentDirectory
-        )
-        if (result.status === 'error') {
-          throw new Error(result.error)
-        }
-      } else {
-        const result = await commands.startWatchingProject(projectPath)
-        if (result.status === 'error') {
-          throw new Error(result.error)
-        }
+      const result = await commands.startWatchingProjectWithContentDir(
+        projectPath,
+        contentDirectory && contentDirectory !== ASTRO_PATHS.CONTENT_DIR
+          ? contentDirectory
+          : null,
+        getCollectionFolderOverrides(currentProjectSettings)
+      )
+      if (result.status === 'error') {
+        throw new Error(result.error)
       }
 
       // Listen for file change events
@@ -368,6 +366,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await projectRegistryManager.initialize()
       const globalSettings = projectRegistryManager.getGlobalSettings()
       set({ globalSettings })
+      // The welcome screen asks for the list before the registry has loaded
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projectsList })
       await info(
         'Astro Editor [PROJECT_REGISTRY] Project registry initialized successfully'
       )
@@ -415,7 +415,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   updateProjectSettings: async (settings: Partial<ProjectSettings>) => {
-    const { currentProjectId, projectPath, selectedCollection } = get()
+    const { currentProjectId, projectPath } = get()
     if (!currentProjectId) {
       toast.error('No project is currently open')
       return
@@ -436,8 +436,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     const optimisticSettings = get().currentProjectSettings
 
     try {
-      // Check if path overrides are changing
-      const pathOverridesChanged = !!settings.pathOverrides
+      // Check if path overrides are changing, the project's or a collection's
+      const pathOverridesChanged =
+        !!settings.pathOverrides ||
+        ('collections' in settings &&
+          collectionPathsChanged(
+            previousSettings?.collections,
+            settings.collections
+          ))
 
       // If path overrides are changing and a file is open, handle gracefully
       if (pathOverridesChanged) {
@@ -476,24 +482,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
       // Invalidate queries when settings change
       if (projectPath) {
-        // If path overrides changed, invalidate collection-related queries
-        if (settings.pathOverrides) {
+        // If path overrides changed, everything read from the project's
+        // folders may have moved: collections, file lists and their counts.
+        // Those queries have the collection's folder in their keys, so once
+        // the collections come back with new folders they're new queries
+        if (pathOverridesChanged) {
           await queryClient.invalidateQueries({
-            queryKey: queryKeys.collections(projectPath),
+            queryKey: [...queryKeys.all, projectPath],
           })
-
-          // Invalidate directory contents for current collection if any
-          // This invalidates all directory scans for this collection (root + all subdirectories)
-          if (selectedCollection) {
-            await queryClient.invalidateQueries({
-              queryKey: [
-                ...queryKeys.all,
-                projectPath,
-                selectedCollection,
-                'directory',
-              ],
-            })
-          }
 
           // Restart file watcher with new paths
           await info(

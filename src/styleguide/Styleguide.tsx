@@ -22,6 +22,7 @@ import { FieldsSection } from './FieldsSection'
 import { ColoursSection } from './ColoursSection'
 import { ComponentBuilderSection } from './ComponentBuilderSection'
 import { DevServerSection } from './DevServerSection'
+import { ProjectsSection } from './ProjectsSection'
 import {
   GitChangesConflictsSection,
   GitChangesMoreSection,
@@ -82,6 +83,12 @@ const SECTIONS: Section[] = [
     id: 'git-sign-in',
     title: 'Sign in with GitHub',
     Component: GitSignInSection,
+    overlay: true,
+  },
+  {
+    id: 'projects',
+    title: 'Projects',
+    Component: ProjectsSection,
     overlay: true,
   },
   {

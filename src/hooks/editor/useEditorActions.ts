@@ -15,10 +15,11 @@ import { queryKeys } from '../../lib/query-keys'
 import { deserializeCompleteSchema, type SchemaField } from '../../lib/schema'
 import { validateFrontmatter } from '../../lib/frontmatter-validation'
 import { frontmatterToWrite } from '../../lib/frontmatter-save'
+import { projectRegistryManager } from '../../lib/project-registry'
 import {
-  projectRegistryManager,
+  getCollectionFolderOverrides,
   getEffectiveContentDirectory,
-} from '../../lib/project-registry'
+} from '../../lib/project-registry/path-resolution'
 import { findOwningProjectPath } from '../../lib/deep-link'
 import { ASTRO_PATHS } from '../../lib/constants'
 
@@ -364,7 +365,8 @@ export function useEditorActions() {
     const result = await commands.resolveFileEntry(
       filePath,
       owningProjectPath,
-      contentDirectory !== ASTRO_PATHS.CONTENT_DIR ? contentDirectory : null
+      contentDirectory !== ASTRO_PATHS.CONTENT_DIR ? contentDirectory : null,
+      getCollectionFolderOverrides(currentProjectSettings)
     )
 
     if (result.status === 'error') {

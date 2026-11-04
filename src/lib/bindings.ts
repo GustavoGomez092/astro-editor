@@ -22,6 +22,15 @@ export const commands = {
 	getAppDataDir: () => typedError<string, string>(__TAURI_INVOKE("get_app_data_dir")),
 	writeAppDataFile: (filePath: string, content: string) => typedError<null, string>(__TAURI_INVOKE("write_app_data_file", { filePath, content })),
 	readAppDataFile: (filePath: string) => typedError<string, string>(__TAURI_INVOKE("read_app_data_file", { filePath })),
+	/**
+	 *  A preferences file's text, or null when there isn't one. Errors for a file
+	 *  that's there but can't be read
+	 */
+	readAppDataFileIfPresent: (filePath: string) => typedError<string | null, string>(__TAURI_INVOKE("read_app_data_file_if_present", { filePath })),
+	/**  Copy a preferences file within the app data folder, all or nothing */
+	copyAppDataFile: (fromPath: string, toPath: string) => typedError<null, string>(__TAURI_INVOKE("copy_app_data_file", { fromPath, toPath })),
+	/**  Rename a preferences file within the app data folder */
+	moveAppDataFile: (fromPath: string, toPath: string) => typedError<null, string>(__TAURI_INVOKE("move_app_data_file", { fromPath, toPath })),
 	readFileContent: (filePath: string, projectRoot: string) => typedError<string, string>(__TAURI_INVOKE("read_file_content", { filePath, projectRoot })),
 	/**
 	 *  Checks if a file path is within the project directory
@@ -62,8 +71,19 @@ export const commands = {
 	 */
 	resolveImagePath: (imagePath: string, projectRoot: string, currentFilePath: string | null) => typedError<string, string>(__TAURI_INVOKE("resolve_image_path", { imagePath, projectRoot, currentFilePath })),
 	selectProjectFolder: () => typedError<string | null, string>(__TAURI_INVOKE("select_project_folder")),
+	/**
+	 *  The state of each of these folders, in the same order. A project is only
+	 *  treated as moved when its folder is `Missing`, never when it's
+	 *  `Unavailable`, so an unplugged drive doesn't hand its settings to a copy
+	 */
+	folderStates: (paths: string[]) => __TAURI_INVOKE<FolderState[]>("folder_states", { paths }),
 	scanProject: (projectPath: string) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project", { projectPath })),
-	scanProjectWithContentDir: (projectPath: string, contentDirectory: string | null) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project_with_content_dir", { projectPath, contentDirectory })),
+	/**
+	 *  The project's collections with their schemas. `collection_directories`
+	 *  holds the folders the writer set for some collections, by name, relative
+	 *  to the project root; the rest are `<content directory>/<name>`
+	 */
+	scanProjectWithContentDir: (projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project_with_content_dir", { projectPath, contentDirectory, collectionDirectories })),
 	/**
 	 *  Resolves an absolute file path to a `FileEntry` within the given project, if the
 	 *  file is a Markdown/MDX item owned by one of the project's content collections.
@@ -76,7 +96,7 @@ export const commands = {
 	 *  Markdown item owned by a loadable collection (the caller opens the project and
 	 *  shows a "couldn't find that file" toast).
 	 */
-	resolveFileEntry: (filePath: string, projectPath: string, contentDirectory: string | null) => typedError<FileEntry | null, string>(__TAURI_INVOKE("resolve_file_entry", { filePath, projectPath, contentDirectory })),
+	resolveFileEntry: (filePath: string, projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<FileEntry | null, string>(__TAURI_INVOKE("resolve_file_entry", { filePath, projectPath, contentDirectory, collectionDirectories })),
 	loadFileBasedCollection: (projectPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("load_file_based_collection", { projectPath, collectionName })),
 	/**  Scan a single directory (non-recursive) for subdirectories and markdown/mdx files */
 	scanDirectory: (directoryPath: string, collectionName: string, collectionRoot: string) => typedError<DirectoryScanResult, string>(__TAURI_INVOKE("scan_directory", { directoryPath, collectionName, collectionRoot })),
@@ -95,7 +115,7 @@ export const commands = {
 	/**  Scan all markdown/mdx files recursively in a collection directory */
 	scanCollectionFilesRecursive: (collectionPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("scan_collection_files_recursive", { collectionPath, collectionName })),
 	startWatchingProject: (projectPath: string) => typedError<null, string>(__TAURI_INVOKE("start_watching_project", { projectPath })),
-	startWatchingProjectWithContentDir: (projectPath: string, contentDirectory: string | null) => typedError<null, string>(__TAURI_INVOKE("start_watching_project_with_content_dir", { projectPath, contentDirectory })),
+	startWatchingProjectWithContentDir: (projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<null, string>(__TAURI_INVOKE("start_watching_project_with_content_dir", { projectPath, contentDirectory, collectionDirectories })),
 	stopWatchingProject: (projectPath: string) => typedError<null, string>(__TAURI_INVOKE("stop_watching_project", { projectPath })),
 	/**  Opens the preferences folder in the system's default file manager */
 	openPreferencesFolder: () => typedError<null, string>(__TAURI_INVOKE("open_preferences_folder")),
@@ -266,6 +286,26 @@ export type CloneProgress = {
 export type Collection = {
 	name: string,
 	path: string,
+	/**
+	 *  The `base` of the collection's `glob()` loader, relative to the project
+	 *  root, when the collection's folder came from it
+	 */
+	loader_base?: string | null,
+	/**
+	 *  The folder the collection would be in automatically, when the writer
+	 *  set another one that's in use
+	 */
+	automatic_path?: string | null,
+	/**
+	 *  The folder the writer set, relative to the project root, when it isn't
+	 *  there, so the collection is in its automatic folder instead
+	 */
+	missing_folder?: string | null,
+	/**
+	 *  Why the folder the writer set can't be used ("it links outside the
+	 *  project"), so the collection is in its automatic folder instead
+	 */
+	refused_folder?: string | null,
 	complete_schema?: string | null,
 };
 
@@ -379,6 +419,18 @@ export type FileEntry = {
 	last_modified: number | null,
 	frontmatter: { [key in string]: Value } | null,
 };
+
+/**  Whether a registered project's folder is there */
+export type FolderState = 
+/**  The folder is there */
+"present" | 
+/**  The folder is gone from a place that's there: moved or deleted */
+"missing" | 
+/**
+ *  It can't be told: its drive isn't connected (the parent is gone too),
+ *  it can't be read, or something other than a folder is there now
+ */
+"unavailable";
 
 export type GitHubAuthStatus = {
 	signedIn: boolean,

@@ -11,6 +11,8 @@ Most of these overrides resolve through a three-tier fallback:
 2. otherwise the **project** setting, if you've set one
 3. otherwise Astro Editor's **built-in default**.
 
+In Collection Settings, each setting shows whether it's **Set** (you chose it for that collection) or **Automatic**, and what an automatic one is using and why: for example *Using `draft` (found in the schema)* or *Using `src/content/blog` (from the glob loader)*. If nothing usable was found, such as no draft field in the schema, it says what won't work. **Clear** takes a set value back to the automatic one.
+
 The sections below list every override, its scope, and its default. Where these settings are stored on disk is covered in [Advanced Preferences](/reference/advanced-preferences/).
 
 ## Path overrides
@@ -19,7 +21,7 @@ These tell Astro Editor where the relevant directories live, relative to the pro
 
 | Setting | Scope | Default | Controls |
 | --- | --- | --- | --- |
-| **Content Directory** | Project + collection | `src/content` | Where collections are discovered |
+| **Content Directory** | Project + collection | `src/content` | Project: the folder that holds the collections. Collection: the folder that holds that collection's entries, which otherwise comes from the collection's `glob()` loader `base`, or `<content directory>/<collection name>` |
 | **Assets Directory** | Project + collection | `src/assets` | Where dragged or inserted images are copied |
 | **MDX Components Directory** | Project only | `src/components/mdx` | Where the [component builder](/editor/mdx-components/) looks for components |
 

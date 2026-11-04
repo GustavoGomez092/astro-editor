@@ -1,9 +1,13 @@
 use crate::models::{Collection, DirectoryInfo, FileEntry};
-use crate::parser::parse_astro_config;
+use crate::parser::{
+    parse_astro_config, place_collection, project_folder, resolve_collection_folders,
+    CollectionFolders,
+};
 use crate::schema_merger;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
@@ -180,18 +184,78 @@ pub async fn select_project_folder(app: tauri::AppHandle) -> Result<Option<Strin
     }
 }
 
+/// Whether a registered project's folder is there
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum FolderState {
+    /// The folder is there
+    Present,
+    /// The folder is gone from a place that's there: moved or deleted
+    Missing,
+    /// It can't be told: its drive isn't connected (the parent is gone too),
+    /// it can't be read, or something other than a folder is there now
+    Unavailable,
+}
+
+/// Folders a drive is mounted in: a folder straight inside one is a drive,
+/// which is gone when it's unplugged rather than deleted
+const MOUNT_FOLDERS: [&str; 4] = ["/Volumes", "/media", "/mnt", "/run/media"];
+
+pub fn folder_state(path: &Path) -> FolderState {
+    // Linux keeps mount points like /mnt/nas as empty folders while a drive
+    // or share isn't mounted, so a folder gone from an empty one is unavailable
+    folder_state_where(path, cfg!(target_os = "linux"))
+}
+
+fn folder_state_where(path: &Path, empty_parent_is_unmounted: bool) -> FolderState {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => FolderState::Present,
+        Ok(_) => FolderState::Unavailable,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let parent_is_there = path.parent().is_some_and(|parent| {
+                !MOUNT_FOLDERS.iter().any(|mount| parent == Path::new(mount))
+                    && std::fs::metadata(parent).is_ok_and(|m| m.is_dir())
+                    && !(empty_parent_is_unmounted
+                        && std::fs::read_dir(parent).is_ok_and(|mut e| e.next().is_none()))
+            });
+            if parent_is_there {
+                FolderState::Missing
+            } else {
+                FolderState::Unavailable
+            }
+        }
+        Err(_) => FolderState::Unavailable,
+    }
+}
+
+/// The state of each of these folders, in the same order. A project is only
+/// treated as moved when its folder is `Missing`, never when it's
+/// `Unavailable`, so an unplugged drive doesn't hand its settings to a copy
+#[tauri::command]
+#[specta::specta]
+pub async fn folder_states(paths: Vec<String>) -> Vec<FolderState> {
+    paths
+        .iter()
+        .map(|path| folder_state(Path::new(path)))
+        .collect()
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn scan_project(project_path: String) -> Result<Vec<Collection>, String> {
     info!("Astro Editor [PROJECT_SCAN] Scanning project at path: {project_path}");
-    scan_project_with_content_dir(project_path, None).await
+    scan_project_with_content_dir(project_path, None, None).await
 }
 
+/// The project's collections with their schemas. `collection_directories`
+/// holds the folders the writer set for some collections, by name, relative
+/// to the project root; the rest are `<content directory>/<name>`
 #[tauri::command]
 #[specta::specta]
 pub async fn scan_project_with_content_dir(
     project_path: String,
     content_directory: Option<String>,
+    collection_directories: Option<HashMap<String, String>>,
 ) -> Result<Vec<Collection>, String> {
     info!("Astro Editor [PROJECT_SCAN] Scanning project at path: {project_path}");
     info!(
@@ -199,88 +263,69 @@ pub async fn scan_project_with_content_dir(
         content_directory.as_deref().unwrap_or("src/content")
     );
 
-    let path = PathBuf::from(&project_path);
+    let folders = collection_directories.unwrap_or_default();
+    let mut collections = discover_collections(
+        Path::new(&project_path),
+        content_directory.as_deref(),
+        &folders,
+    )?;
 
-    // Try to parse Astro config first
+    for collection in &mut collections {
+        if let Ok(json_schema) = load_json_schema_for_collection(&project_path, &collection.name) {
+            debug!(
+                "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
+                collection.name
+            );
+            collection.json_schema = Some(json_schema);
+        }
+        generate_complete_schema(collection);
+    }
+
+    Ok(collections)
+}
+
+/// The project's collections and their folders, from the Astro config, or from
+/// the content directory's folders when the config gives none. A folder the
+/// writer set for a collection replaces the one found
+pub fn discover_collections(
+    project_path: &Path,
+    content_directory: Option<&str>,
+    collection_folders: &CollectionFolders,
+) -> Result<Vec<Collection>, String> {
+    let content_path = match content_directory {
+        Some(dir) => project_folder(project_path, dir),
+        None => project_path.join("src").join("content"),
+    };
+    let folders = resolve_collection_folders(project_path, &content_path, collection_folders);
     debug!("Astro Editor [PROJECT_SCAN] Attempting to parse Astro config");
-    match parse_astro_config(&path, content_directory.as_deref()) {
-        Ok(mut collections) if !collections.is_empty() => {
+    let collections = match parse_astro_config(project_path, content_directory, &folders) {
+        Ok(collections) if !collections.is_empty() => {
             info!(
                 "Astro Editor [PROJECT_SCAN] Found {} collections from Astro config",
                 collections.len()
             );
-
-            // Try to load JSON schemas for each collection
-            for collection in &mut collections {
-                if let Ok(json_schema) =
-                    load_json_schema_for_collection(&project_path, &collection.name)
-                {
-                    debug!(
-                        "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
-                        collection.name
-                    );
-                    collection.json_schema = Some(json_schema);
-                }
-            }
-
-            // Generate complete schema for each collection
-            for collection in &mut collections {
-                generate_complete_schema(collection);
-            }
-
-            Ok(collections)
+            return Ok(collections);
         }
         Ok(_) => {
             debug!("Astro Editor [PROJECT_SCAN] Astro config returned empty collections, falling back to directory scan");
-            let mut collections =
-                scan_content_directories_with_override(path.as_path(), content_directory)?;
-
-            // Try to load JSON schemas for directory-scanned collections
-            for collection in &mut collections {
-                if let Ok(json_schema) =
-                    load_json_schema_for_collection(&project_path, &collection.name)
-                {
-                    debug!(
-                        "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
-                        collection.name
-                    );
-                    collection.json_schema = Some(json_schema);
-                }
-            }
-
-            // Generate complete schema for each collection
-            for collection in &mut collections {
-                generate_complete_schema(collection);
-            }
-
-            Ok(collections)
+            scan_content_directories_with_override(
+                project_path,
+                content_directory.map(str::to_string),
+            )?
         }
         Err(err) => {
             debug!("Astro Editor [PROJECT_SCAN] Astro config parsing failed: {err}, falling back to directory scan");
-            let mut collections =
-                scan_content_directories_with_override(path.as_path(), content_directory)?;
-
-            // Try to load JSON schemas for directory-scanned collections
-            for collection in &mut collections {
-                if let Ok(json_schema) =
-                    load_json_schema_for_collection(&project_path, &collection.name)
-                {
-                    debug!(
-                        "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
-                        collection.name
-                    );
-                    collection.json_schema = Some(json_schema);
-                }
-            }
-
-            // Generate complete schema for each collection
-            for collection in &mut collections {
-                generate_complete_schema(collection);
-            }
-
-            Ok(collections)
+            scan_content_directories_with_override(
+                project_path,
+                content_directory.map(str::to_string),
+            )?
         }
-    }
+    };
+
+    Ok(collections
+        .into_iter()
+        .map(|collection| place_collection(collection, project_path, &folders))
+        .collect())
 }
 
 fn load_json_schema_for_collection(
@@ -826,6 +871,7 @@ pub async fn resolve_file_entry(
     file_path: String,
     project_path: String,
     content_directory: Option<String>,
+    collection_directories: Option<HashMap<String, String>>,
 ) -> Result<Option<FileEntry>, String> {
     // Canonicalize the project root (must exist).
     let project_canon =
@@ -853,7 +899,11 @@ pub async fn resolve_file_entry(
     }
 
     // Reuse the existing project scan to discover collections and their roots.
-    let collections = scan_project_with_content_dir(project_path, content_directory).await?;
+    let collections = discover_collections(
+        &project_canon,
+        content_directory.as_deref(),
+        &collection_directories.unwrap_or_default(),
+    )?;
 
     // Find the collection whose directory is the most specific ancestor of the file.
     let owning = collections
@@ -882,6 +932,83 @@ pub async fn resolve_file_entry(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // --- folder_states ---
+
+    #[test]
+    fn a_folder_is_present_or_missing_when_its_parent_is_there() {
+        let temp = tempfile::tempdir().unwrap();
+        let site = temp.path().join("site");
+        std::fs::create_dir(&site).unwrap();
+        let file = temp.path().join("notes.md");
+        std::fs::write(&file, "").unwrap();
+
+        assert_eq!(folder_state(&site), FolderState::Present);
+        assert_eq!(
+            folder_state(&temp.path().join("gone")),
+            FolderState::Missing
+        );
+        // Something else is there now: not a folder that was deleted
+        assert_eq!(folder_state(&file), FolderState::Unavailable);
+    }
+
+    #[test]
+    fn a_folder_on_an_unplugged_drive_is_unavailable_not_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        // /Volumes/Content/site with /Volumes/Content unmounted: the parent is gone too
+        let site = temp.path().join("Content").join("site");
+        assert_eq!(folder_state(&site), FolderState::Unavailable);
+        // A drive's own folder, straight under /Volumes
+        assert_eq!(
+            folder_state(Path::new("/Volumes/No Such Drive Here")),
+            FolderState::Unavailable
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_folder_that_cannot_be_checked_is_unavailable() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let locked = temp.path().join("locked");
+        std::fs::create_dir_all(locked.join("site")).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let state = folder_state(&locked.join("site"));
+        let gone = folder_state(&locked.join("gone"));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(state, FolderState::Unavailable);
+        assert_eq!(gone, FolderState::Unavailable);
+    }
+
+    #[test]
+    fn a_folder_in_an_empty_mount_point_is_unavailable_where_drives_mount_there() {
+        let temp = tempfile::tempdir().unwrap();
+        // /mnt/nas, there but empty while the share isn't mounted
+        let nas = temp.path().join("nas");
+        std::fs::create_dir(&nas).unwrap();
+        let site = nas.join("site");
+
+        assert_eq!(folder_state_where(&site, true), FolderState::Unavailable);
+        assert_eq!(folder_state_where(&site, false), FolderState::Missing);
+        // A parent with other things in it: the folder was moved or deleted
+        std::fs::create_dir(nas.join("other")).unwrap();
+        assert_eq!(folder_state_where(&site, true), FolderState::Missing);
+    }
+
+    #[tokio::test]
+    async fn folder_states_reports_each_folder_in_order() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join("site")).unwrap();
+        let paths = ["site", "gone"]
+            .iter()
+            .map(|p| temp.path().join(p).to_string_lossy().to_string())
+            .collect();
+        assert_eq!(
+            folder_states(paths).await,
+            vec![FolderState::Present, FolderState::Missing]
+        );
+    }
 
     // --- collection_has_body_text ---
 
@@ -969,6 +1096,428 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let missing = temp.path().join("missing").to_string_lossy().to_string();
         assert_eq!(collection_has_body_text(missing).await, Ok(false));
+    }
+
+    // --- collection folders the writer set ---
+
+    const BLOG_CONFIG: &str = "import { defineCollection, z } from 'astro:content';\n\
+        const blog = defineCollection({ schema: z.object({ title: z.string() }) });\n\
+        export const collections = { blog };\n";
+
+    fn folders(pairs: &[(&str, &str)]) -> CollectionFolders {
+        pairs
+            .iter()
+            .map(|(name, folder)| (name.to_string(), folder.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_collection_folder_override_is_used_from_the_config() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", BLOG_CONFIG);
+        // Only the overridden folder exists: without the override, there's no blog
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "./writing/posts/")]))
+                .unwrap();
+
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].name, "blog");
+        assert_eq!(collections[0].path, temp.path().join("writing/posts"));
+    }
+
+    #[test]
+    fn a_collection_folder_override_is_used_without_a_config() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/notes")).unwrap();
+        std::fs::create_dir_all(temp.path().join("posts")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "posts")])).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        let notes = collections.iter().find(|c| c.name == "notes").unwrap();
+        assert_eq!(blog.path, temp.path().join("posts"));
+        assert_eq!(notes.path, temp.path().join("src/content/notes"));
+    }
+
+    const LOADER_CONFIG: &str = "import { defineCollection, z } from 'astro:content';\n\
+        import { glob } from 'astro/loaders';\n\
+        const blog = defineCollection({\n\
+          loader: glob({ pattern: '**/[^_]*.{md,mdx}', base: './writing/posts' }),\n\
+          schema: z.object({ title: z.string() }),\n\
+        });\n\
+        export const collections = {\n\
+          blog,\n\
+          notes: defineCollection({ loader: glob({ base: \"src/notes/\", pattern: '*.md' }) }),\n\
+        };\n";
+
+    #[test]
+    fn a_collection_is_found_in_its_glob_loader_base() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+        std::fs::create_dir_all(temp.path().join("src/notes")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &CollectionFolders::new()).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("writing/posts"));
+        assert_eq!(blog.loader_base.as_deref(), Some("./writing/posts"));
+        let notes = collections.iter().find(|c| c.name == "notes").unwrap();
+        assert_eq!(notes.path, temp.path().join("src/notes"));
+        assert_eq!(notes.loader_base.as_deref(), Some("src/notes/"));
+    }
+
+    #[test]
+    fn a_folder_the_writer_set_beats_the_glob_loader_base() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+        std::fs::create_dir_all(temp.path().join("elsewhere")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "elsewhere")])).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("elsewhere"));
+        // Still says where it would be found automatically
+        assert_eq!(blog.automatic_path, Some(temp.path().join("writing/posts")));
+    }
+
+    /// A config whose `blog` collection has this glob loader
+    fn blog_with_loader(loader: &str) -> String {
+        format!(
+            "const blog = defineCollection({{ loader: glob({loader}) }});\n\
+             export const collections = {{ blog }};\n"
+        )
+    }
+
+    /// Where `blog` is found with this glob loader, if it's found at all
+    fn blog_folder(root: &Path, loader: &str) -> Option<PathBuf> {
+        write_entry(
+            &root.join("src"),
+            "content.config.ts",
+            &blog_with_loader(loader),
+        );
+        discover_collections(root, None, &CollectionFolders::new())
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "blog")
+            .map(|c| c.path)
+    }
+
+    #[test]
+    fn a_glob_loader_base_is_only_used_when_the_usual_folder_is_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(temp.path().join("posts")).unwrap();
+
+        assert_eq!(
+            blog_folder(temp.path(), "{ base: './posts', pattern: '*.md' }"),
+            Some(temp.path().join("src/content/blog"))
+        );
+    }
+
+    #[test]
+    fn a_glob_loader_base_that_is_the_project_folder_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        for base in [".", "./", ""] {
+            let loader = format!("{{ base: '{base}', pattern: '*.md' }}");
+            assert_eq!(blog_folder(temp.path(), &loader), None, "base {base:?}");
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_outside_the_project_is_ignored() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("site");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(outer.path().join("elsewhere")).unwrap();
+        let absolute = outer.path().join("elsewhere").to_string_lossy().to_string();
+
+        for base in [
+            "..",
+            "../elsewhere",
+            "src/../../elsewhere",
+            absolute.as_str(),
+        ] {
+            let loader = format!("{{ base: '{base}', pattern: '*.md' }}");
+            assert_eq!(blog_folder(&root, &loader), None, "base {base:?}");
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_whose_pattern_names_a_folder_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/posts")).unwrap();
+
+        assert_eq!(
+            blog_folder(temp.path(), "{ base: './src', pattern: 'posts/**/*.md' }"),
+            None
+        );
+        assert_eq!(
+            blog_folder(
+                temp.path(),
+                "{ base: './src/posts', pattern: '**/*.{md,mdx}' }"
+            ),
+            Some(temp.path().join("src/posts"))
+        );
+    }
+
+    #[test]
+    fn a_glob_loader_base_holding_the_content_folder_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/notes")).unwrap();
+        for base in ["./src/content", "./src", "src/content/."] {
+            let loader = format!("{{ base: '{base}', pattern: '*.md' }}");
+            assert_eq!(blog_folder(temp.path(), &loader), None, "base {base:?}");
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_inside_or_around_another_collection_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src/content/notes/2024")).unwrap();
+        std::fs::create_dir_all(root.join("data/posts")).unwrap();
+        let config = |blog_base: &str| {
+            format!(
+                "const blog = defineCollection({{ loader: glob({{ base: '{blog_base}', pattern: '*.md' }}) }});\n\
+                 const notes = defineCollection({{ schema: z.object({{}}) }});\n\
+                 const posts = defineCollection({{ loader: glob({{ base: './data/posts', pattern: '*.md' }}) }});\n\
+                 export const collections = {{ blog, notes, posts }};\n"
+            )
+        };
+
+        for base in ["./src/content/notes/2024", "./data"] {
+            write_entry(&root.join("src"), "content.config.ts", &config(base));
+            let collections = discover_collections(root, None, &CollectionFolders::new()).unwrap();
+            assert!(
+                collections.iter().all(|c| c.name != "blog"),
+                "base {base:?}: {collections:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_with_an_array_pattern_is_used_unless_it_names_a_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("posts")).unwrap();
+
+        assert_eq!(
+            blog_folder(
+                temp.path(),
+                "{ base: './posts', pattern: ['*.md', '**/*.mdx'] }"
+            ),
+            Some(temp.path().join("posts"))
+        );
+        assert_eq!(
+            blog_folder(
+                temp.path(),
+                "{ base: './posts', pattern: ['*.md', 'drafts/*.md'] }"
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn collections_sharing_a_glob_loader_base_use_neither() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/data")).unwrap();
+        write_entry(
+            &temp.path().join("src"),
+            "content.config.ts",
+            "const blog = defineCollection({ loader: glob({ base: './src/data', pattern: 'blog-*.md' }) });\n\
+             const notes = defineCollection({ loader: glob({ base: './src/data', pattern: 'note-*.md' }) });\n\
+             export const collections = { blog, notes };\n",
+        );
+
+        let collections =
+            discover_collections(temp.path(), None, &CollectionFolders::new()).unwrap();
+        assert!(collections.is_empty(), "{collections:?}");
+    }
+
+    const BLOG_AND_NOTES: &str = "const blog = defineCollection({ schema: z.object({}) });\n\
+        const notes = defineCollection({ schema: z.object({}) });\n\
+        export const collections = { blog, notes };\n";
+
+    /// Where blog is found with this folder set for it, and why it was refused
+    fn refused(root: &Path, folder: &str) -> (Vec<Collection>, Option<String>) {
+        let collections =
+            discover_collections(root, None, &folders(&[("blog", folder)])).expect(folder);
+        let blog = collections.iter().find(|c| c.name == "blog").expect(folder);
+        let reason = blog.refused_folder.clone();
+        assert_eq!(blog.path, root.join("src/content/blog"), "{folder}");
+        (collections, reason)
+    }
+
+    /// A project with blog and notes in the usual folders
+    fn blog_and_notes_project() -> (tempfile::TempDir, PathBuf) {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("site");
+        write_entry(&root.join("src"), "content.config.ts", BLOG_AND_NOTES);
+        std::fs::create_dir_all(root.join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(root.join("src/content/notes")).unwrap();
+        std::fs::create_dir_all(outer.path().join("elsewhere")).unwrap();
+        (outer, root)
+    }
+
+    #[test]
+    fn a_collection_folder_outside_the_project_is_refused_for_that_collection_only() {
+        let (outer, root) = blog_and_notes_project();
+        let absolute = outer.path().join("elsewhere").to_string_lossy().to_string();
+
+        for folder in [
+            "..",
+            "../elsewhere",
+            "posts/../../elsewhere",
+            absolute.as_str(),
+        ] {
+            let (collections, reason) = refused(&root, folder);
+            assert_eq!(
+                reason.as_deref(),
+                Some("it isn't inside the project folder")
+            );
+            assert_eq!(collections.len(), 2, "notes is still listed");
+        }
+        for folder in [".", "./"] {
+            let (_, reason) = refused(&root, folder);
+            assert_eq!(reason.as_deref(), Some("it's the project folder itself"));
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_collection_folder_that_links_out_of_the_project_is_refused_for_that_collection_only() {
+        let (outer, root) = blog_and_notes_project();
+        std::os::unix::fs::symlink(outer.path().join("elsewhere"), root.join("posts")).unwrap();
+
+        let (collections, reason) = refused(&root, "posts");
+        assert_eq!(reason.as_deref(), Some("it links outside the project"));
+        assert!(collections.iter().any(|c| c.name == "notes"));
+        // The watcher still watches the project's folders
+        assert!(crate::commands::watcher::watched_folders(
+            &root,
+            None,
+            &folders(&[("blog", "posts")])
+        )
+        .contains(&root.join("src/content")));
+    }
+
+    #[test]
+    fn a_collection_folder_that_is_or_holds_the_content_folder_is_refused() {
+        let (_outer, root) = blog_and_notes_project();
+
+        for folder in [
+            "src/content",
+            "src//content",
+            "src/content/.",
+            "./src/content/",
+        ] {
+            let (_, reason) = refused(&root, folder);
+            assert_eq!(
+                reason.as_deref(),
+                Some("it's the content folder itself"),
+                "{folder}"
+            );
+        }
+        let (_, reason) = refused(&root, "src");
+        assert_eq!(reason.as_deref(), Some("it holds the content folder"));
+
+        // On a disk that ignores case, Src/Content is the same folder
+        if root.join("SRC").exists() {
+            let (_, reason) = refused(&root, "Src/Content");
+            assert_eq!(reason.as_deref(), Some("it's the content folder itself"));
+        }
+    }
+
+    #[test]
+    fn a_collection_whose_set_folder_is_missing_stays_in_its_automatic_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", BLOG_CONFIG);
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "writing/blog/")]))
+                .unwrap();
+
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].path, temp.path().join("src/content/blog"));
+        assert_eq!(
+            collections[0].missing_folder.as_deref(),
+            Some("writing/blog")
+        );
+        assert_eq!(collections[0].automatic_path, None);
+    }
+
+    #[test]
+    fn a_collection_in_a_set_folder_says_where_it_would_be_automatically() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+        std::fs::create_dir_all(temp.path().join("elsewhere")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "elsewhere")])).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("elsewhere"));
+        assert_eq!(blog.automatic_path, Some(temp.path().join("writing/posts")));
+        assert_eq!(blog.loader_base.as_deref(), Some("./writing/posts"));
+        assert_eq!(blog.missing_folder, None);
+    }
+
+    #[test]
+    fn a_set_folder_that_is_missing_keeps_a_folder_scanned_collection() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/notes")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("notes", "gone")])).unwrap();
+
+        assert_eq!(collections[0].path, temp.path().join("src/content/notes"));
+        assert_eq!(collections[0].missing_folder.as_deref(), Some("gone"));
+    }
+
+    #[test]
+    fn a_missing_glob_loader_base_falls_back_to_the_content_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &CollectionFolders::new()).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("src/content/blog"));
+        assert_eq!(blog.loader_base, None);
+    }
+
+    #[tokio::test]
+    async fn a_file_in_an_overridden_folder_resolves_to_its_collection() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", BLOG_CONFIG);
+        write_entry(
+            &temp.path().join("writing"),
+            "hello.md",
+            "---\ntitle: Hi\n---\n",
+        );
+        let project = temp.path().to_string_lossy().to_string();
+        let file = temp
+            .path()
+            .join("writing/hello.md")
+            .to_string_lossy()
+            .to_string();
+
+        let entry = resolve_file_entry(file, project, None, Some(folders(&[("blog", "writing")])))
+            .await
+            .unwrap()
+            .expect("the file belongs to blog");
+        assert_eq!(entry.collection, "blog");
     }
 
     #[test]
@@ -1181,6 +1730,7 @@ mod tests {
             file_path.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1199,6 +1749,7 @@ mod tests {
         let result = resolve_file_entry(
             file_path.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
+            None,
             None,
         )
         .await
@@ -1223,6 +1774,7 @@ mod tests {
             outside_file.to_string_lossy().to_string(),
             project.path().to_string_lossy().to_string(),
             None,
+            None,
         )
         .await;
 
@@ -1243,6 +1795,7 @@ mod tests {
         let result = resolve_file_entry(
             traversal.to_string_lossy().to_string(),
             project_dir.to_string_lossy().to_string(),
+            None,
             None,
         )
         .await;
@@ -1265,6 +1818,7 @@ mod tests {
         let result = resolve_file_entry(
             file_path.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
+            None,
             None,
         )
         .await
@@ -1290,6 +1844,7 @@ mod tests {
             missing.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1308,6 +1863,7 @@ mod tests {
         let result = resolve_file_entry(
             readme.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
+            None,
             None,
         )
         .await

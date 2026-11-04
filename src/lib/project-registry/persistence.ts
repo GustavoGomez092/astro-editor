@@ -6,6 +6,7 @@
 
 import { commands } from '@/lib/bindings'
 import { error, info } from '@tauri-apps/plugin-log'
+import { toast } from '@/lib/toast'
 import { ProjectRegistry, GlobalSettings, ProjectData } from './types'
 import { DEFAULT_PROJECT_REGISTRY, DEFAULT_GLOBAL_SETTINGS } from './defaults'
 import {
@@ -61,30 +62,140 @@ async function ensurePreferencesDir() {
   }
 }
 
+/** A preferences file read from disk */
+type JsonFile =
+  | { kind: 'missing' }
+  | { kind: 'ok'; data: Record<string, unknown> }
+  /** `kept`: a copy was made, so the defaults may be written over it */
+  | { kind: 'broken'; kept: boolean }
+
+/**
+ * Broken preferences files that couldn't be copied. Nothing is written over
+ * them: the defaults are used in memory only, and the writer is told again
+ * each time the app starts
+ */
+const unsafeToOverwrite = new Set<string>()
+
+/**
+ * Read a preferences file. One that isn't there is missing (it's new). One
+ * that's there but can't be read, or isn't a JSON object, is broken: it's
+ * copied to `<name>.broken-<timestamp>.json` beside it, logged, and the
+ * writer is told. The caller writes defaults over it only if it was kept
+ */
+async function readJsonFile(path: string): Promise<JsonFile> {
+  const result = await commands
+    .readAppDataFileIfPresent(path)
+    .catch((reason: unknown) => ({
+      status: 'error' as const,
+      error: String(reason),
+    }))
+  const text = result.status === 'ok' ? result.data : undefined
+  if (text === null) return { kind: 'missing' }
+
+  const data = text === undefined ? null : parseObject(text)
+  if (data) return { kind: 'ok', data }
+  const problem =
+    result.status === 'error' ? result.error : "it isn't valid JSON"
+  return { kind: 'broken', kept: await keepBrokenFile(path, problem) }
+}
+
+function parseObject(content: string): Record<string, unknown> | null {
+  try {
+    const data: unknown = JSON.parse(content)
+    return data && typeof data === 'object' && !Array.isArray(data)
+      ? (data as Record<string, unknown>)
+      : null
+  } catch {
+    return null
+  }
+}
+
+/** "…/preferences/projects/site.json" → "projects/site.json" */
+function inPreferencesFolder(path: string): string {
+  const parts = path.split(/[\\/]/)
+  const at = parts.lastIndexOf('preferences')
+  return at >= 0 ? parts.slice(at + 1).join('/') : (parts.at(-1) ?? path)
+}
+
+/** Copy a broken file beside itself, and say so. Whether the copy was made */
+async function keepBrokenFile(path: string, problem: string): Promise<boolean> {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  const copyPath = path.replace(/\.json$/, '') + `.broken-${stamp}.json`
+  const copied = await commands
+    .copyAppDataFile(path, copyPath)
+    .then(result => result.status === 'ok')
+    .catch(() => false)
+  if (copied) {
+    unsafeToOverwrite.delete(path)
+  } else {
+    unsafeToOverwrite.add(path)
+  }
+
+  await error(
+    `Astro Editor [PREFERENCES] ${path} couldn't be used (${problem}), so defaults are used. ${
+      copied
+        ? `It was kept as ${copyPath}`
+        : "A copy couldn't be made, so it's left as it is and nothing is saved over it"
+    }`
+  )
+  toast.warning("Some settings couldn't be read", {
+    id: `broken-preferences-${path}`,
+    description: copied
+      ? `A settings file was damaged, so the defaults are being used. The old file was kept as ${inPreferencesFolder(copyPath)} in the preferences folder.`
+      : `A settings file (${inPreferencesFolder(path)}) couldn't be read, so the defaults are being used for now. It's been left as it is, and changes to these settings won't be saved until it's fixed or removed.`,
+    duration: Infinity,
+    action: {
+      label: 'Show',
+      onClick: () => void commands.openPreferencesFolder(),
+    },
+  })
+  return copied
+}
+
+/** Write a preferences file, unless it's a broken one that couldn't be kept */
+async function writePreferencesFile(
+  path: string,
+  content: string
+): Promise<void> {
+  if (unsafeToOverwrite.has(path)) {
+    await info(
+      `Astro Editor [PREFERENCES] Not saving ${path}: it couldn't be read or copied`
+    )
+    return
+  }
+  const result = await commands.writeAppDataFile(path, content)
+  if (result.status === 'error') {
+    throw new Error(result.error)
+  }
+}
+
 /**
  * Load the project registry from disk
  */
 export async function loadProjectRegistry(): Promise<ProjectRegistry> {
+  const defaults = (): ProjectRegistry => ({
+    ...DEFAULT_PROJECT_REGISTRY,
+    projects: {},
+  })
   try {
     const { projectRegistryPath } = await getAppSupportPaths()
-    const result = await commands.readAppDataFile(projectRegistryPath)
-    if (result.status === 'error') {
-      throw new Error(result.error)
+    const file = await readJsonFile(projectRegistryPath)
+    if (file.kind === 'missing') return defaults()
+    if (file.kind === 'broken') {
+      // Written now when a copy was kept, so it isn't reported again
+      const registry = defaults()
+      if (file.kept) await saveProjectRegistry(registry).catch(() => undefined)
+      return registry
     }
-    const content = result.data
 
-    const registry = JSON.parse(content) as ProjectRegistry
-
-    // Validate and migrate if needed
-    const finalRegistry = {
-      ...DEFAULT_PROJECT_REGISTRY,
+    const registry = file.data as Partial<ProjectRegistry>
+    return {
+      ...defaults(),
       ...registry,
       version: registry.version || 1,
     }
-    return finalRegistry
   } catch {
-    // File doesn't exist or is invalid, return defaults
-    return { ...DEFAULT_PROJECT_REGISTRY }
+    return defaults()
   }
 }
 
@@ -98,13 +209,10 @@ export async function saveProjectRegistry(
     await ensurePreferencesDir()
     const { projectRegistryPath } = await getAppSupportPaths()
 
-    const result = await commands.writeAppDataFile(
+    await writePreferencesFile(
       projectRegistryPath,
       JSON.stringify(registry, null, 2)
     )
-    if (result.status === 'error') {
-      throw new Error(result.error)
-    }
   } catch (err) {
     await error(`Failed to save project registry: ${String(err)}`)
     throw err
@@ -117,13 +225,15 @@ export async function saveProjectRegistry(
 export async function loadGlobalSettings(): Promise<GlobalSettings> {
   try {
     const { globalSettingsPath } = await getAppSupportPaths()
-    const result = await commands.readAppDataFile(globalSettingsPath)
-    if (result.status === 'error') {
-      throw new Error(result.error)
+    const file = await readJsonFile(globalSettingsPath)
+    if (file.kind === 'missing') return defaultGlobalSettings()
+    if (file.kind === 'broken') {
+      // Written now when a copy was kept, so it isn't reported again
+      const settings = defaultGlobalSettings()
+      if (file.kept) await saveGlobalSettings(settings).catch(() => undefined)
+      return settings
     }
-    const content = result.data
-
-    const rawSettings = JSON.parse(content) as Record<string, unknown>
+    const rawSettings = file.data
 
     // Check if migration is needed
     if (needsGlobalSettingsMigration(rawSettings)) {
@@ -169,10 +279,13 @@ export async function loadGlobalSettings(): Promise<GlobalSettings> {
       version: settings.version || DEFAULT_GLOBAL_SETTINGS.version,
     }
   } catch {
-    // File doesn't exist or is invalid, return defaults
-    // Deep clone to ensure nested objects are preserved
-    return JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)) as GlobalSettings
+    return defaultGlobalSettings()
   }
+}
+
+/** A deep copy, so nothing changes the defaults themselves */
+function defaultGlobalSettings(): GlobalSettings {
+  return JSON.parse(JSON.stringify(DEFAULT_GLOBAL_SETTINGS)) as GlobalSettings
 }
 
 /**
@@ -185,13 +298,10 @@ export async function saveGlobalSettings(
     await ensurePreferencesDir()
     const { globalSettingsPath } = await getAppSupportPaths()
 
-    const result = await commands.writeAppDataFile(
+    await writePreferencesFile(
       globalSettingsPath,
       JSON.stringify(settings, null, 2)
     )
-    if (result.status === 'error') {
-      throw new Error(result.error)
-    }
   } catch (err) {
     await error(`Failed to save global settings: ${String(err)}`)
     throw err
@@ -208,13 +318,11 @@ export async function loadProjectData(
     const { projectsDir } = await getAppSupportPaths()
     const projectFilePath = `${projectsDir}/${projectId}.json`
 
-    const result = await commands.readAppDataFile(projectFilePath)
-    if (result.status === 'error') {
-      throw new Error(result.error)
-    }
-    const content = result.data
-
-    const rawData = JSON.parse(content) as Record<string, unknown>
+    // The caller replaces a broken file with defaults; one that couldn't be
+    // copied isn't written over (writePreferencesFile)
+    const file = await readJsonFile(projectFilePath)
+    if (file.kind !== 'ok') return null
+    const rawData = file.data
 
     // Check if migration is needed
     if (needsProjectDataMigration(rawData)) {
@@ -240,7 +348,6 @@ export async function loadProjectData(
 
     return rawData as Partial<ProjectData> as ProjectData
   } catch {
-    // File doesn't exist or is invalid
     return null
   }
 }
@@ -257,15 +364,30 @@ export async function saveProjectData(
     const { projectsDir } = await getAppSupportPaths()
     const projectFilePath = `${projectsDir}/${projectId}.json`
 
-    const result = await commands.writeAppDataFile(
-      projectFilePath,
-      JSON.stringify(data, null, 2)
-    )
-    if (result.status === 'error') {
-      throw new Error(result.error)
-    }
+    await writePreferencesFile(projectFilePath, JSON.stringify(data, null, 2))
   } catch (err) {
     await error(`Failed to save project data: ${String(err)}`)
     throw err
+  }
+}
+
+/**
+ * Rename a removed project's settings file to `<id>.removed-<timestamp>.json`,
+ * so a project that later gets the same id doesn't start with its settings.
+ * A project that never saved any has none to rename
+ */
+export async function setProjectDataAside(projectId: string): Promise<void> {
+  try {
+    const { projectsDir } = await getAppSupportPaths()
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const result = await commands.moveAppDataFile(
+      `${projectsDir}/${projectId}.json`,
+      `${projectsDir}/${projectId}.removed-${stamp}.json`
+    )
+    if (result.status === 'error') throw new Error(result.error)
+  } catch (err) {
+    await info(
+      `Astro Editor [PREFERENCES] No settings file set aside for ${projectId}: ${String(err)}`
+    )
   }
 }

@@ -2,7 +2,7 @@
  * Project registry utilities for identification and path management
  */
 
-import { commands } from '@/lib/bindings'
+import { commands, type FolderState } from '@/lib/bindings'
 import { ProjectMetadata } from './types'
 import { debug, error as logError, info } from '@tauri-apps/plugin-log'
 
@@ -105,25 +105,34 @@ export async function discoverProject(
 }
 
 /**
- * Check if a path appears to be the same project (for migration)
+ * Whether the folder at `newPath` is `projectMetadata`'s project, moved there.
+ * Only a package.json name counts: a folder name alone is too common to say
+ * two folders hold the same project. The caller checks the old folder is gone
  */
 export async function isSameProject(
   projectMetadata: ProjectMetadata,
   newPath: string
 ): Promise<boolean> {
   try {
-    const packageJsonPath = `${newPath}/package.json`
-    const result = await commands.readFileContent(packageJsonPath, newPath)
-    if (result.status === 'error') {
-      throw new Error(result.error)
-    }
-    const packageJsonContent = result.data
-
-    const packageJson = JSON.parse(packageJsonContent) as { name?: string }
-    return packageJson.name === projectMetadata.name
+    const result = await commands.readFileContent(
+      `${newPath}/package.json`,
+      newPath
+    )
+    if (result.status === 'error') return false
+    const packageJson = JSON.parse(result.data) as { name?: string }
+    return !!packageJson.name && packageJson.name === projectMetadata.name
   } catch {
-    // If we can't read package.json, fall back to directory name comparison
-    const newName = newPath.split('/').pop() || ''
-    return newName === projectMetadata.name
+    // No readable package.json
+    return false
   }
+}
+
+/**
+ * Whether each of these folders is there, in the same order: `present`,
+ * `missing` (gone from a place that's there), or `unavailable` (its drive
+ * isn't connected, or it can't be checked)
+ */
+export async function folderStates(paths: string[]): Promise<FolderState[]> {
+  if (paths.length === 0) return []
+  return commands.folderStates(paths)
 }

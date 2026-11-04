@@ -6,6 +6,7 @@ import { useProjectStore } from '../store/projectStore'
 import { useUIStore } from '../store/uiStore'
 import { globalCommandRegistry } from '../lib/editor/commands'
 import { openProjectViaDialog } from '../lib/projects/actions'
+import { useProjectsScreenStore } from '../store/projectsScreenStore'
 import { DOCS_URLS } from '../lib/docs-urls'
 import type { HeadingLevel } from '../lib/editor/markdown/types'
 import { isBodyEditorHidden } from '../lib/files/focus-new-file'
@@ -61,6 +62,9 @@ export function useMenuEvents(
       const fileUnlisteners = await Promise.all([
         listen('menu-open-project', () => {
           void openProjectViaDialog()
+        }),
+        listen('menu-show-projects', () => {
+          useProjectsScreenStore.getState().open()
         }),
         listen('menu-save', () => {
           // A saved file isn't written again (see saveCurrentFile)

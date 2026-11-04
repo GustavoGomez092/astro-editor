@@ -1,4 +1,4 @@
-use crate::utils::serialize_path;
+use crate::utils::{serialize_optional_path, serialize_path};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::path::PathBuf;
@@ -21,6 +21,30 @@ pub struct Collection {
     #[specta(skip)]
     pub json_schema: Option<String>, // Astro JSON schema from .astro/collections/*.json
 
+    /// The `base` of the collection's `glob()` loader, relative to the project
+    /// root, when the collection's folder came from it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loader_base: Option<String>,
+
+    /// The folder the collection would be in automatically, when the writer
+    /// set another one that's in use
+    #[specta(type = Option<String>)]
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        serialize_with = "serialize_optional_path"
+    )]
+    pub automatic_path: Option<PathBuf>,
+
+    /// The folder the writer set, relative to the project root, when it isn't
+    /// there, so the collection is in its automatic folder instead
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub missing_folder: Option<String>,
+
+    /// Why the folder the writer set can't be used ("it links outside the
+    /// project"), so the collection is in its automatic folder instead
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub refused_folder: Option<String>,
+
     // Complete merged schema - ONLY this goes to frontend
     #[serde(skip_serializing_if = "Option::is_none")]
     pub complete_schema: Option<String>, // Serialized SchemaDefinition
@@ -33,6 +57,10 @@ impl Collection {
             path,
             schema: None,
             json_schema: None,
+            loader_base: None,
+            automatic_path: None,
+            missing_folder: None,
+            refused_folder: None,
             complete_schema: None,
         }
     }
@@ -44,6 +72,10 @@ impl Collection {
             path,
             schema: Some(schema),
             json_schema: None,
+            loader_base: None,
+            automatic_path: None,
+            missing_folder: None,
+            refused_folder: None,
             complete_schema: None,
         }
     }

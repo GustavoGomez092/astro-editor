@@ -24,18 +24,57 @@ import { ChevronDown, ChevronRight } from 'lucide-react'
 import { usePreferences } from '../../../hooks/usePreferences'
 import { useCollectionsQuery } from '../../../hooks/queries/useCollectionsQuery'
 import {
-  getCollectionSettings,
   hasCollectionSettings,
+  withCollectionSort,
 } from '../../../lib/project-registry/collection-settings'
 import { deserializeCompleteSchema, FieldType } from '../../../lib/schema'
-import { getDefaultFileType } from '../../../lib/project-registry/default-file-type'
 import type { SchemaField } from '../../../lib/schema'
 import type { CollectionSettings } from '../../../lib/project-registry/types'
 import { SettingsSection } from '../SettingsSection'
+import { SettingStatus } from '../SettingStatus'
+import {
+  describeSort,
+  explainCollectionSettings,
+} from '../../../lib/project-registry/explain-settings'
+import type { CollectionSort } from '../../../lib/project-registry/types'
+import { useProjectStore } from '../../../store/projectStore'
+import {
+  checkCollectionFolder,
+  getEffectiveContentDirectory,
+} from '../../../lib/project-registry/path-resolution'
+import { toast } from '../../../lib/toast'
 import { PreferencesTextInput } from '../PreferencesTextInput'
 import { DocsLink } from '../DocsLink'
 import { DOCS_URLS } from '../../../lib/docs-urls'
 import { collectionDisplayName } from '../../../lib/collection-name'
+
+/**
+ * The orders the file list offers for a collection, each way round: the
+ * Default, titles, file names, each date field, `order` when it's a number,
+ * and last changed
+ */
+function sortChoices(fields: SchemaField[]): CollectionSort[] {
+  const modes = [
+    'title',
+    'filename',
+    ...fields.filter(f => f.type === FieldType.Date).map(f => `date-${f.name}`),
+    ...(fields.some(
+      f =>
+        f.name === 'order' &&
+        (f.type === FieldType.Number || f.type === FieldType.Integer)
+    )
+      ? ['order']
+      : []),
+    'modified',
+  ]
+  return [
+    { mode: 'default', direction: 'desc' },
+    ...modes.flatMap(mode => [
+      { mode, direction: 'asc' as const },
+      { mode, direction: 'desc' as const },
+    ]),
+  ]
+}
 
 export const CollectionSettingsPane: React.FC = () => {
   const {
@@ -94,14 +133,6 @@ export const CollectionSettingsPane: React.FC = () => {
     return fieldsMap
   }, [collections])
 
-  // Get effective settings for a collection (including inherited values)
-  const getEffectiveSettings = (collectionName: string) => {
-    if (!currentProjectSettings) {
-      return null
-    }
-    return getCollectionSettings(currentProjectSettings, collectionName)
-  }
-
   // Get collection-specific override (not inherited)
   const getCollectionOverride = (
     collectionName: string
@@ -117,6 +148,22 @@ export const CollectionSettingsPane: React.FC = () => {
     key: 'contentDirectory' | 'assetsDirectory',
     value: string
   ) => {
+    const problem =
+      value.trim() &&
+      checkCollectionFolder(
+        value,
+        key === 'contentDirectory'
+          ? getEffectiveContentDirectory(currentProjectSettings)
+          : null
+      )
+    if (problem) {
+      // Enter and leaving the box both commit, so one toast for both
+      toast.error("That folder can't be used", {
+        id: 'collection-folder-refused',
+        description: problem,
+      })
+      return
+    }
     const existing = getCollectionOverride(collectionName)
     const newSettings: CollectionSettings = {
       name: collectionName,
@@ -156,6 +203,15 @@ export const CollectionSettingsPane: React.FC = () => {
   // Reset all overrides for a collection
   const handleResetCollection = (collectionName: string) => {
     void updateCollectionSettings(collectionName, {})
+  }
+
+  // Save the file list order, as the sidebar's sort menu does
+  const handleSortChange = (collectionName: string, sort: CollectionSort) => {
+    const { currentProjectSettings: current, updateProjectSettings } =
+      useProjectStore.getState()
+    void updateProjectSettings({
+      collections: withCollectionSort(current, collectionName, sort),
+    })
   }
 
   // Update a collection's default file type
@@ -231,7 +287,7 @@ export const CollectionSettingsPane: React.FC = () => {
     onChange: (value: string) => void,
     fieldType: FieldType,
     placeholder: string,
-    inheritedValue: string | string[],
+    inheritedValue: string | null,
     labelId: string
   ) => {
     const fields = getFieldsByType(collectionName, fieldType)
@@ -239,20 +295,12 @@ export const CollectionSettingsPane: React.FC = () => {
     const displayValue =
       typeof currentValue === 'string' ? currentValue : 'inherited'
 
-    // Format inherited value for display
-    const formatInheritedValue = (val: string | string[]): string => {
-      if (Array.isArray(val)) {
-        return val.join(', ')
-      }
-      return val
-    }
-
     const items = [
       {
         value: 'inherited',
         label: (
           <span className="text-muted-foreground">
-            Use default: {formatInheritedValue(inheritedValue)}
+            Automatic: {inheritedValue ?? 'none found'}
           </span>
         ),
       },
@@ -333,20 +381,11 @@ export const CollectionSettingsPane: React.FC = () => {
     },
   ]
 
-  const fileTypeItems = [
+  const fileTypeItems = (automatic: string | null) => [
     {
       value: 'inherited',
       label: (
-        <span className="text-muted-foreground">
-          Use default:{' '}
-          {getDefaultFileType(
-            globalSettings,
-            currentProjectSettings,
-            undefined
-          ) === 'mdx'
-            ? 'MDX'
-            : 'Markdown'}
-        </span>
+        <span className="text-muted-foreground">Automatic: {automatic}</span>
       ),
     },
     { value: 'md', label: 'Markdown (.md)' },
@@ -364,13 +403,10 @@ export const CollectionSettingsPane: React.FC = () => {
             </span>
           )}
         </h2>
-        <p className="mb-2 text-sm text-muted-foreground">
-          Configure collection-specific overrides for frontmatter mappings and
-          paths. These settings override project-level defaults.
-        </p>
         <p className="text-sm text-muted-foreground">
-          <strong>Fallback chain:</strong> Collection override → Project setting
-          → Default value.{' '}
+          Each setting is worked out automatically from your project unless you
+          set it here. <strong>Automatic</strong> ones say what they use and
+          why; <strong>Set</strong> ones can be cleared to go back.{' '}
           <DocsLink href={DOCS_URLS.overrides}>Learn more</DocsLink>
         </p>
       </div>
@@ -378,15 +414,50 @@ export const CollectionSettingsPane: React.FC = () => {
       <div className="space-y-4">
         {collections.map(collection => {
           const isExpanded = expandedCollections.has(collection.name)
-          const effectiveSettings = getEffectiveSettings(collection.name)
           const collectionOverride = getCollectionOverride(collection.name)
           const hasOverrides =
             !!collectionOverride &&
             hasCollectionSettings(collectionOverride.settings)
 
-          if (!effectiveSettings) return null
+          if (!currentProjectSettings) return null
 
           const fieldId = (key: string) => `${id}-${collection.name}-${key}`
+
+          // What each setting uses, and what it would use if cleared
+          const explainInput = {
+            collection,
+            projectPath: projectPath ?? '',
+            globalSettings,
+            fields: collectionFields.get(collection.name) ?? null,
+          }
+          const explained = explainCollectionSettings({
+            ...explainInput,
+            projectSettings: currentProjectSettings,
+          })
+          const automatic = explainCollectionSettings({
+            ...explainInput,
+            projectSettings: currentProjectSettings && {
+              ...currentProjectSettings,
+              collections: currentProjectSettings.collections?.filter(
+                c => c.name !== collection.name
+              ),
+            },
+          })
+          const fileTypes = fileTypeItems(automatic.fileType.value)
+          const sortItems = sortChoices(
+            collectionFields.get(collection.name) ?? []
+          ).map(sort => ({
+            value: `${sort.mode}:${sort.direction}`,
+            label:
+              sort.mode === 'default' ? (
+                <span className="text-muted-foreground">
+                  Automatic: {automatic.sort.value}
+                </span>
+              ) : (
+                describeSort(sort)
+              ),
+          }))
+          const ownSort = collectionOverride?.settings?.sort
 
           return (
             <Collapsible
@@ -435,11 +506,22 @@ export const CollectionSettingsPane: React.FC = () => {
                                 value
                               )
                             }
-                            placeholder={`Using project setting: ${effectiveSettings.pathOverrides.contentDirectory}`}
+                            placeholder={automatic.contentFolder.value ?? ''}
+                          />
+                          <SettingStatus
+                            explanation={explained.contentFolder}
+                            onClear={() =>
+                              handlePathOverrideChange(
+                                collection.name,
+                                'contentDirectory',
+                                ''
+                              )
+                            }
                           />
                           <FieldDescription>
-                            Collection-specific content directory. Leave empty
-                            to use project setting.
+                            The folder that holds this collection&apos;s
+                            entries, from the project folder. Leave it empty to
+                            find it automatically.
                           </FieldDescription>
                         </FieldContent>
                       </Field>
@@ -462,11 +544,22 @@ export const CollectionSettingsPane: React.FC = () => {
                                 value
                               )
                             }
-                            placeholder={`Using project setting: ${effectiveSettings.pathOverrides.assetsDirectory}`}
+                            placeholder={automatic.assetsFolder.value ?? ''}
+                          />
+                          <SettingStatus
+                            explanation={explained.assetsFolder}
+                            onClear={() =>
+                              handlePathOverrideChange(
+                                collection.name,
+                                'assetsDirectory',
+                                ''
+                              )
+                            }
                           />
                           <FieldDescription>
-                            Collection-specific assets directory. Leave empty to
-                            use project setting.
+                            Images added to this collection&apos;s entries are
+                            copied into a folder named after the collection in
+                            here.
                           </FieldDescription>
                         </FieldContent>
                       </Field>
@@ -515,7 +608,7 @@ export const CollectionSettingsPane: React.FC = () => {
                         </FieldLabel>
                         <FieldContent>
                           <Select
-                            items={fileTypeItems}
+                            items={fileTypes}
                             value={
                               collectionOverride?.settings?.defaultFileType ||
                               'inherited'
@@ -536,16 +629,76 @@ export const CollectionSettingsPane: React.FC = () => {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              {fileTypeItems.map(item => (
+                              {fileTypes.map(item => (
                                 <SelectItem key={item.value} value={item.value}>
                                   {item.label}
                                 </SelectItem>
                               ))}
                             </SelectContent>
                           </Select>
+                          <SettingStatus
+                            explanation={explained.fileType}
+                            code={false}
+                            onClear={() =>
+                              handleDefaultFileTypeChange(
+                                collection.name,
+                                undefined
+                              )
+                            }
+                          />
                           <FieldDescription>
                             File type used when creating new files in this
                             collection
+                          </FieldDescription>
+                        </FieldContent>
+                      </Field>
+
+                      <Field>
+                        <FieldLabel id={fieldId('sort')}>
+                          File List Order
+                        </FieldLabel>
+                        <FieldContent>
+                          <Select
+                            items={sortItems}
+                            value={
+                              ownSort
+                                ? `${ownSort.mode}:${ownSort.direction}`
+                                : 'default:desc'
+                            }
+                            onValueChange={value => {
+                              if (!value) return
+                              const [mode, direction] = value.split(':')
+                              handleSortChange(collection.name, {
+                                mode: mode!,
+                                direction: direction === 'asc' ? 'asc' : 'desc',
+                              })
+                            }}
+                          >
+                            <SelectTrigger aria-labelledby={fieldId('sort')}>
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {sortItems.map(item => (
+                                <SelectItem key={item.value} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <SettingStatus
+                            explanation={explained.sort}
+                            code={false}
+                            onClear={() =>
+                              handleSortChange(collection.name, {
+                                mode: 'default',
+                                direction: 'desc',
+                              })
+                            }
+                          />
+                          <FieldDescription>
+                            How the file list is sorted when this collection
+                            opens. Changing the sort in the file list changes
+                            this too
                           </FieldDescription>
                         </FieldContent>
                       </Field>
@@ -611,9 +764,19 @@ export const CollectionSettingsPane: React.FC = () => {
                               ),
                             FieldType.Date,
                             'Select date field',
-                            effectiveSettings.frontmatterMappings.publishedDate,
+                            automatic.publishedDate.value,
                             fieldId('date-field')
                           )}
+                          <SettingStatus
+                            explanation={explained.publishedDate}
+                            onClear={() =>
+                              handleFrontmatterMappingChange(
+                                collection.name,
+                                'publishedDate',
+                                ''
+                              )
+                            }
+                          />
                           <FieldDescription>
                             Field used for ordering files in the list
                           </FieldDescription>
@@ -637,9 +800,19 @@ export const CollectionSettingsPane: React.FC = () => {
                               ),
                             FieldType.String,
                             'Select text field',
-                            effectiveSettings.frontmatterMappings.title,
+                            automatic.title.value,
                             fieldId('title-field')
                           )}
+                          <SettingStatus
+                            explanation={explained.title}
+                            onClear={() =>
+                              handleFrontmatterMappingChange(
+                                collection.name,
+                                'title',
+                                ''
+                              )
+                            }
+                          />
                           <FieldDescription>
                             Field that gets special treatment in the frontmatter
                             panel
@@ -664,9 +837,19 @@ export const CollectionSettingsPane: React.FC = () => {
                               ),
                             FieldType.String,
                             'Select text field',
-                            effectiveSettings.frontmatterMappings.description,
+                            automatic.description.value,
                             fieldId('description-field')
                           )}
+                          <SettingStatus
+                            explanation={explained.description}
+                            onClear={() =>
+                              handleFrontmatterMappingChange(
+                                collection.name,
+                                'description',
+                                ''
+                              )
+                            }
+                          />
                           <FieldDescription>
                             Field that gets special treatment in the frontmatter
                             panel
@@ -691,9 +874,19 @@ export const CollectionSettingsPane: React.FC = () => {
                               ),
                             FieldType.Boolean,
                             'Select boolean field',
-                            effectiveSettings.frontmatterMappings.draft,
+                            automatic.draft.value,
                             fieldId('draft-field')
                           )}
+                          <SettingStatus
+                            explanation={explained.draft}
+                            onClear={() =>
+                              handleFrontmatterMappingChange(
+                                collection.name,
+                                'draft',
+                                ''
+                              )
+                            }
+                          />
                           <FieldDescription>
                             Field that shows a draft marker in the file list
                           </FieldDescription>
