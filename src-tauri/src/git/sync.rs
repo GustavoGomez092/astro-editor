@@ -232,6 +232,46 @@ pub fn commit_identity(
     identity_from(name, email, user)
 }
 
+/// Puts the GitHub profile's name and no-reply address in the repository's own
+/// config for whichever of user.name and user.email git config doesn't have, so
+/// commits made in a git tool carry the same name. Returns whether it wrote any.
+pub fn ensure_identity(repo: &Repository, user: &GitHubUser) -> Result<bool, String> {
+    let existing = config_identity(repo);
+    if matches!(existing, (Some(_), Some(_))) {
+        return Ok(false);
+    }
+    let mut local = repo
+        .config()
+        .and_then(|c| c.open_level(git2::ConfigLevel::Local))
+        .map_err(|e| describe("Couldn't open the repository's settings", &e))?;
+    write_identity(&mut local, existing, user)
+}
+
+fn write_identity(
+    config: &mut git2::Config,
+    existing: (Option<String>, Option<String>),
+    user: &GitHubUser,
+) -> Result<bool, String> {
+    let error = |e: git2::Error| describe("Couldn't save your name for commits", &e);
+    let mut wrote = false;
+    if existing.0.is_none() {
+        let name = user.name.as_deref().unwrap_or(&user.login);
+        config.set_str("user.name", name).map_err(error)?;
+        wrote = true;
+    }
+    if existing.1.is_none() {
+        let email = noreply_email(user);
+        config.set_str("user.email", &email).map_err(error)?;
+        wrote = true;
+    }
+    Ok(wrote)
+}
+
+/// GitHub's no-reply address for the account, which links commits to it
+fn noreply_email(user: &GitHubUser) -> String {
+    format!("{}+{}@users.noreply.github.com", user.id, user.login)
+}
+
 pub fn has_config_identity(repo: &Repository) -> bool {
     matches!(config_identity(repo), (Some(_), Some(_)))
 }
@@ -256,7 +296,7 @@ pub(crate) fn identity_from(
         (Some(name), Some(email), _) => Signature::now(&name, &email),
         (_, _, Some(user)) => Signature::now(
             user.name.as_deref().unwrap_or(&user.login),
-            &format!("{}+{}@users.noreply.github.com", user.id, user.login),
+            &noreply_email(user),
         ),
         _ => {
             return Err(
@@ -876,6 +916,72 @@ mod tests {
         assert_eq!(sig.email(), Some("ada@example.com"));
 
         assert!(identity_from(None, None, None).is_err());
+    }
+
+    fn kevin() -> GitHubUser {
+        GitHubUser {
+            id: 42,
+            login: "kevin".to_string(),
+            name: Some("Kevin Robinson".to_string()),
+            avatar_url: None,
+        }
+    }
+
+    fn config_file() -> (tempfile::TempDir, git2::Config) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let config = git2::Config::open(&dir.path().join("config")).unwrap();
+        (dir, config)
+    }
+
+    #[test]
+    fn identity_is_written_when_git_has_none() {
+        let (_dir, mut config) = config_file();
+        assert!(write_identity(&mut config, (None, None), &kevin()).unwrap());
+        let snapshot = config.snapshot().unwrap();
+        assert_eq!(snapshot.get_str("user.name").unwrap(), "Kevin Robinson");
+        assert_eq!(
+            snapshot.get_str("user.email").unwrap(),
+            "42+kevin@users.noreply.github.com"
+        );
+    }
+
+    #[test]
+    fn identity_fills_only_what_is_missing() {
+        let (_dir, mut config) = config_file();
+        assert!(write_identity(&mut config, (Some("Ada".into()), None), &kevin()).unwrap());
+        let snapshot = config.snapshot().unwrap();
+        assert!(snapshot.get_str("user.name").is_err());
+        assert_eq!(
+            snapshot.get_str("user.email").unwrap(),
+            "42+kevin@users.noreply.github.com"
+        );
+
+        let (_dir, mut config) = config_file();
+        let both = (Some("Ada".into()), Some("ada@example.com".into()));
+        assert!(!write_identity(&mut config, both, &kevin()).unwrap());
+        assert!(config.snapshot().unwrap().get_str("user.email").is_err());
+    }
+
+    #[test]
+    fn identity_without_a_profile_name_uses_the_login() {
+        let (_dir, mut config) = config_file();
+        let user = GitHubUser {
+            name: None,
+            ..kevin()
+        };
+        write_identity(&mut config, (None, None), &user).unwrap();
+        assert_eq!(
+            config.snapshot().unwrap().get_str("user.name").unwrap(),
+            "kevin"
+        );
+    }
+
+    #[test]
+    fn identity_is_left_alone_when_git_has_one() {
+        let setup = repo_with_remote();
+        assert!(!ensure_identity(&setup.local, &kevin()).unwrap());
+        let config = setup.local.config().unwrap().snapshot().unwrap();
+        assert_eq!(config.get_str("user.name").unwrap(), "Test Writer");
     }
 
     #[test]

@@ -255,6 +255,21 @@ pub(crate) fn repo_lock(git_dir: &Path) -> Arc<Mutex<()>> {
     locks.entry(git_dir.to_path_buf()).or_default().clone()
 }
 
+/// The `.git` folders of every repository a git command has opened since launch
+pub(crate) fn opened_repositories() -> Vec<PathBuf> {
+    REPO_LOCKS
+        .get()
+        .map(|locks| {
+            locks
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .keys()
+                .cloned()
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Open the project's repository and run `work` while holding its lock
 pub(crate) fn with_repo<T>(
     project_path: &Path,
@@ -339,6 +354,12 @@ mod tests {
                 60_000
             );
         }
+    }
+
+    #[test]
+    fn opened_repositories_lists_each_locked_repository() {
+        repo_lock(Path::new("/tmp/opened-test/.git"));
+        assert!(opened_repositories().contains(&PathBuf::from("/tmp/opened-test/.git")));
     }
 
     #[test]

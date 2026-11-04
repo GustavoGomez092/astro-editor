@@ -66,7 +66,22 @@ pub async fn github_device_start(app: AppHandle) -> Result<DeviceCode, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn github_device_poll() -> Result<GitHubAuthStatus, String> {
-    auth()?.device_poll().await
+    let status = auth()?.device_poll().await?;
+    // Repositories opened so far get the profile's name for commits, if git
+    // has none
+    if let Some(user) = auth()?.cached_user() {
+        let _ = tokio::task::spawn_blocking(move || {
+            for git_dir in git::opened_repositories() {
+                if let Ok(repo) = git2::Repository::open(&git_dir) {
+                    let lock = git::repo_lock(repo.path());
+                    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    crate::commands::git::remember_identity(&repo, &user);
+                }
+            }
+        })
+        .await;
+    }
+    Ok(status)
 }
 
 /// Stops waiting for a device-flow sign-in. A stored token is kept.

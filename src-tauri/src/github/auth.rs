@@ -4,8 +4,9 @@
 use super::http::GitHubClient;
 use super::{DeviceCode, GitHubAuthStatus};
 use reqwest::StatusCode;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::future::Future;
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
@@ -38,6 +39,14 @@ impl From<&GitHubUser> for GitHubAuthStatus {
             avatar_url: user.avatar_url.clone(),
         }
     }
+}
+
+/// The profile as it's saved on disk: what commits need, nothing more
+#[derive(Serialize, Deserialize)]
+struct SavedProfile {
+    id: u64,
+    login: String,
+    name: Option<String>,
 }
 
 /// A device code waiting for the writer to approve it on GitHub
@@ -164,6 +173,8 @@ pub struct Auth {
     store: SharedStore,
     client: GitHubClient,
     user: Mutex<Option<GitHubUser>>,
+    /// Where the profile is kept between launches (it isn't secret)
+    profile_file: Option<PathBuf>,
     /// The client ID and device code from the last `device_start`
     pending: Mutex<Option<(String, PendingDevice)>>,
     /// Bumped to cancel a running poll
@@ -181,10 +192,59 @@ impl Auth {
             store,
             client,
             user: Mutex::new(None),
+            profile_file: None,
             pending: Mutex::new(None),
             generation: AtomicU64::new(0),
             wake: Notify::new(),
         }
+    }
+
+    /// Keeps the profile in `path` too, so commits can still be signed with it
+    /// when GitHub can't be reached
+    pub fn with_profile_file(mut self, path: PathBuf) -> Self {
+        self.profile_file = Some(path);
+        self
+    }
+
+    fn remember(&self, user: &GitHubUser) {
+        *lock(&self.user) = Some(user.clone());
+        let Some(path) = &self.profile_file else {
+            return;
+        };
+        let profile = SavedProfile {
+            id: user.id,
+            login: user.login.clone(),
+            name: user.name.clone(),
+        };
+        let written = serde_json::to_string(&profile)
+            .map_err(|e| e.to_string())
+            .and_then(|json| {
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+                }
+                std::fs::write(path, json).map_err(|e| e.to_string())
+            });
+        if let Err(e) = written {
+            log::warn!("Astro Editor [GITHUB] Couldn't save the GitHub profile: {e}");
+        }
+    }
+
+    fn forget(&self) {
+        *lock(&self.user) = None;
+        if let Some(path) = &self.profile_file {
+            let _ = std::fs::remove_file(path);
+        }
+    }
+
+    fn saved_profile(&self) -> Option<GitHubUser> {
+        let text = std::fs::read_to_string(self.profile_file.as_ref()?).ok()?;
+        let profile: SavedProfile = serde_json::from_str(&text).ok()?;
+        Some(GitHubUser {
+            id: profile.id,
+            login: profile.login,
+            name: profile.name,
+            avatar_url: None,
+        })
     }
 
     pub fn client(&self) -> &GitHubClient {
@@ -197,16 +257,17 @@ impl Auth {
         self.store.get().ok().flatten()
     }
 
-    /// The profile fetched by the last successful [`Auth::status`] or sign-in
+    /// The profile fetched by the last successful [`Auth::status`] or sign-in,
+    /// else the one saved on disk (when GitHub can't be reached)
     pub fn cached_user(&self) -> Option<GitHubUser> {
-        lock(&self.user).clone()
+        lock(&self.user).clone().or_else(|| self.saved_profile())
     }
 
     /// Reads the token and, once, the profile. A revoked token signs out; when
     /// GitHub can't be reached the writer stays signed in (without a profile).
     pub async fn status(&self) -> Result<GitHubAuthStatus, String> {
         let Some(token) = on_store(&self.store, |store| store.get()).await? else {
-            *lock(&self.user) = None;
+            self.forget();
             return Ok(GitHubAuthStatus::signed_out());
         };
         if let Some(user) = lock(&self.user).as_ref() {
@@ -214,12 +275,12 @@ impl Auth {
         }
         match self.client.get::<GitHubUser>(&token, "/user").await {
             Ok(user) => {
-                let status = GitHubAuthStatus::from(&user);
-                *lock(&self.user) = Some(user);
-                Ok(status)
+                self.remember(&user);
+                Ok(GitHubAuthStatus::from(&user))
             }
             Err(e) if e.status == Some(StatusCode::UNAUTHORIZED) => {
                 log::info!("Astro Editor [GITHUB] Saved token was rejected; signing out");
+                self.forget();
                 on_store(&self.store, |store| store.delete()).await?;
                 Ok(GitHubAuthStatus::signed_out())
             }
@@ -264,9 +325,8 @@ impl Auth {
         }
         let user = result?;
         log::info!("Astro Editor [GITHUB] Signed in as {}", user.login);
-        let status = GitHubAuthStatus::from(&user);
-        *lock(&self.user) = Some(user);
-        Ok(status)
+        self.remember(&user);
+        Ok(GitHubAuthStatus::from(&user))
     }
 
     /// Stops waiting for the writer to approve a code. A stored token and the
@@ -279,7 +339,7 @@ impl Auth {
     pub async fn sign_out(&self) -> Result<(), String> {
         self.cancel_poll();
         *lock(&self.pending) = None;
-        *lock(&self.user) = None;
+        self.forget();
         on_store(&self.store, |store| store.delete()).await
     }
 
@@ -415,12 +475,19 @@ where
 
 static AUTH: OnceLock<Auth> = OnceLock::new();
 
-/// Set up sign-in with the Keychain service for this app's identifier. Called once
-/// from `setup` in `lib.rs`.
-pub fn init(identifier: &str) {
+/// Set up sign-in with the Keychain service for this app's identifier, keeping
+/// the profile in `data_dir`. Called once from `setup` in `lib.rs`.
+pub fn init(identifier: &str, data_dir: Option<PathBuf>) {
     let store = CachedStore::new(KeychainStore::new(format!("{identifier}.github")));
-    let _ = AUTH.set(Auth::new(Arc::new(store), GitHubClient::new()));
+    let mut auth = Auth::new(Arc::new(store), GitHubClient::new());
+    if let Some(dir) = data_dir {
+        auth = auth.with_profile_file(dir.join(PROFILE_FILE));
+    }
+    let _ = AUTH.set(auth);
 }
+
+/// The signed-in profile's file in the app's data folder
+pub const PROFILE_FILE: &str = "github-profile.json";
 
 pub fn auth() -> Result<&'static Auth, String> {
     AUTH.get()
@@ -865,5 +932,91 @@ mod tests {
             ticked_at < Duration::from_millis(200),
             "the runtime was blocked for {ticked_at:?}"
         );
+    }
+
+    fn profile_file() -> (tempfile::TempDir, std::path::PathBuf) {
+        let dir = tempfile::TempDir::new().unwrap();
+        let file = dir.path().join("github-profile.json");
+        (dir, file)
+    }
+
+    fn offline_auth(token: Option<&str>, profile: &std::path::Path) -> Auth {
+        Auth::new(
+            Arc::new(MemoryStore(Mutex::new(token.map(String::from)))),
+            GitHubClient::with_base_urls("http://127.0.0.1:9", "http://127.0.0.1:9"),
+        )
+        .with_profile_file(profile.to_path_buf())
+    }
+
+    #[tokio::test]
+    async fn the_profile_is_kept_on_disk_for_offline_use() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("GET", "/user")
+            .with_body(r#"{"id":42,"login":"kevin","name":"Kevin Robinson","avatar_url":"https://avatars/42"}"#)
+            .create_async()
+            .await;
+        let (_dir, file) = profile_file();
+        let auth = auth_with(&server, Some("gho_saved")).with_profile_file(file.clone());
+        assert!(auth.status().await.unwrap().signed_in);
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(
+            saved,
+            serde_json::json!({"id": 42, "login": "kevin", "name": "Kevin Robinson"})
+        );
+
+        // Next launch, offline
+        let offline = offline_auth(Some("gho_saved"), &file);
+        assert!(offline.status().await.unwrap().signed_in);
+        let user = offline.cached_user().unwrap();
+        assert_eq!((user.id, user.login.as_str()), (42, "kevin"));
+        assert_eq!(user.name.as_deref(), Some("Kevin Robinson"));
+    }
+
+    #[tokio::test]
+    async fn signing_in_saves_the_profile() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/login/device/code")
+            .with_body(r#"{"device_code":"dev-123","user_code":"AAAA-BBBB","verification_uri":"https://github.com/login/device","expires_in":900,"interval":0}"#)
+            .create_async()
+            .await;
+        server
+            .mock("POST", "/login/oauth/access_token")
+            .with_body(r#"{"access_token":"gho_new"}"#)
+            .create_async()
+            .await;
+        server
+            .mock("GET", "/user")
+            .with_body(r#"{"id":7,"login":"ada","name":null,"avatar_url":null}"#)
+            .create_async()
+            .await;
+        let (_dir, file) = profile_file();
+        let auth = auth_with(&server, None).with_profile_file(file.clone());
+        auth.device_start("client-abc").await.unwrap();
+        auth.device_poll().await.unwrap();
+        let offline = offline_auth(Some("gho_new"), &file);
+        assert_eq!(offline.cached_user().unwrap().login, "ada");
+    }
+
+    #[tokio::test]
+    async fn signing_out_forgets_the_saved_profile() {
+        let (_dir, file) = profile_file();
+        std::fs::write(&file, r#"{"id":1,"login":"kevin","name":null}"#).unwrap();
+        let auth = offline_auth(Some("gho_saved"), &file);
+        assert!(auth.cached_user().is_some());
+        auth.sign_out().await.unwrap();
+        assert!(auth.cached_user().is_none());
+        assert!(!file.exists());
+    }
+
+    #[tokio::test]
+    async fn a_saved_profile_is_ignored_without_a_token() {
+        let (_dir, file) = profile_file();
+        std::fs::write(&file, r#"{"id":1,"login":"kevin","name":null}"#).unwrap();
+        let auth = offline_auth(None, &file);
+        assert!(!auth.status().await.unwrap().signed_in);
+        assert!(auth.cached_user().is_none());
     }
 }

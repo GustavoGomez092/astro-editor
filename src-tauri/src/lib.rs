@@ -128,7 +128,10 @@ pub fn run() {
             agent_bridge::start(app.handle());
 
             // GitHub sign-in: the token lives in the Keychain under this app's identifier
-            github::auth::init(&app.config().identifier);
+            github::auth::init(
+                &app.config().identifier,
+                app.path().app_local_data_dir().ok(),
+            );
             git::init_network_timeouts();
 
             #[cfg(target_os = "macos")]

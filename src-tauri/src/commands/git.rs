@@ -37,9 +37,28 @@ async fn author_fallback(project_path: &str) -> Option<GitHubUser> {
     if has_identity {
         return None;
     }
+    signed_in_profile().await
+}
+
+/// The signed-in GitHub profile: fetched once a launch, else the one saved on
+/// disk when GitHub can't be reached
+pub(crate) async fn signed_in_profile() -> Option<GitHubUser> {
     let auth = auth::auth().ok()?;
     let _ = auth.status().await;
     auth.cached_user()
+}
+
+/// Write the profile's name and no-reply address into the repository's own
+/// config when git has none, so every tool commits with the same name. Best
+/// effort: commits still fall back to the profile without it.
+pub(crate) fn remember_identity(repo: &git2::Repository, user: &GitHubUser) {
+    match git::sync::ensure_identity(repo, user) {
+        Ok(true) => log::info!(
+            "Astro Editor [GIT] Set this repository's commit name to the GitHub profile's"
+        ),
+        Ok(false) => {}
+        Err(e) => log::warn!("Astro Editor [GIT] {e}"),
+    }
 }
 
 #[tauri::command]
@@ -98,6 +117,9 @@ pub async fn git_publish(project_path: String, message: String) -> Result<Publis
     let user = author_fallback(&project_path).await;
     blocking(move || {
         git::with_repo(&PathBuf::from(project_path), |repo| {
+            if let Some(user) = &user {
+                remember_identity(repo, user);
+            }
             git::sync::publish(repo, &message, auth::token().as_deref(), user.as_ref())
         })
     })
@@ -212,6 +234,7 @@ pub async fn git_clone(
     clone_url: String,
     parent_dir: String,
 ) -> Result<String, String> {
+    let user = signed_in_profile().await;
     blocking(move || {
         let token = auth::token();
         let path = git::clone::clone_into(
@@ -222,6 +245,9 @@ pub async fn git_clone(
                 let _ = app.emit("git-clone-progress", CloneProgress { received, total });
             },
         )?;
+        if let (Some(user), Ok(Some(repo))) = (&user, git::open(&path)) {
+            remember_identity(&repo, user);
+        }
         Ok(path.to_string_lossy().into_owned())
     })
     .await
