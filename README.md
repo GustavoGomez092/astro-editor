@@ -70,13 +70,13 @@ This is a fork of Astro Editor, published as **Astro Editor+**. It adds git and 
 
 **Install:**
 
-1. Download the latest `.dmg` from the [Releases page](https://github.com/GustavoGomez092/astro-editor/releases) and drag **Astro Editor+** into Applications.
+1. Download the latest `.dmg` from the [Releases page](https://github.com/GustavoGomez092/astro-editor-plus/releases) and drag **Astro Editor+** into Applications.
 2. Releases signed with an Apple Developer ID are notarised by Apple and open normally, with no "Open Anyway" step. Releases built without the Apple secrets fall back to a self-signed certificate, which macOS blocks on first launch: try to open the app once, then go to **System Settings -> Privacy & Security**, scroll to the message about "Astro Editor+" and click **Open Anyway**. Later updates install from inside the app.
 3. When updating from a self-signed build to a Developer ID build, the signing identity changes, so macOS may ask for Keychain access once (for example, for the saved GitHub token). Choose Always Allow; it does not ask again for later Developer ID releases.
 
 ## Installation
 
-See [Astro Editor+](#astro-editor) above. Requires macOS 12 or later. Download the `.dmg` from this fork's [Releases](https://github.com/GustavoGomez092/astro-editor/releases); the Homebrew cask belongs to the original app and does not install this fork.
+See [Astro Editor+](#astro-editor) above. Requires macOS 12 or later. Download the `.dmg` from this fork's [Releases](https://github.com/GustavoGomez092/astro-editor-plus/releases); the Homebrew cask belongs to the original app and does not install this fork.
 
 **Other Platforms:** The fork's releases are macOS-only. To run on Windows or Linux, build from source (see [Contributing](docs/CONTRIBUTING.md)); these are not officially supported.
 
