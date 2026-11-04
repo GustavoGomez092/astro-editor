@@ -5,12 +5,23 @@ import { validateTheme } from './validate'
 import type { ThemeFile } from './types'
 
 const SCHEMA_FILE = 'theme.schema.json'
+const SCHEMA_TEXT = JSON.stringify(schema, null, 2) + '\n'
 const BUILTIN_IDS = new Set(BUILTIN_THEMES.map(theme => theme.id))
 
 /**
+ * Keeps a copy of the schema in the themes folder, so editors can check and
+ * complete a theme as it's typed. Only written when it's missing or out of date.
+ */
+async function ensureSchemaCopy(path: string) {
+  const existing = await commands.readAppDataFile(path)
+  if (existing.status === 'ok' && existing.data === SCHEMA_TEXT) return
+  await commands.writeAppDataFile(path, SCHEMA_TEXT)
+}
+
+/**
  * Reads every .json file in the themes folder. A file that can't be used is
- * returned with what's wrong, so Settings can show it. Also keeps a copy of the
- * schema in the folder, so editors can check and complete a theme as it's typed.
+ * returned with what's wrong, so Settings can show it; one bad file never
+ * stops the others loading.
  */
 export async function loadThemeFiles(): Promise<ThemeFile[]> {
   const dirResult = await commands.getAppDataDir()
@@ -19,15 +30,16 @@ export async function loadThemeFiles(): Promise<ThemeFile[]> {
   if (listResult.status === 'error') throw new Error(listResult.error)
   const dir = `${dirResult.data}/themes`
 
-  void commands.writeAppDataFile(
-    `${dir}/${SCHEMA_FILE}`,
-    JSON.stringify(schema, null, 2) + '\n'
-  )
+  void ensureSchemaCopy(`${dir}/${SCHEMA_FILE}`).catch(() => {})
 
   const files: ThemeFile[] = []
-  const seen = new Set<string>()
-  for (const file of listResult.data) {
+  const claimedBy = new Map<string, string>() // theme id -> the file that has it
+  for (const { name: file, problem } of listResult.data) {
     if (file === SCHEMA_FILE) continue
+    if (problem) {
+      files.push({ file, ok: false, errors: [problem] })
+      continue
+    }
     const read = await commands.readAppDataFile(`${dir}/${file}`)
     if (read.status === 'error') {
       files.push({ file, ok: false, errors: ['The file could not be read.'] })
@@ -47,23 +59,27 @@ export async function loadThemeFiles(): Promise<ThemeFile[]> {
     const result = validateTheme(parsed)
     if (!result.ok) {
       files.push({ file, ok: false, errors: result.errors })
-    } else if (seen.has(result.theme.id) || BUILTIN_IDS.has(result.theme.id)) {
+      continue
+    }
+    const { id } = result.theme
+    const winner = claimedBy.get(id)
+    if (BUILTIN_IDS.has(id) || winner) {
       files.push({
         file,
         ok: false,
         errors: [
-          `Another theme already uses the id "${result.theme.id}". Change "id" so each theme has its own.`,
+          `The id "${id}" is already used by ${winner ?? 'a built-in theme'}. Change "id" so each theme has its own.`,
         ],
       })
-    } else {
-      seen.add(result.theme.id)
-      files.push({
-        file,
-        ok: true,
-        theme: result.theme,
-        warnings: result.warnings,
-      })
+      continue
     }
+    claimedBy.set(id, file)
+    files.push({
+      file,
+      ok: true,
+      theme: result.theme,
+      warnings: result.warnings,
+    })
   }
   return files
 }

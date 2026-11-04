@@ -2,7 +2,7 @@
   "$schema": "./theme.schema.json",
   "id": "nord",
   "name": "Nord",
-  "author": "Nord (Arctic Ice Studio palette)",
+  "author": "Nord, with some colours adjusted for contrast",
   "appearance": "both",
   "tokens": {
     "background": {

@@ -1,9 +1,11 @@
-import { BUILTIN_THEMES, DEFAULT_THEME, DEFAULT_THEME_ID } from './builtin'
-import { themesToCss } from './css'
+import { BUILTIN_THEMES, DEFAULT_THEME } from './builtin'
+import { themesToRules, type ThemeRule } from './css'
+import { isSafeValue } from './safe'
 import type { Scheme, Theme, ThemeFile } from './types'
 
 export { DEFAULT_THEME_ID } from './builtin'
-export { themesToCss } from './css'
+export { themesToRules } from './css'
+export type { ThemeRule } from './css'
 export type { Scheme, Theme, ThemeFile } from './types'
 
 /** Built-in themes, then the usable ones from the themes folder */
@@ -29,49 +31,78 @@ export function pickTheme(
   return found ?? DEFAULT_THEME
 }
 
-/** CSS for the two chosen theme ids */
-export function cssForChoice(
+/** The rules for the two chosen theme ids */
+export function tokensForChoice(
   files: ThemeFile[],
   lightId: string | undefined,
   darkId: string | undefined
-): string {
+): [ThemeRule, ThemeRule] {
   const themes = availableThemes(files)
-  return themesToCss(
+  return themesToRules(
     pickTheme(themes, lightId, 'light'),
     pickTheme(themes, darkId, 'dark')
   )
 }
 
 export const THEME_STYLE_ID = 'astro-editor-colour-theme'
-const CACHE_KEY = 'astro-editor-theme-css'
+const CHOICE_KEY = 'astro-editor-theme-choice'
 
-/** Puts the theme CSS on the page, and keeps a copy for the next launch's first paint */
-export function applyThemeCss(css: string) {
-  let el = document.getElementById(THEME_STYLE_ID)
+/**
+ * Puts the theme colours on the page. Each token goes in with setProperty on a
+ * rule the browser has already parsed, so a value is only ever a value: it
+ * can't close the rule, start another or load anything.
+ */
+export function applyThemeTokens(rules: ThemeRule[]) {
+  let el = document.getElementById(THEME_STYLE_ID) as HTMLStyleElement | null
   if (!el) {
     el = document.createElement('style')
     el.id = THEME_STYLE_ID
     document.head.appendChild(el)
   }
-  el.textContent = css
-  try {
-    // Nothing to remember for the Default theme: App.css already is it
-    if (css === cssForChoice([], DEFAULT_THEME_ID, DEFAULT_THEME_ID)) {
-      localStorage.removeItem(CACHE_KEY)
-    } else {
-      localStorage.setItem(CACHE_KEY, css)
+  const sheet = el.sheet
+  if (!sheet) return
+  while (sheet.cssRules.length) sheet.deleteRule(0)
+  for (const { selector, tokens } of rules) {
+    const rule =
+      sheet.cssRules[sheet.insertRule(`${selector} {}`, sheet.cssRules.length)]
+    if (!(rule instanceof CSSStyleRule)) continue
+    for (const [token, value] of Object.entries(tokens)) {
+      // Checked again here: a value that isn't plainly a colour is skipped
+      if (/^[a-z0-9-]+$/.test(token) && isSafeValue(value)) {
+        rule.style.setProperty(`--${token}`, value)
+      }
     }
+  }
+}
+
+/** Applies the chosen themes, and remembers the choice for the next launch's first paint */
+export function applyThemeChoice(
+  files: ThemeFile[],
+  lightId: string | undefined,
+  darkId: string | undefined
+) {
+  applyThemeTokens(tokensForChoice(files, lightId, darkId))
+  try {
+    localStorage.setItem(CHOICE_KEY, JSON.stringify([lightId, darkId]))
   } catch {
     // Private mode or full storage: the theme still applies, just not before first paint
   }
 }
 
-/** Applies the last theme straight away, before settings load, so there's no flash of the Default colours */
-export function applyCachedThemeCss() {
+/**
+ * Applies the last choice straight away, before settings load, so there's no
+ * flash of the Default colours. Only theme ids are remembered, never CSS: the
+ * colours come from the built-in themes (or wait for the themes folder to be
+ * read, then are validated like any other theme file).
+ */
+export function applyRememberedThemeChoice() {
   try {
-    const css = localStorage.getItem(CACHE_KEY)
-    if (css) applyThemeCss(css)
+    const raw: unknown = JSON.parse(localStorage.getItem(CHOICE_KEY) ?? 'null')
+    if (!Array.isArray(raw)) return
+    const [light, dark] = raw as unknown[]
+    const id = (v: unknown) => (typeof v === 'string' ? v : undefined)
+    applyThemeTokens(tokensForChoice([], id(light), id(dark)))
   } catch {
-    // See above
+    // Nothing remembered, or storage is unavailable
   }
 }

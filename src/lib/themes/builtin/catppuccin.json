@@ -2,7 +2,7 @@
   "$schema": "./theme.schema.json",
   "id": "catppuccin",
   "name": "Catppuccin",
-  "author": "Catppuccin (Latte and Mocha palettes)",
+  "author": "Catppuccin (Latte and Mocha), with some colours adjusted for contrast",
   "appearance": "both",
   "tokens": {
     "background": {

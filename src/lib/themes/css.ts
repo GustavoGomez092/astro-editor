@@ -27,19 +27,27 @@ export function resolveTokens(
   return resolved
 }
 
-const rule = (selector: string, tokens: Record<string, string>) =>
-  `${selector} {\n${Object.entries(tokens)
-    .map(([token, value]) => `  --${token}: ${value};`)
-    .join('\n')}\n}`
+export interface ThemeRule {
+  selector: string
+  tokens: Record<string, string>
+}
 
 /**
- * The CSS for the chosen themes: one rule per mode, setting every token on
+ * The rules for the chosen themes: one per mode, setting every token on
  * <html>, where the theme provider puts .light or .dark. The doubled :root
- * beats App.css's :root wherever the stylesheets load.
+ * beats App.css's :root wherever the stylesheets load. These are data, not
+ * CSS text: they're handed to the browser one property at a time
+ * (applyThemeTokens), so no value can ever add a rule of its own.
  */
-export function themesToCss(lightTheme: Theme, darkTheme: Theme): string {
+export function themesToRules(
+  lightTheme: Theme,
+  darkTheme: Theme
+): [ThemeRule, ThemeRule] {
   return [
-    rule(':root:root.light', resolveTokens(lightTheme, 'light')),
-    rule(':root:root.dark', resolveTokens(darkTheme, 'dark')),
-  ].join('\n')
+    {
+      selector: ':root:root.light',
+      tokens: resolveTokens(lightTheme, 'light'),
+    },
+    { selector: ':root:root.dark', tokens: resolveTokens(darkTheme, 'dark') },
+  ]
 }

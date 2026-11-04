@@ -5,10 +5,10 @@ import App from './App'
 import { queryClient } from './lib/query-client'
 import { getDiagnosticContext } from './lib/diagnostics'
 import { forwardConsoleToLog } from './lib/agent-bridge/console'
-import { applyCachedThemeCss } from './lib/themes'
+import { applyRememberedThemeChoice } from './lib/themes'
 
 // The last colour theme, before settings load, so there is no flash of Default
-applyCachedThemeCss()
+applyRememberedThemeChoice()
 
 // Dev only: copy console output into the log file for `bun run app logs`
 if (import.meta.env.DEV) forwardConsoleToLog()

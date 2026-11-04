@@ -1,5 +1,7 @@
+import { resolveTokens } from './css'
+import { isSafeValue } from './safe'
 import { isThemeToken } from './tokens'
-import type { Theme, ThemeAppearance, ThemeTokenValue } from './types'
+import type { Scheme, Theme, ThemeAppearance, ThemeTokenValue } from './types'
 
 export type ValidationResult =
   | { ok: true; theme: Theme; warnings: string[] }
@@ -11,43 +13,120 @@ const ID_PATTERN = /^[a-z0-9][a-z0-9-]*$/
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value)
 
+/** Functions a colour can use. Anything else (url(), image(), calc()...) is refused */
+const COLOUR_FUNCTIONS = new Set([
+  'rgb',
+  'rgba',
+  'hsl',
+  'hsla',
+  'hwb',
+  'lab',
+  'lch',
+  'oklab',
+  'oklch',
+  'color',
+  'color-mix',
+  'var',
+])
+
+/** Words that aren't colours: CSS-wide keywords, and the colour of the surrounding text */
+const NOT_A_COLOUR = new Set([
+  'inherit',
+  'initial',
+  'unset',
+  'revert',
+  'revert-layer',
+  'currentcolor',
+])
+
+/** What `var(--name)` points at, if the whole value is exactly that */
+const BARE_VAR = /^var\(\s*--([a-z0-9-]+)\s*\)$/i
+
+/** Names of the tokens a value points at with var() */
+export function tokenReferences(value: string): string[] {
+  return [...value.matchAll(/var\(\s*--([a-z0-9-]+)/gi)].map(
+    m => m[1] as string
+  )
+}
+
 /**
- * Whether a string looks like a CSS colour. Loose on purpose: the webview has
- * the final say, and a value it rejects is just ignored. This catches typos
- * (a missing # or bracket) with a message the writer can act on.
+ * Whether a string is a colour a theme may use. Structural checks first, so a
+ * value is safe even where the browser's own check isn't available; then the
+ * browser's, which has the last word on whether it really is a colour.
  */
 export function looksLikeColour(value: string): boolean {
   const v = value.trim()
+  if (!v || v.length > 200) return false
   if (/^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(v)) return true
-  if (/^[a-z]+$/i.test(v)) {
-    // A colour name. The browser knows the full list; elsewhere accept any word
-    return typeof CSS === 'undefined' || !CSS.supports
-      ? true
-      : CSS.supports('color', v)
+  if (!isSafeValue(v)) return false
+
+  for (const [, name] of v.matchAll(/([a-z-]*)\(/gi)) {
+    if (!COLOUR_FUNCTIONS.has((name as string).toLowerCase())) return false
   }
-  const fn = /^([a-z-]+)\((.*)\)$/is.exec(v)
-  if (!fn) return false
-  if (
-    !/^(rgb|rgba|hsl|hsla|hwb|lab|lch|oklab|oklch|color|color-mix|var)$/i.test(
-      fn[1] as string
-    )
-  )
+
+  if (/^[a-z-]+$/i.test(v)) {
+    if (NOT_A_COLOUR.has(v.toLowerCase())) return false
+  } else if (!/^[a-z-]+\(/i.test(v)) {
     return false
-  let depth = 0
-  for (const char of v) {
-    if (char === '(') depth++
-    if (char === ')') depth--
-    if (depth < 0) return false
   }
-  return depth === 0
+  if (/\b(inherit|initial|unset|revert|revert-layer|currentcolor)\b/i.test(v)) {
+    return false
+  }
+
+  // var() is only for pointing at one of our tokens: checked in checkReference
+  if (/^var\(/i.test(v)) return BARE_VAR.test(v)
+  if (/var\(/i.test(v)) return false
+
+  return typeof CSS === 'undefined' || !CSS.supports
+    ? true
+    : CSS.supports('color', v)
 }
 
-function checkColour(value: unknown, label: string, errors: string[]) {
+function checkColour(
+  token: string,
+  value: unknown,
+  label: string,
+  errors: string[]
+) {
   if (typeof value !== 'string' || !looksLikeColour(value)) {
     errors.push(
-      `${label} is not a colour${typeof value === 'string' ? ` ("${value}")` : ''}. Use something like "#1e1e2e" or "oklch(0.2 0 0)".`
+      `${label} is not a colour${typeof value === 'string' ? ` ("${value.slice(0, 60)}")` : ''}. Use something like "#1e1e2e" or "oklch(0.2 0 0)".`
+    )
+    return
+  }
+  const target = BARE_VAR.exec(value.trim())?.[1]
+  if (target !== undefined && (!isThemeToken(target) || target === token)) {
+    errors.push(
+      `${label} points at "${target}", which ${target === token ? 'is itself' : 'is not a colour Astro Editor has'}. A var() can only point at another colour in the list.`
     )
   }
+}
+
+/** The name of a token that ends up pointing at itself through var(), if any */
+function findLoop(theme: Theme): string | undefined {
+  for (const scheme of ['light', 'dark'] as Scheme[]) {
+    const resolved = resolveTokens(theme, scheme)
+    const visiting = new Set<string>()
+    const done = new Set<string>()
+    const walk = (token: string): string | undefined => {
+      if (done.has(token)) return undefined
+      if (visiting.has(token)) return token
+      visiting.add(token)
+      for (const next of tokenReferences(resolved[token] ?? '')) {
+        if (!isThemeToken(next)) continue
+        const loop = walk(next)
+        if (loop) return loop
+      }
+      visiting.delete(token)
+      done.add(token)
+      return undefined
+    }
+    for (const token of Object.keys(resolved)) {
+      const loop = walk(token)
+      if (loop) return loop
+    }
+  }
+  return undefined
 }
 
 /**
@@ -96,11 +175,11 @@ export function validateTheme(raw: unknown): ValidationResult {
         }
         for (const mode of ['light', 'dark'] as const) {
           if (value[mode] !== undefined) {
-            checkColour(value[mode], `"${token}" ${mode}`, errors)
+            checkColour(token, value[mode], `"${token}" ${mode}`, errors)
           }
         }
       } else {
-        checkColour(value, `"${token}"`, errors)
+        checkColour(token, value, `"${token}"`, errors)
       }
     }
   }
@@ -113,15 +192,21 @@ export function validateTheme(raw: unknown): ValidationResult {
   )) {
     if (isThemeToken(token)) known[token] = value as ThemeTokenValue
   }
-  return {
-    ok: true,
-    warnings,
-    theme: {
-      id: id as string,
-      name: (name as string).trim(),
-      author: typeof author === 'string' ? author : '',
-      appearance: appearance as ThemeAppearance,
-      tokens: known,
-    },
+  const theme: Theme = {
+    id: id as string,
+    name: (name as string).trim(),
+    author: typeof author === 'string' ? author : '',
+    appearance: appearance as ThemeAppearance,
+    tokens: known,
   }
+  const loop = findLoop(theme)
+  if (loop) {
+    return {
+      ok: false,
+      errors: [
+        `"${loop}" ends up pointing back at itself through var(). Give one of the colours in the loop a real colour.`,
+      ],
+    }
+  }
+  return { ok: true, warnings, theme }
 }

@@ -1,9 +1,16 @@
 import { describe, it, expect } from 'vitest'
 import { BUILTIN_THEMES, DEFAULT_THEME } from './builtin'
 import { THEME_TOKENS } from './tokens'
+import { isSafeValue } from './safe'
 import { validateTheme } from './validate'
-import { resolveTokens, themesToCss } from './css'
-import { availableThemes, cssForChoice, pickTheme } from './index'
+import { resolveTokens, themesToRules } from './css'
+import {
+  applyThemeTokens,
+  availableThemes,
+  pickTheme,
+  tokensForChoice,
+  THEME_STYLE_ID,
+} from './index'
 import type { Theme, ThemeFile } from './types'
 
 const minimal = {
@@ -84,6 +91,88 @@ describe('validateTheme', () => {
   })
 })
 
+describe('validateTheme: values that could break out of a colour', () => {
+  const withValue = (
+    background: unknown,
+    extra: Record<string, unknown> = {}
+  ) => validateTheme({ ...minimal, tokens: { background, ...extra } })
+  const evil =
+    'rgb(0 0 0); } body { background: url(https://evil.example/t.gif) } x:not(y'
+
+  it.each([
+    ['the reported payload', evil],
+    [
+      'a var() that closes the rule',
+      'var(--a); } body { display: none } x:not(y',
+    ],
+    [
+      'a var() with a url fallback',
+      'var(--x, url(https://evil.example/a.gif))',
+    ],
+    ['a semicolon', 'rgb(0 0 0);'],
+    ['a brace', 'rgb(0 0 0) }'],
+    ['an angle bracket', '</style><script>'],
+    ['a backslash escape', 'rg\\62 (0 0 0)'],
+    ['a comment', 'rgb(0 0 0) /* x */'],
+    ['an at-rule', '@import "x"'],
+    ['url()', 'url(https://evil.example/a.gif)'],
+    ['image()', 'image(red)'],
+    ['image-set()', 'image-set("a.png" 1x)'],
+    ['a function that is not a colour', 'calc(1px + 2px)'],
+    ['a function hidden in colour-mix', 'color-mix(in srgb, url(a), red)'],
+  ])('rejects %s', (_label, value) => {
+    expect(withValue(value).ok).toBe(false)
+    expect(withValue({ light: '#fff', dark: value }).ok).toBe(false)
+  })
+
+  it.each([
+    'inherit',
+    'initial',
+    'unset',
+    'revert',
+    'revert-layer',
+    'currentcolor',
+    'currentColor',
+    'INHERIT',
+  ])('rejects the keyword %s', value => {
+    expect(withValue(value).ok).toBe(false)
+  })
+
+  it('keeps colours that use a slash, a percentage and colour-mix', () => {
+    expect(withValue('rgb(0 0 0 / 50%)').ok).toBe(true)
+    expect(withValue('color-mix(in oklab, #fff 20%, red)').ok).toBe(true)
+    expect(withValue('transparent').ok).toBe(true)
+  })
+
+  describe('var()', () => {
+    it('allows pointing at another token', () => {
+      expect(withValue('var(--filter)').ok).toBe(true)
+    })
+    it.each([
+      ['an unknown token', 'var(--nope)'],
+      ['a fallback', 'var(--filter, red)'],
+      ['itself', 'var(--background)'],
+      ['a custom property of the page', 'var(--heading-color-light)'],
+      ['more than a bare var()', 'var(--filter) red'],
+    ])('rejects %s', (_label, value) => {
+      expect(withValue(value).ok).toBe(false)
+    })
+    it('rejects a loop between two tokens', () => {
+      const result = withValue('var(--card)', { card: 'var(--background)' })
+      expect(result.ok).toBe(false)
+      if (!result.ok) expect(result.errors.join(' ')).toContain('loop')
+    })
+    it('rejects a loop that runs through the Default theme', () => {
+      // Default has active: var(--filter)
+      const result = validateTheme({
+        ...minimal,
+        tokens: { filter: 'var(--active)' },
+      })
+      expect(result.ok).toBe(false)
+    })
+  })
+})
+
 describe('resolveTokens (fallback to Default)', () => {
   const partial: Theme = {
     id: 'p',
@@ -115,34 +204,65 @@ describe('resolveTokens (fallback to Default)', () => {
   })
 })
 
-describe('themesToCss', () => {
-  const css = themesToCss(
+describe('themesToRules', () => {
+  const rules = themesToRules(
     BUILTIN_THEMES[1] as Theme,
     BUILTIN_THEMES[2] as Theme
   )
+  const [light, dark] = rules
 
-  it('writes a light and a dark rule that beat App.css', () => {
-    expect(css).toContain(':root:root.light {')
-    expect(css).toContain(':root:root.dark {')
+  it('makes a light and a dark rule that beat App.css', () => {
+    expect(light.selector).toBe(':root:root.light')
+    expect(dark.selector).toBe(':root:root.dark')
   })
 
   it('takes light values from the light theme and dark values from the dark theme', () => {
-    const [light, dark] = css.split(':root:root.dark')
-    expect(light).toContain('--background: #e6e9ef;') // Catppuccin Latte
-    expect(dark).toContain('--background: #292e39;') // Nord dark
-    expect(dark).not.toContain('#e6e9ef')
+    expect(light.tokens.background).toBe('#e6e9ef') // Catppuccin Latte
+    expect(dark.tokens.background).toBe('#292e39') // Nord dark
   })
 
-  it('sets every token in both rules, as custom properties', () => {
-    for (const token of THEME_TOKENS) {
-      expect(css.split(`--${token}:`).length - 1).toBe(2)
-    }
+  it('sets every token in both rules', () => {
+    expect(Object.keys(light.tokens)).toEqual([...THEME_TOKENS])
+    expect(Object.keys(dark.tokens)).toEqual([...THEME_TOKENS])
   })
 
   it('writes Default as the values App.css already has', () => {
-    expect(themesToCss(DEFAULT_THEME, DEFAULT_THEME)).toContain(
-      '--active: var(--filter);'
-    )
+    const [l] = themesToRules(DEFAULT_THEME, DEFAULT_THEME)
+    expect(l?.tokens.active).toBe('var(--filter)')
+  })
+})
+
+describe('applyThemeTokens', () => {
+  const sheetRules = () => {
+    const el = document.getElementById(THEME_STYLE_ID) as HTMLStyleElement
+    return Array.from(el.sheet?.cssRules ?? []) as CSSStyleRule[]
+  }
+
+  it('puts the colours in two rules and replaces them on the next call', () => {
+    applyThemeTokens(tokensForChoice([], 'nord', 'nord'))
+    applyThemeTokens(tokensForChoice([], 'catppuccin', 'default'))
+    const rules = sheetRules()
+    expect(rules.map(r => r.selectorText)).toEqual([
+      ':root:root.light',
+      ':root:root.dark',
+    ])
+    expect(rules[0]?.style.getPropertyValue('--background')).toBe('#e6e9ef')
+  })
+
+  it('can never make a rule of its own, whatever a value holds', () => {
+    const evil =
+      'rgb(0 0 0); } body { background: url(https://evil.example/t.gif) } x:not(y'
+    const [light, dark] = themesToRules(DEFAULT_THEME, DEFAULT_THEME)
+    applyThemeTokens([
+      { ...light, tokens: { ...light.tokens, background: evil } },
+      dark,
+    ])
+    const rules = sheetRules()
+    expect(rules).toHaveLength(2)
+    expect(rules.every(r => r.selectorText.startsWith(':root:root'))).toBe(true)
+    // ...and the value that isn't plainly a colour never reaches the page
+    expect(rules[0]?.style.getPropertyValue('--background')).toBe('')
+    expect(rules[0]?.style.getPropertyValue('--foreground')).not.toBe('')
   })
 })
 
@@ -174,9 +294,21 @@ describe('choosing themes', () => {
     expect(pickTheme(themes, undefined, 'dark').id).toBe('default')
   })
 
-  it('builds CSS for a choice', () => {
-    expect(cssForChoice(custom, 'nord', 'mine')).toContain(
-      '--background: #112233;'
+  it('builds the rules for a choice', () => {
+    expect(tokensForChoice(custom, 'nord', 'mine')[1].tokens.background).toBe(
+      '#112233'
     )
+  })
+})
+
+describe('built-in themes pass the safety check applied before values reach the page', () => {
+  it.each(BUILTIN_THEMES.map(t => [t.id, t] as const))('%s', (_id, theme) => {
+    for (const scheme of ['light', 'dark'] as const) {
+      for (const [token, value] of Object.entries(
+        resolveTokens(theme, scheme)
+      )) {
+        expect(isSafeValue(value), `${token}: ${value}`).toBe(true)
+      }
+    }
   })
 })

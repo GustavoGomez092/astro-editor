@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useProjectStore } from '../store/projectStore'
 import { useThemeFiles } from '../store/themeFilesStore'
-import { applyThemeCss, cssForChoice } from '../lib/themes'
+import { applyThemeChoice } from '../lib/themes'
 
 /**
  * Keeps the page's colours in step with the chosen themes: loads the themes
@@ -25,6 +25,6 @@ export function useColourThemes() {
   useEffect(() => {
     // Until settings and themes load, leave the cached theme in place
     if (!settingsLoaded || !filesLoaded) return
-    applyThemeCss(cssForChoice(files, lightId, darkId))
+    applyThemeChoice(files, lightId, darkId)
   }, [settingsLoaded, filesLoaded, files, lightId, darkId])
 }
