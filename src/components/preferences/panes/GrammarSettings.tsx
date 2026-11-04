@@ -48,7 +48,7 @@ export const GrammarSettings: React.FC = () => {
             </FieldLabel>
             <FieldDescription>
               Underlines possible mistakes in the text as you write. Point at
-              one to see suggestions.
+              one or click it to see suggestions.
             </FieldDescription>
           </div>
           <Switch

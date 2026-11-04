@@ -3,8 +3,10 @@
  *
  * Checks the body text with Harper (the `checkGrammar` command, which runs in
  * Rust on a background thread) and shows what it finds as quiet underlines:
- * wavy for spelling, dotted for grammar. Hovering one shows Harper's message
- * and buttons for its suggestions, Ignore and Add to dictionary.
+ * wavy for spelling, dotted for grammar. Pointing at one, clicking it or
+ * pressing Cmd+. on it shows Harper's message and buttons for its suggestions,
+ * Ignore and Add to dictionary (grammar-popup.ts). Files over
+ * GRAMMAR_MAX_CHARACTERS aren't checked; a quiet note under the text says so.
  *
  * `@codemirror/lint` does the scheduling: it waits until typing pauses for
  * GRAMMAR_DELAY_MS, and drops a result if the text changed while the check
@@ -16,8 +18,8 @@
  * at once; `useGrammarRefresh` calls it when the settings change.
  */
 
-import { StateEffect } from '@codemirror/state'
-import { EditorView, tooltips } from '@codemirror/view'
+import { StateEffect, StateField } from '@codemirror/state'
+import { EditorView, showPanel, tooltips, type Panel } from '@codemirror/view'
 import {
   forEachDiagnostic,
   forceLinting,
@@ -36,12 +38,51 @@ import {
   resolveGrammarSettings,
   type GrammarActionHandlers,
 } from '../../grammar'
+import { projectRegistryManager } from '../../project-registry'
 import { getCurrentEditorView } from '../editor-view-ref'
+import { grammarPopupExtension } from './grammar-popup'
 
 /** How long typing must pause before the text is checked */
 const GRAMMAR_DELAY_MS = 600
 
+/**
+ * Files longer than this aren't checked: about 40,000 words, where a first
+ * check takes seconds and the underlines would be more noise than help
+ */
+export const GRAMMAR_MAX_CHARACTERS = 250_000
+
 const refreshGrammarEffect = StateEffect.define<null>()
+
+/** A quiet line under the text saying why nothing is underlined */
+const setGrammarNote = StateEffect.define<string | null>()
+
+const grammarNoteField = StateField.define<string | null>({
+  create: () => null,
+  update(note, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setGrammarNote)) return effect.value
+    }
+    return note
+  },
+  provide: field =>
+    showPanel.from(field, note =>
+      note
+        ? (): Panel => {
+            const dom = document.createElement('div')
+            dom.className = 'cm-grammar-note'
+            dom.textContent = note
+            return { dom }
+          }
+        : null
+    ),
+})
+
+function showNote(view: EditorView, note: string | null) {
+  if (view.state.field(grammarNoteField, false) === note) return
+  view.dispatch({ effects: setGrammarNote.of(note) })
+}
+
+const TOO_LONG_NOTE = 'This file is too long to check spelling and grammar.'
 
 /** Logged once, so a check that keeps failing doesn't flood the log */
 let loggedFailure = false
@@ -76,20 +117,32 @@ const handlers: GrammarActionHandlers = {
         d.markClass === 'cm-grammar-spelling' &&
         view.state.sliceDoc(d.from, d.to).toLowerCase() === folded
     )
-    const store = useProjectStore.getState()
-    const grammar = resolveGrammarSettings(store.globalSettings)
-    void store.updateGlobalSettings({
+    // The registry has the settings as last written, even if the store
+    // hasn't caught up with a change made a moment ago
+    const grammar = resolveGrammarSettings(
+      projectRegistryManager.getGlobalSettings()
+    )
+    void useProjectStore.getState().updateGlobalSettings({
       grammar: { ...grammar, dictionary: addWord(grammar.dictionary, word) },
     })
   },
+  onStale(view) {
+    refreshGrammar(view)
+  },
 }
 
-async function checkGrammar(view: EditorView): Promise<Diagnostic[]> {
-  const settings = resolveGrammarSettings(
-    useProjectStore.getState().globalSettings
-  )
+const currentSettings = () =>
+  resolveGrammarSettings(useProjectStore.getState().globalSettings)
+
+/** The lint source. Exported for tests */
+export async function grammarLintSource(
+  view: EditorView
+): Promise<Diagnostic[]> {
+  const settings = currentSettings()
   const file = useEditorStore.getState().currentFile
-  if (!settings.enabled || !file) return []
+  const tooLong = view.state.doc.length > GRAMMAR_MAX_CHARACTERS
+  showNote(view, settings.enabled && file && tooLong ? TOO_LONG_NOTE : null)
+  if (!settings.enabled || !file || tooLong) return []
   const doc = view.state.doc.toString()
   if (!doc.trim()) return []
 
@@ -109,13 +162,22 @@ async function checkGrammar(view: EditorView): Promise<Diagnostic[]> {
   }
   // A newer check replaced this one before it ran; keep what's shown
   if (result.data === null) return currentDiagnostics(view)
+  // The settings may have changed while it ran
+  const latest = currentSettings()
+  if (!latest.enabled) return []
   if (import.meta.env.DEV) {
     const ms = Math.round(performance.now() - started)
     void debug(
       `Astro Editor [GRAMMAR] ${result.data.length} issues in ${ms} ms (${doc.length} characters)`
     )
   }
-  return issuesToDiagnostics(doc, result.data, file.path, handlers)
+  return issuesToDiagnostics(
+    doc,
+    result.data,
+    file.path,
+    handlers,
+    latest.dictionary
+  )
 }
 
 /** Re-check the open file now, after a settings change */
@@ -147,9 +209,9 @@ const grammarTheme = EditorView.theme({
     textDecorationThickness: '2px',
     textUnderlineOffset: '0.3em',
   },
-  // The hover tooltip wraps the lint package's list, so style the wrapper
-  // that holds one
-  '.cm-tooltip.cm-tooltip-hover:has(.cm-tooltip-lint)': {
+  // The popup (grammar-popup.ts) reuses the lint package's classes; style the
+  // tooltip that holds one
+  '.cm-tooltip:has(.cm-tooltip-lint)': {
     backgroundColor: 'var(--popover)',
     color: 'var(--popover-foreground)',
     border: '1px solid var(--border)',
@@ -199,6 +261,20 @@ const grammarTheme = EditorView.theme({
     borderColor: 'transparent',
     color: 'var(--muted-foreground)',
   },
+  '.cm-tooltip-lint .cm-diagnosticAction:focus-visible': {
+    outline: '2px solid var(--ring)',
+    outlineOffset: '1px',
+  },
+  '.cm-grammar-note': {
+    padding: '4px 12px',
+    fontSize: '12px',
+    color: 'var(--muted-foreground)',
+    backgroundColor: 'var(--editor-color-background)',
+    textAlign: 'center',
+  },
+  '.cm-panels.cm-panels-bottom': {
+    borderTop: 'none',
+  },
   '.cm-tooltip-lint .cm-diagnosticAction:hover': {
     backgroundColor: 'var(--accent)',
     color: 'var(--accent-foreground)',
@@ -207,8 +283,10 @@ const grammarTheme = EditorView.theme({
 
 export function createGrammarExtension() {
   return [
-    linter(checkGrammar, {
+    linter(grammarLintSource, {
       delay: GRAMMAR_DELAY_MS,
+      // grammar-popup.ts draws the popup, for hover, click and the keyboard
+      tooltipFilter: () => [],
       needsRefresh: update =>
         update.transactions.some(tr =>
           tr.effects.some(effect => effect.is(refreshGrammarEffect))
@@ -218,6 +296,8 @@ export function createGrammarExtension() {
     // its edge was cut off. Mounting tooltips on the body avoids that;
     // CodeMirror copies the editor's theme classes onto them
     tooltips({ parent: document.body }),
+    grammarPopupExtension(),
+    grammarNoteField,
     grammarTheme,
   ]
 }
