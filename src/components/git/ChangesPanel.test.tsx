@@ -184,4 +184,30 @@ describe('ChangesPanel', () => {
     await screen.findByRole('alert')
     expect(screen.getByRole('button', { name: /Sync/ })).toBeEnabled()
   })
+
+  it('shortens long entry titles in the list', async () => {
+    vi.mocked(commands.scanCollectionFilesRecursive).mockResolvedValue(
+      ok([
+        {
+          id: 'pages/about',
+          path: `${SITE}/${ABOUT}`,
+          name: 'about',
+          extension: 'md',
+          collection: 'pages',
+          last_modified: null,
+          frontmatter: {
+            title: 'How we rebuilt the studio website from the ground up',
+          },
+        },
+      ])
+    )
+    withStatus({
+      ...CLEAN,
+      files: [{ path: ABOUT, oldPath: null, change: 'modified' }],
+    })
+    renderWithProviders(<ChangesPanel />)
+    expect(
+      await screen.findByText('How we rebuilt the studio website from…')
+    ).toBeInTheDocument()
+  })
 })

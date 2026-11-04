@@ -1,5 +1,6 @@
 import { useQueries } from '@tanstack/react-query'
 import { useShallow } from 'zustand/react/shallow'
+import { shortTitle } from '@/lib/git/messages'
 import { getCollectionSettings } from '@/lib/project-registry'
 import { queryKeys } from '@/lib/query-keys'
 import { useProjectStore } from '../../store/projectStore'
@@ -7,7 +8,10 @@ import { fetchCollectionFiles } from './useCollectionFilesQuery'
 import { useCollectionsQuery } from './useCollectionsQuery'
 
 export interface EntryLookup {
-  /** The entry's title for a repository-relative path, when it's known */
+  /**
+   * The entry's title for a repository-relative path, when it's known,
+   * shortened to 40 characters for lists and messages
+   */
   titleFor: (path: string) => string | undefined
   /** Whether a repository-relative path is a Markdown file in a collection */
   isEntry: (path: string) => boolean
@@ -52,7 +56,7 @@ export function useEntryLookup(
       // A real title only: never the file name in its place
       const title = entry.frontmatter?.[titleField]
       if (typeof title === 'string' && title.trim()) {
-        titles.set(entry.path, title.trim())
+        titles.set(entry.path, shortTitle(title.trim()))
       }
     }
   })

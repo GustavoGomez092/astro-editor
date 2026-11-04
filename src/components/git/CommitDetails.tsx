@@ -6,6 +6,8 @@ interface CommitDetailsProps {
   details: Details
   selectedPath?: string | null
   onSelectFile?: (path: string) => void
+  /** Entry titles of content files, by repository-relative path */
+  titles?: Map<string, string>
 }
 
 /** Splits a commit message into its first line and the rest. */
@@ -22,6 +24,7 @@ export function CommitDetails({
   details,
   selectedPath,
   onSelectFile,
+  titles,
 }: CommitDetailsProps) {
   const { title, body } = splitMessage(details.message || details.summary)
   const date = new Date(details.time * 1000)
@@ -66,6 +69,7 @@ export function CommitDetails({
             <ChangedFileRow
               key={file.path}
               file={file}
+              title={titles?.get(file.path)}
               selected={file.path === selectedPath}
               onSelect={onSelectFile}
             />

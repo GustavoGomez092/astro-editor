@@ -1,7 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { commands } from '@/lib/bindings'
+import { commands, type SyncOutcome } from '@/lib/bindings'
 import { refreshGit } from '@/lib/git/cache'
-import { showSyncOutcome } from '@/lib/git/messages'
+import { broughtInMessage, showSyncOutcome } from '@/lib/git/messages'
+import { queryKeys } from '@/lib/query-keys'
 import {
   asIs,
   GIT_CHANGE_MUTATION_KEY,
@@ -19,6 +20,10 @@ const mergeDefault = async ({ projectPath }: { projectPath: string }) => {
   return unwrap(commands.gitMergeDefaultBranch(projectPath))
 }
 
+/** Whether the merge brought anything in (rather than stopping or no-op). */
+const broughtIn = (outcome: SyncOutcome) =>
+  outcome === 'merged' || outcome === 'fastForwarded'
+
 /**
  * "Bring in changes from main": merge the default branch into the current
  * one, with the same conflict rules as Sync.
@@ -31,12 +36,25 @@ export const useMergeDefaultBranchMutation = ({
   return useMutation({
     mutationKey: GIT_CHANGE_MUTATION_KEY,
     mutationFn: mergeDefault,
-    onSuccess: async (result, { projectPath }) => {
+    // How many commits were coming in, for the message: the count shown before
+    onMutate: ({ projectPath }) => ({
+      count:
+        queryClient.getQueryData<number>(
+          queryKeys.gitBehindDefault(projectPath)
+        ) ?? 0,
+    }),
+    onSuccess: async (result, { projectPath }, context) => {
       void refreshGit(queryClient, projectPath, result.status)
       // Awaited: editing stays blocked until the open file shows the result
       await reloadProjectFiles(queryClient, projectPath)
       if (needsAttention(result.outcome) && onNeedsAttention) {
         onNeedsAttention(result)
+      } else if (broughtIn(result.outcome) && result.status.defaultBranch) {
+        toast.success(
+          present(
+            broughtInMessage(context?.count ?? 0, result.status.defaultBranch)
+          )
+        )
       } else {
         showSyncOutcome(result, present)
       }

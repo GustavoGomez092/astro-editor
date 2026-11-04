@@ -13,6 +13,7 @@ import {
   useGitFileDiffQuery,
 } from '../../hooks/queries/useGitCommitQueries'
 import { useGitStatusQuery } from '../../hooks/queries/useGitStatusQuery'
+import { useEntryLookup } from '../../hooks/queries/useEntryLookup'
 import { Button } from '../ui/button'
 import { Spinner } from '../ui/spinner'
 import { CommitDetails } from './CommitDetails'
@@ -169,6 +170,17 @@ function HistoryView() {
     selectedId,
     selectedFile
   )
+  // Entries are named by their titles, as in the Changes tab
+  const commitFiles = details.data?.files ?? []
+  const lookup = useEntryLookup(
+    projectPath,
+    commitFiles.map(file => file.path)
+  )
+  const titles = new Map<string, string>()
+  for (const file of commitFiles) {
+    const title = lookup.titleFor(file.path)
+    if (title) titles.set(file.path, title)
+  }
 
   return (
     <>
@@ -225,6 +237,7 @@ function HistoryView() {
           ) : (
             <CommitDetails
               details={details.data}
+              titles={titles}
               selectedPath={selectedFile}
               onSelectFile={path =>
                 useGitStore.getState().selectCommitFile(path)

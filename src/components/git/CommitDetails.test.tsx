@@ -38,4 +38,15 @@ describe('CommitDetails', () => {
     await userEvent.click(screen.getByText('about.md'))
     expect(onSelectFile).toHaveBeenCalledWith('src/content/pages/about.md')
   })
+
+  it('names entries by their titles, like the Changes tab', () => {
+    render(
+      <CommitDetails
+        details={DETAILS}
+        titles={new Map([['src/content/pages/about.md', 'About me']])}
+      />
+    )
+    expect(screen.getByText('About me')).toBeInTheDocument()
+    expect(screen.queryByText('about.md')).toBeNull()
+  })
 })

@@ -322,12 +322,15 @@ export const CollectionSettingsPane: React.FC = () => {
       value: 'detect',
       label: (
         <span className="text-muted-foreground">
-          Detect: hide the editor when no entry has any
+          Detect: hide the big text area when no entry uses it
         </span>
       ),
     },
-    { value: 'show', label: 'Entries have body text' },
-    { value: 'hide', label: 'No body text: hide the editor' },
+    { value: 'show', label: 'Entries use the big text area' },
+    {
+      value: 'hide',
+      label: "This collection doesn't use the big text area",
+    },
   ]
 
   const fileTypeItems = [
@@ -581,9 +584,9 @@ export const CollectionSettingsPane: React.FC = () => {
                             </SelectContent>
                           </Select>
                           <FieldDescription>
-                            Collections that are only frontmatter (settings,
-                            testimonials) don&apos;t need the editor. An entry
-                            that has body text always shows it
+                            Collections that are only fields, like settings or
+                            testimonials, don&apos;t need the big text area. An
+                            entry that already has text in it always shows it
                           </FieldDescription>
                         </FieldContent>
                       </Field>

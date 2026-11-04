@@ -113,6 +113,42 @@ describe('git mutations', () => {
     expect(mockToast.success).toHaveBeenCalled()
   })
 
+  it('publishing the default branch says the site will update', async () => {
+    vi.mocked(commands.gitPublish).mockResolvedValue(
+      ok({
+        commitId: 'abc',
+        pushed: true,
+        outcome: 'upToDate',
+        message: 'Published to main.',
+        status: { ...STATUS, branch: 'main', upstream: 'origin/main' },
+      })
+    )
+    const { result } = setup(useGitPublishMutation)
+    await act(() =>
+      result.current.mutateAsync({ projectPath: P, message: 'Update About' })
+    )
+    expect(mockToast.success).toHaveBeenCalledWith(
+      'Published. Your site will update in a few minutes.'
+    )
+  })
+
+  it('publishing another branch names it', async () => {
+    vi.mocked(commands.gitPublish).mockResolvedValue(
+      ok({
+        commitId: 'abc',
+        pushed: true,
+        outcome: 'upToDate',
+        message: 'Published to staging.',
+        status: STATUS,
+      })
+    )
+    const { result } = setup(useGitPublishMutation)
+    await act(() =>
+      result.current.mutateAsync({ projectPath: P, message: 'Update About' })
+    )
+    expect(mockToast.success).toHaveBeenCalledWith('Published to staging.')
+  })
+
   it('publish that could not push warns with the reason', async () => {
     vi.mocked(commands.gitPublish).mockResolvedValue(
       ok({
@@ -211,6 +247,22 @@ describe('git mutations', () => {
     const { client, result } = setup(useMergeDefaultBranchMutation)
     await act(() => result.current.mutateAsync({ projectPath: P }))
     expectGitRefreshed(client)
+  })
+
+  it('bringing in changes counts them and says to publish', async () => {
+    vi.mocked(commands.gitMergeDefaultBranch).mockResolvedValue(
+      ok({ outcome: 'merged', message: 'Brought in main', status: STATUS })
+    )
+    const { client, result } = setup(() =>
+      useMergeDefaultBranchMutation({
+        present: message => message.replace('the remote', 'GitHub'),
+      })
+    )
+    client.setQueryData(queryKeys.gitBehindDefault(P), 2)
+    await act(() => result.current.mutateAsync({ projectPath: P }))
+    expect(mockToast.success).toHaveBeenCalledWith(
+      'Brought in 2 changes from main. Publish to send them to GitHub.'
+    )
   })
 
   it('a sync conflict is a warning, not a success', async () => {

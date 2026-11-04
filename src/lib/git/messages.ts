@@ -58,3 +58,40 @@ export function presentGitMessage(
   }
   return text
 }
+
+/** Titles in lists and messages are at most this long, with the "…". */
+export const MAX_TITLE_LENGTH = 40
+
+/**
+ * A title short enough for a list or a message: anything longer than 40
+ * characters is cut, at a word when there's one past the middle, and ends
+ * with "…". The full title stays in tooltips.
+ */
+export function shortTitle(title: string): string {
+  if (title.length <= MAX_TITLE_LENGTH) return title
+  let cut = title.slice(0, MAX_TITLE_LENGTH - 1)
+  const space = cut.lastIndexOf(' ')
+  if (space > MAX_TITLE_LENGTH / 2) cut = cut.slice(0, space)
+  return `${cut.trimEnd()}…`
+}
+
+/** The toast after a publish that reached the remote. */
+export function publishedMessage(
+  branch: string | null,
+  defaultBranch: string | null
+): string {
+  if (branch && branch === defaultBranch) {
+    return 'Published. Your site will update in a few minutes.'
+  }
+  return branch ? `Published to ${branch}.` : 'Published.'
+}
+
+/**
+ * The toast after "Bring in changes": how many came in (when known) and that
+ * they still need publishing. "the remote" becomes "GitHub" when presented.
+ */
+export function broughtInMessage(count: number, defaultBranch: string): string {
+  const what =
+    count > 0 ? `${count} ${count === 1 ? 'change' : 'changes'}` : 'the changes'
+  return `Brought in ${what} from ${defaultBranch}. Publish to send them to the remote.`
+}

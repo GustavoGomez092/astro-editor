@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { pathsIn, presentGitMessage, syncToastKind } from './messages'
+import {
+  broughtInMessage,
+  pathsIn,
+  presentGitMessage,
+  publishedMessage,
+  shortTitle,
+  syncToastKind,
+} from './messages'
 
 describe('syncToastKind', () => {
   it('celebrates changes brought in', () => {
@@ -66,5 +73,47 @@ describe('presentGitMessage', () => {
         'Both edited src/content/a.md and src/assets/b.png. Published to main.'
       )
     ).toEqual(['src/content/a.md', 'src/assets/b.png'])
+  })
+})
+
+describe('shortTitle', () => {
+  it('keeps a title of 40 characters or fewer as it is', () => {
+    const forty = 'a'.repeat(40)
+    expect(shortTitle(forty)).toBe(forty)
+  })
+  it('shortens a longer title with an ellipsis, at a word when it can', () => {
+    expect(
+      shortTitle('How we rebuilt the studio website from the ground up')
+    ).toBe('How we rebuilt the studio website from…')
+  })
+  it('cuts a long word when there is no space to break at', () => {
+    expect(shortTitle('x'.repeat(60))).toBe(`${'x'.repeat(39)}…`)
+  })
+})
+
+describe('publishedMessage', () => {
+  it('says the site will update when publishing the default branch', () => {
+    expect(publishedMessage('main', 'main')).toBe(
+      'Published. Your site will update in a few minutes.'
+    )
+  })
+  it('names the branch otherwise', () => {
+    expect(publishedMessage('staging', 'main')).toBe('Published to staging.')
+  })
+})
+
+describe('broughtInMessage', () => {
+  it('counts the changes and says what to do next', () => {
+    expect(broughtInMessage(1, 'main')).toBe(
+      'Brought in 1 change from main. Publish to send them to the remote.'
+    )
+    expect(broughtInMessage(3, 'main')).toBe(
+      'Brought in 3 changes from main. Publish to send them to the remote.'
+    )
+  })
+  it('leaves the count out when it is not known', () => {
+    expect(broughtInMessage(0, 'main')).toBe(
+      'Brought in the changes from main. Publish to send them to the remote.'
+    )
   })
 })

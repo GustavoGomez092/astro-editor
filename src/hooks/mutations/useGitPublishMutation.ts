@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { commands } from '@/lib/bindings'
 import { refreshGit } from '@/lib/git/cache'
+import { publishedMessage } from '@/lib/git/messages'
 import {
   asIs,
   GIT_CHANGE_MUTATION_KEY,
@@ -46,7 +47,9 @@ export const useGitPublishMutation = ({
       if (needsAttention(result.outcome) && onNeedsAttention) {
         onNeedsAttention(result)
       } else if (result.pushed) {
-        toast.success(present(result.message) || 'Published')
+        toast.success(
+          publishedMessage(result.status.branch, result.status.defaultBranch)
+        )
       } else {
         toast.warning(present(result.message), { duration: 8000 })
       }
