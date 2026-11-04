@@ -10,6 +10,7 @@ vi.mock('@/lib/bindings', () => ({
     githubDeviceStart: vi.fn(),
     githubDevicePoll: vi.fn(),
     githubSignOut: vi.fn(),
+    githubCancelSignIn: vi.fn(),
   },
 }))
 const { setQueryData } = vi.hoisted(() => ({ setQueryData: vi.fn() }))
@@ -40,6 +41,10 @@ describe('GitHub sign-in', () => {
       data: CODE,
     })
     vi.mocked(commands.githubSignOut).mockResolvedValue({
+      status: 'ok',
+      data: null,
+    })
+    vi.mocked(commands.githubCancelSignIn).mockResolvedValue({
       status: 'ok',
       data: null,
     })
@@ -86,7 +91,7 @@ describe('GitHub sign-in', () => {
     expect(commands.githubDevicePoll).not.toHaveBeenCalled()
   })
 
-  it('cancelling stops the wait and ignores what comes back', async () => {
+  it('cancelling stops the wait, keeps any sign-in, and ignores what comes back', async () => {
     let finish: (value: unknown) => void = () => {}
     vi.mocked(commands.githubDevicePoll).mockReturnValue(
       new Promise(resolve => (finish = resolve)) as never
@@ -96,7 +101,8 @@ describe('GitHub sign-in', () => {
       expect(useGitStore.getState().signIn.step).toBe('waiting')
     )
     cancelGitHubSignIn()
-    expect(commands.githubSignOut).toHaveBeenCalled()
+    expect(commands.githubCancelSignIn).toHaveBeenCalled()
+    expect(commands.githubSignOut).not.toHaveBeenCalled()
     expect(useGitStore.getState().signIn.open).toBe(false)
 
     finish({ status: 'error', error: 'Cancelled' })

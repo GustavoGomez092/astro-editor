@@ -43,11 +43,14 @@ export async function startGitHubSignIn(): Promise<void> {
   toast.success(`Signed in as ${polled.data.login ?? 'GitHub user'}`)
 }
 
-/** Closes the sheet; a wait in progress is stopped on the Rust side too. */
+/**
+ * Closes the sheet. A wait in progress is stopped on the Rust side too; a
+ * sign-in that's already stored is kept (this never signs out).
+ */
 export function cancelGitHubSignIn(): void {
   const { signIn, setSignIn } = useGitStore.getState()
   attempt++
-  if (signIn.step === 'waiting') void commands.githubSignOut()
+  if (signIn.step !== 'error') void commands.githubCancelSignIn()
   setSignIn({ open: false })
 }
 
