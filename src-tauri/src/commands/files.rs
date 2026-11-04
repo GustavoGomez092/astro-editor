@@ -752,8 +752,29 @@ pub async fn write_app_data_file(
             .map_err(|e| format!("Failed to create parent directory: {e}"))?;
     }
 
-    std::fs::write(&validated_path, content)
+    write_atomically(&validated_path, content.as_bytes())
         .map_err(|e| format!("Failed to write app data file: {e}"))
+}
+
+/// Writes a file so that a crash or a full disk never leaves it half written: the new
+/// content goes to a hidden temporary file next to it, which then replaces it in one step.
+fn write_atomically(path: &Path, content: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_default();
+    let temporary = path.with_file_name(format!(".{name}.tmp"));
+    let result = std::fs::File::create(&temporary)
+        .and_then(|mut file| {
+            file.write_all(content)?;
+            file.sync_all()
+        })
+        .and_then(|()| std::fs::rename(&temporary, path));
+    if result.is_err() {
+        let _ = std::fs::remove_file(&temporary);
+    }
+    result
 }
 
 #[tauri::command]
@@ -1630,6 +1651,22 @@ Regular markdown content here."#;
             read_if_present(&temp.path().join("settings.json")),
             Ok(None)
         );
+    }
+
+    #[test]
+    fn writing_an_app_data_file_replaces_it_whole_and_leaves_no_temporary_file() {
+        let dir = std::env::temp_dir().join(format!("ae-atomic-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("global-settings.json");
+        std::fs::write(&file, "old").unwrap();
+        write_atomically(&file, b"{\"new\":true}").unwrap();
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"new\":true}");
+        assert!(!dir.join(".global-settings.json.tmp").exists());
+        // A write that can't happen leaves the old file as it was.
+        let missing = dir.join("no-such-folder").join("x.json");
+        assert!(write_atomically(&missing, b"x").is_err());
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"new\":true}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

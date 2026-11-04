@@ -24,7 +24,7 @@ Inside it:
 
 The webview's localStorage holds a few per-machine conveniences: panel sizes (`panel-v4:*`), a copy of the theme (`astro-editor-theme`) so the theme provider has it before settings load, and a skipped update version. Logs live elsewhere; see `agent-tooling.md`.
 
-All preferences reads and writes go through Rust commands (`readAppDataFile`, `writeAppDataFile`) that refuse paths outside the app data folder.
+All preferences reads and writes go through Rust commands (`readAppDataFile`, `writeAppDataFile`) that refuse paths outside the app data folder. `writeAppDataFile` writes to a hidden `.<name>.tmp` file and then renames it over the old one, so a crash or a full disk never leaves a half-written preferences file.
 
 ## How a setting resolves
 
