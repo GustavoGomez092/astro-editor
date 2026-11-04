@@ -72,6 +72,7 @@ struct ApiRepo {
     default_branch: String,
     clone_url: String,
     updated_at: String,
+    pushed_at: Option<String>,
 }
 
 /// Repositories the user owns or collaborates on, most recently updated first
@@ -90,6 +91,7 @@ pub async fn list_repos(client: &GitHubClient, token: &str) -> Result<Vec<RepoSu
             default_branch: r.default_branch,
             clone_url: r.clone_url,
             updated_at: r.updated_at,
+            pushed_at: r.pushed_at,
         }));
         next = link;
     }
@@ -175,7 +177,7 @@ mod tests {
         let mut server = mockito::Server::new_async().await;
         let repo_json = |name: &str, private: bool| {
             format!(
-                r#"{{"full_name":"kevin/{name}","name":"{name}","owner":{{"login":"kevin"}},"private":{private},"default_branch":"main","clone_url":"https://github.com/kevin/{name}.git","updated_at":"2026-11-01T10:00:00Z"}}"#
+                r#"{{"full_name":"kevin/{name}","name":"{name}","owner":{{"login":"kevin"}},"private":{private},"default_branch":"main","clone_url":"https://github.com/kevin/{name}.git","updated_at":"2026-11-01T10:00:00Z","pushed_at":"2026-10-30T10:00:00Z"}}"#
             )
         };
         let page_two = format!("{}/user/repos?page=2", server.url());
@@ -220,6 +222,7 @@ mod tests {
                 default_branch: "main".to_string(),
                 clone_url: "https://github.com/kevin/site.git".to_string(),
                 updated_at: "2026-11-01T10:00:00Z".to_string(),
+                pushed_at: Some("2026-10-30T10:00:00Z".to_string()),
             }
         );
     }

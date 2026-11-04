@@ -243,6 +243,11 @@ export const commands = {
 	/**  Repositories the signed-in user owns or collaborates on, most recently updated first */
 	githubListRepos: () => typedError<RepoSummary[], string>(__TAURI_INVOKE("github_list_repos")),
 	/**
+	 *  For each "owner/name", whether it looks like an Astro site. Never fails for one
+	 *  repository: an empty or unreadable one comes back `unknown`.
+	 */
+	githubCheckAstroRepos: (fullNames: string[]) => typedError<RepoAstroCheck[], string>(__TAURI_INVOKE("github_check_astro_repos", { fullNames })),
+	/**
 	 *  Checks `text` (the body, without frontmatter) and returns its issues, with
 	 *  UTF-16 offsets, or `null` if a newer check replaced this one before it ran.
 	 * 
@@ -254,6 +259,11 @@ export const commands = {
 };
 
 /* Types */
+/**  Whether a repository looks like an Astro site */
+export type AstroCheck = "astro" | "notAstro" | 
+/**  Empty, unreadable with this sign-in, or GitHub couldn't answer for it */
+"unknown";
+
 export type BranchInfo = {
 	/**  Short name: `main` for a local branch, `origin/main` for a remote one */
 	name: string,
@@ -603,6 +613,12 @@ export type PullRequestState = "open" | "closed" | "merged";
 
 export type RefKind = "head" | "localBranch" | "remoteBranch" | "tag";
 
+/**  One repository's answer */
+export type RepoAstroCheck = {
+	fullName: string,
+	check: AstroCheck,
+};
+
 export type RepoInfo = {
 	owner: string,
 	repo: string,
@@ -620,6 +636,11 @@ export type RepoSummary = {
 	cloneUrl: string,
 	/**  ISO 8601, as GitHub returns it */
 	updatedAt: string,
+	/**
+	 *  ISO 8601: when the last commit was pushed. Changes only with a push, which
+	 *  is what the "is it an Astro site" cache is keyed on.
+	 */
+	pushedAt: string | null,
 };
 
 export type SyncOutcome = "upToDate" | "fastForwarded" | "merged" | "blockedByLocalChanges" | "conflict" | "noUpstream";

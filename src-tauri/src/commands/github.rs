@@ -4,8 +4,10 @@
 use crate::git;
 use crate::github::auth::{auth, resolve_client_id};
 use crate::github::pulls::{self, RepoRef};
-use crate::github::repos;
-use crate::github::{DeviceCode, GitHubAuthStatus, PullRequest, RepoInfo, RepoSummary};
+use crate::github::{astro_check, repos};
+use crate::github::{
+    DeviceCode, GitHubAuthStatus, PullRequest, RepoAstroCheck, RepoInfo, RepoSummary,
+};
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
@@ -145,6 +147,17 @@ pub async fn github_merge_pull_request(
         repo: &info.repo,
     };
     pulls::merge_pull_request(auth()?.client(), &token, &repo, number).await
+}
+
+/// For each "owner/name", whether it looks like an Astro site. Never fails for one
+/// repository: an empty or unreadable one comes back `unknown`.
+#[tauri::command]
+#[specta::specta]
+pub async fn github_check_astro_repos(
+    full_names: Vec<String>,
+) -> Result<Vec<RepoAstroCheck>, String> {
+    let token = signed_in_token().await?;
+    astro_check::check_repos(auth()?.client(), &token, &full_names).await
 }
 
 /// Repositories the signed-in user owns or collaborates on, most recently updated first

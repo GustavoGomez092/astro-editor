@@ -18,6 +18,7 @@ const repo = (fullName: string): RepoSummary => {
     defaultBranch: 'main',
     cloneUrl: `https://github.com/${fullName}.git`,
     updatedAt: '2026-11-01T10:00:00Z',
+    pushedAt: null,
   }
 }
 

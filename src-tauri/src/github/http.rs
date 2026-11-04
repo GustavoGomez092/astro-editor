@@ -112,6 +112,22 @@ impl GitHubClient {
         send_json(self.api_request(Method::POST, token, path).json(body)).await
     }
 
+    /// A GraphQL query. GitHub answers 200 even when part of the query failed, so
+    /// the caller reads `errors` and the nulls in `data` itself.
+    pub async fn graphql<T: DeserializeOwned>(
+        &self,
+        token: &str,
+        query: &str,
+        variables: &serde_json::Value,
+    ) -> Result<T, ApiError> {
+        let body = serde_json::json!({ "query": query, "variables": variables });
+        send_json(
+            self.api_request(Method::POST, token, "/graphql")
+                .json(&body),
+        )
+        .await
+    }
+
     pub async fn put<B: Serialize, T: DeserializeOwned>(
         &self,
         token: &str,
