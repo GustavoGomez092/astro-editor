@@ -180,6 +180,15 @@ pub async fn select_project_folder(app: tauri::AppHandle) -> Result<Option<Strin
     }
 }
 
+/// Which of these folders exist, in the same order. Used to tell a moved
+/// project from a second copy of it, and to mark registered projects whose
+/// folder is gone
+#[tauri::command]
+#[specta::specta]
+pub async fn folders_exist(paths: Vec<String>) -> Vec<bool> {
+    paths.iter().map(|path| Path::new(path).is_dir()).collect()
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn scan_project(project_path: String) -> Result<Vec<Collection>, String> {
@@ -882,6 +891,23 @@ pub async fn resolve_file_entry(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // --- folders_exist ---
+
+    #[tokio::test]
+    async fn folders_exist_reports_each_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        let folder = temp.path().join("site");
+        std::fs::create_dir(&folder).unwrap();
+        let file = temp.path().join("notes.md");
+        std::fs::write(&file, "").unwrap();
+
+        let paths = [folder, temp.path().join("gone"), file]
+            .iter()
+            .map(|p| p.to_string_lossy().to_string())
+            .collect();
+        assert_eq!(folders_exist(paths).await, vec![true, false, false]);
+    }
 
     // --- collection_has_body_text ---
 

@@ -37,9 +37,9 @@ Project and collection settings resolve **collection → project → hard-coded 
 
 ## Project IDs
 
-A project's ID is its `package.json` `name`, made filename-safe, or the folder name if there's no `package.json`. On a clash with an existing ID, a short hash of the path is appended (`utils.ts`). Keying on the name means a project keeps its settings when it's moved: if no registered project has the new path, `findMovedProject` looks for one with the same name and updates its path.
+A project's ID is its `package.json` `name`, made filename-safe, or the folder name if there's no `package.json`. On a clash with an existing ID, a short hash of the path is appended (`utils.ts`).
 
-That check doesn't confirm the old path is gone, so two projects with the same package name (say, two sites from the same Astro template) are treated as one project and share settings, which is a bug.
+A project is found by its path first. Only when no registered project has the path does `findMovedProject` look for one that moved: a registered project whose folder no longer exists (`folders_exist`) and whose `package.json` name the new folder has. A project whose folder is still there is never treated as moved, so two copies of one template stay two projects with their own settings. A folder name alone never matches, since unrelated folders often share one.
 
 ## Gotchas
 

@@ -84,7 +84,7 @@ export async function loadProjectRegistry(): Promise<ProjectRegistry> {
     return finalRegistry
   } catch {
     // File doesn't exist or is invalid, return defaults
-    return { ...DEFAULT_PROJECT_REGISTRY }
+    return { ...DEFAULT_PROJECT_REGISTRY, projects: {} }
   }
 }
 

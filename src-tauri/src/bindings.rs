@@ -48,6 +48,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::files::resolve_image_path,
             // project.rs commands
             crate::commands::project::select_project_folder,
+            crate::commands::project::folders_exist,
             crate::commands::project::scan_project,
             crate::commands::project::scan_project_with_content_dir,
             crate::commands::project::resolve_file_entry,

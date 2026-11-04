@@ -126,50 +126,86 @@ describe('Project Registry System', () => {
     })
   })
 
-  it('should handle project path migration', async () => {
-    // Initialize manager
-    setupInitializationMocks(mockInvoke)
+  /**
+   * A fake disk for registering projects: `packages` maps a folder to its
+   * package.json name (absent: no package.json), `folders` lists the folders
+   * that exist
+   */
+  function fakeDisk(disk: {
+    packages: Record<string, string>
+    folders: Set<string>
+  }) {
+    mockInvoke.mockImplementation((command: string, args?: unknown) => {
+      const a = (args ?? {}) as Record<string, unknown>
+      if (command === 'get_app_data_dir')
+        return Promise.resolve('/mock/app/data')
+      if (command === 'read_file_content') {
+        const folder = String(a.projectRoot)
+        const name = disk.packages[folder]
+        return name === undefined
+          ? Promise.reject(new Error('File not found'))
+          : Promise.resolve(JSON.stringify({ name }))
+      }
+      if (command === 'read_app_data_file')
+        return Promise.reject(new Error('File not found'))
+      if (command === 'folders_exist')
+        return Promise.resolve(
+          (a.paths as string[]).map(path => disk.folders.has(path))
+        )
+      return Promise.resolve(undefined)
+    })
+  }
 
+  it('follows a project whose folder moved', async () => {
+    const disk = {
+      packages: { '/old/site': 'my-site' } as Record<string, string>,
+      folders: new Set(['/old/site']),
+    }
+    fakeDisk(disk)
     await manager.initialize()
+    const id = await manager.registerProject('/old/site')
 
-    // Register a project at original path
-    const originalPath = '/original/project/test-project'
-    const mockPackageJson = JSON.stringify({ name: 'test-project' })
-
-    mockInvoke.mockResolvedValueOnce(mockPackageJson) // read_file_content (package.json)
-    mockInvoke.mockResolvedValueOnce('/mock/app/data') // get_app_data_dir for save
-    mockInvoke.mockResolvedValueOnce(undefined) // create_directory (preferences)
-    mockInvoke.mockResolvedValueOnce(undefined) // create_directory (projects)
-    mockInvoke.mockResolvedValueOnce('/mock/app/data') // get_app_data_dir for save path
-    mockInvoke.mockResolvedValueOnce(undefined) // write_app_data_file (save registry)
-
-    const originalProjectId = await manager.registerProject(originalPath)
-
-    // Now try to register same project at new path
-    const newPath = '/new/location/test-project'
-
-    // Mock the isSameProject check - it reads package.json from new path
-    mockInvoke.mockResolvedValueOnce(mockPackageJson) // read_file_content (package.json) for isSameProject check
-    mockInvoke.mockResolvedValueOnce(undefined) // write_app_data_file (save registry after migration)
-
-    const migratedProjectId = await manager.registerProject(newPath)
-
-    // Verify migration occurred correctly
-    // 1. Same project ID (not a new project)
-    expect(migratedProjectId).toBe(originalProjectId)
-
-    // 2. Path was updated
-    expect(manager.getRegistry().projects[originalProjectId]?.path).toBe(
-      newPath
-    )
-
-    // 3. Only one project exists in registry
+    // Moved: the old folder is gone, the new one has the same package name
+    disk.folders = new Set(['/new/site'])
+    disk.packages = { '/new/site': 'my-site' }
+    expect(await manager.registerProject('/new/site')).toBe(id)
+    expect(manager.getRegistry().projects[id]?.path).toBe('/new/site')
     expect(Object.keys(manager.getRegistry().projects)).toHaveLength(1)
+  })
 
-    // 4. Project name remains the same
-    expect(manager.getRegistry().projects[originalProjectId]?.name).toBe(
-      'test-project'
-    )
+  it('keeps two copies of one template apart', async () => {
+    const disk = {
+      packages: { '/sites/a': 'astro-blog', '/sites/b': 'astro-blog' },
+      folders: new Set(['/sites/a', '/sites/b']),
+    }
+    fakeDisk(disk)
+    await manager.initialize()
+    const a = await manager.registerProject('/sites/a')
+    const b = await manager.registerProject('/sites/b')
+
+    expect(b).not.toBe(a)
+    expect(manager.getRegistry().projects[a]?.path).toBe('/sites/a')
+    expect(manager.getRegistry().projects[b]?.path).toBe('/sites/b')
+    // Opening the first again finds it by its path
+    expect(await manager.registerProject('/sites/a')).toBe(a)
+    expect(manager.getRegistry().projects[a]?.path).toBe('/sites/a')
+  })
+
+  it('never matches a moved project on its folder name alone', async () => {
+    const disk = {
+      packages: {} as Record<string, string>,
+      folders: new Set(['/work/notes']),
+    }
+    fakeDisk(disk)
+    await manager.initialize()
+    const first = await manager.registerProject('/work/notes')
+
+    // The first folder is gone, and another folder with the same name and
+    // no package.json is opened: an unrelated project
+    disk.folders = new Set(['/home/notes'])
+    const second = await manager.registerProject('/home/notes')
+    expect(second).not.toBe(first)
+    expect(manager.getRegistry().projects[first]?.path).toBe('/work/notes')
   })
 
   it('keeps the Dev command override until it is cleared', async () => {

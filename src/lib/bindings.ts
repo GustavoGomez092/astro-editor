@@ -62,6 +62,12 @@ export const commands = {
 	 */
 	resolveImagePath: (imagePath: string, projectRoot: string, currentFilePath: string | null) => typedError<string, string>(__TAURI_INVOKE("resolve_image_path", { imagePath, projectRoot, currentFilePath })),
 	selectProjectFolder: () => typedError<string | null, string>(__TAURI_INVOKE("select_project_folder")),
+	/**
+	 *  Which of these folders exist, in the same order. Used to tell a moved
+	 *  project from a second copy of it, and to mark registered projects whose
+	 *  folder is gone
+	 */
+	foldersExist: (paths: string[]) => __TAURI_INVOKE<boolean[]>("folders_exist", { paths }),
 	scanProject: (projectPath: string) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project", { projectPath })),
 	scanProjectWithContentDir: (projectPath: string, contentDirectory: string | null) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project_with_content_dir", { projectPath, contentDirectory })),
 	/**
