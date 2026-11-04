@@ -10,6 +10,7 @@ mod mdx_components;
 mod mdx_esm;
 mod models;
 mod parser;
+mod previews;
 mod schema_merger;
 // Fork: kept for upstream merges but never called (telemetry is disabled).
 #[allow(dead_code)]

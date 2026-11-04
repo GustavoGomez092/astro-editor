@@ -256,6 +256,17 @@ export const commands = {
 	 *  so a fresh pool thread would make an occasional check that slow
 	 */
 	checkGrammar: (text: string, fileType: GrammarFileType, dialect: GrammarDialect, dictionary: string[]) => typedError<GrammarIssue[] | null, string>(__TAURI_INVOKE("check_grammar", { text, fileType, dialect, dictionary })),
+	/**
+	 *  The stored screenshot of the site if there is one, else its share image
+	 *  from `public/`, else null. Fast: no network and no dev server.
+	 */
+	projectPreview: (projectPath: string) => typedError<ProjectPreview | null, string>(__TAURI_INVOKE("project_preview", { projectPath })),
+	/**
+	 *  Takes a new screenshot of the site's home page as it runs locally, starting
+	 *  its dev server if it isn't running (and stopping it again after), stores it
+	 *  and returns it.
+	 */
+	captureProjectPreview: (projectPath: string) => typedError<ProjectPreview | null, string>(__TAURI_INVOKE("capture_project_preview", { projectPath })),
 };
 
 /* Types */
@@ -559,6 +570,26 @@ export type MdxComponent = {
 	 *  e.g. the `TabItem`s inside `Tabs`
 	 */
 	slot_template: string | null,
+};
+
+export type PreviewKind = 
+/**  A screenshot of the site's home page */
+"screenshot" | 
+/**  The site's share image from `public/` */
+"share-image";
+
+/**  A site's preview image */
+export type ProjectPreview = {
+	kind: PreviewKind,
+	/**  A `data:` URL of a JPEG, at most 800 px wide */
+	src: string,
+	/**  When the screenshot was taken (ISO 8601); null for a share image */
+	takenAt: string | null,
+};
+
+/**  Payload of the `project-preview-updated` event */
+export type ProjectPreviewUpdated = {
+	projectPath: string,
 };
 
 /**  What was picked for the props whose values the file has to import or load */

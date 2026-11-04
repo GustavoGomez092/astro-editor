@@ -158,6 +158,26 @@ export type {
    */
   DevServerStatus,
   /**
+   * A site's preview image for the Home screen, from `projectPreview` or
+   * `captureProjectPreview`.
+   * @see src-tauri/src/previews/mod.rs
+   *
+   * Fields:
+   * - `kind` - `screenshot` (the home page as it runs locally) or `share-image` (from `public/`)
+   * - `src` - A `data:` URL of a JPEG, at most 800 px wide
+   * - `takenAt` - When the screenshot was taken (ISO 8601); null for a share image
+   */
+  ProjectPreview,
+  /**
+   * `screenshot` or `share-image`. See `ProjectPreview`.
+   */
+  PreviewKind,
+  /**
+   * Payload of the `project-preview-updated` event, sent whenever a stored
+   * preview changes.
+   */
+  ProjectPreviewUpdated,
+  /**
    * A file that conflicts between the current branch and its upstream, from
    * `gitConflicts` (an in-memory merge; nothing is written).
    *
