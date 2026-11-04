@@ -18,14 +18,10 @@ interface OpenPullRequestDialogProps {
   onOpenChange: (open: boolean) => void
   branch: string
   defaultBranch: string
+  /** The suggested title (`pullRequestTitle`) */
+  defaultTitle: string
   onSubmit: (title: string, body: string) => void
   pending?: boolean
-}
-
-/** "spring-copy" → "Spring copy", a first guess at a title. */
-function titleFromBranch(branch: string): string {
-  const words = branch.replace(/[-_/]+/g, ' ').trim()
-  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 /**
@@ -37,6 +33,7 @@ export function OpenPullRequestDialog({
   onOpenChange,
   branch,
   defaultBranch,
+  defaultTitle,
   onSubmit,
   pending,
 }: OpenPullRequestDialogProps) {
@@ -48,6 +45,7 @@ export function OpenPullRequestDialog({
           <PullRequestForm
             branch={branch}
             defaultBranch={defaultBranch}
+            defaultTitle={defaultTitle}
             onCancel={() => onOpenChange(false)}
             onSubmit={onSubmit}
             pending={pending}
@@ -61,17 +59,19 @@ export function OpenPullRequestDialog({
 function PullRequestForm({
   branch,
   defaultBranch,
+  defaultTitle,
   onCancel,
   onSubmit,
   pending,
 }: {
   branch: string
   defaultBranch: string
+  defaultTitle: string
   onCancel: () => void
   onSubmit: (title: string, body: string) => void
   pending?: boolean
 }) {
-  const [title, setTitle] = useState(() => titleFromBranch(branch))
+  const [title, setTitle] = useState(defaultTitle)
   const [body, setBody] = useState('')
   const canSubmit = title.trim() !== '' && !pending
 

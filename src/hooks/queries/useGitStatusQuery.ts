@@ -21,6 +21,7 @@ function applyFetched(
     queryKeys.gitStatus(projectPath),
     queryKeys.gitBranches(projectPath),
     queryKeys.gitBehindDefault(projectPath),
+    queryKeys.gitAheadOfDefault(projectPath),
     [...queryKeys.git(projectPath), 'log'],
     queryKeys.pullRequests(projectPath),
   ]) {

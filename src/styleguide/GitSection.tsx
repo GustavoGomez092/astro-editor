@@ -444,6 +444,7 @@ export function GitOpenPullRequestSection() {
       onOpenChange={noop}
       branch="harbour-case-study"
       defaultBranch="main"
+      defaultTitle="Add the Harbour case study"
       onSubmit={noop}
     />
   )

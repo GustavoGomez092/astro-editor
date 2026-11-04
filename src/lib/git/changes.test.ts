@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { GitStatus, PullRequest } from '@/lib/bindings'
+import type { GitStatus, GraphCommit, PullRequest } from '@/lib/bindings'
 import {
   BUSY,
   REPEAT,
@@ -10,6 +10,7 @@ import {
   publishBlocker,
   publishMessage,
   pullRequestForBranch,
+  pullRequestTitle,
   syncBlocker,
   syncSummary,
   waitingToPublish,
@@ -256,5 +257,47 @@ describe('action guards', () => {
     expect(syncBlocker(input)).toBeNull()
     expect(bringInBlocker(input)).toBe(REPEAT)
     expect(syncBlocker({ ...input, busy: true })).toBe(BUSY)
+  })
+})
+
+describe('pullRequestTitle', () => {
+  const commit = (
+    id: string,
+    summary: string,
+    parents: string[],
+    head = false
+  ): GraphCommit => ({
+    id,
+    shortId: id,
+    parents,
+    summary,
+    authorName: 'Kevin',
+    time: 0,
+    refs: head ? [{ name: 'HEAD', kind: 'head' }] : [],
+  })
+
+  it('uses the latest commit on the branch', () => {
+    const log = [
+      commit('c', 'Add Jordan Ellis', ['b'], true),
+      commit('b', 'Update About', ['a']),
+      commit('a', 'Start', []),
+    ]
+    expect(pullRequestTitle(log, 'spring', 2)).toBe('Add Jordan Ellis')
+  })
+
+  it('skips merge commits made by Sync or Bring in', () => {
+    const log = [
+      commit('m', 'Combine changes from GitHub', ['c', 'x'], true),
+      commit('c', 'Add Jordan Ellis', ['a']),
+      commit('x', 'Theirs', ['a']),
+      commit('a', 'Start', []),
+    ]
+    expect(pullRequestTitle(log, 'spring', 2)).toBe('Add Jordan Ellis')
+  })
+
+  it('falls back to the branch when there is no commit of its own', () => {
+    const log = [commit('a', 'Start', [], true)]
+    expect(pullRequestTitle(log, 'spring', 0)).toBe('Changes from spring')
+    expect(pullRequestTitle([], 'spring', 1)).toBe('Changes from spring')
   })
 })

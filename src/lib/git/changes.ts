@@ -2,6 +2,7 @@ import type {
   ChangedFile,
   FileChange,
   GitStatus,
+  GraphCommit,
   PullRequest,
 } from '@/lib/bindings'
 
@@ -106,6 +107,28 @@ export function pullRequestForBranch(
   branch: string
 ): PullRequest | undefined {
   return pullRequests.find(pr => pr.head === branch && pr.state === 'open')
+}
+
+/**
+ * A first guess at a pull request's title: the summary of the latest commit
+ * on the branch that isn't a merge (Sync and Bring in make those), looking at
+ * the `ahead` commits the default branch doesn't have; else "Changes from
+ * {branch}".
+ */
+export function pullRequestTitle(
+  log: GraphCommit[],
+  branch: string,
+  ahead: number
+): string {
+  const byId = new Map(log.map(commit => [commit.id, commit]))
+  let commit = log.find(c => c.refs.some(ref => ref.kind === 'head'))
+  for (let step = 0; commit && step < ahead; step++) {
+    if (commit.parents.length <= 1 && commit.summary.trim()) {
+      return commit.summary.trim()
+    }
+    commit = byId.get(commit.parents[0] ?? '')
+  }
+  return `Changes from ${branch}`
 }
 
 /**

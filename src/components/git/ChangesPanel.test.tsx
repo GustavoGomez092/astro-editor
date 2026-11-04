@@ -18,6 +18,9 @@ vi.mock('@/lib/bindings', () => ({
     gitBranches: vi.fn(),
     githubListPullRequests: vi.fn(),
     gitCommitsBehindDefault: vi.fn(),
+    gitCommitsAheadOfDefault: vi.fn(),
+    gitLogGraph: vi.fn(),
+    gitConflicts: vi.fn(),
     gitPublish: vi.fn(),
     gitSync: vi.fn(),
     scanProject: vi.fn(),
@@ -75,6 +78,9 @@ describe('ChangesPanel', () => {
     vi.mocked(commands.gitBranches).mockResolvedValue(ok([]))
     vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([]))
     vi.mocked(commands.gitCommitsBehindDefault).mockResolvedValue(ok(0))
+    vi.mocked(commands.gitCommitsAheadOfDefault).mockResolvedValue(ok(0))
+    vi.mocked(commands.gitLogGraph).mockResolvedValue(ok([]))
+    vi.mocked(commands.gitConflicts).mockResolvedValue(ok([]))
     vi.mocked(commands.readFileContent).mockResolvedValue(ok(''))
     vi.mocked(commands.scanProject).mockResolvedValue(
       ok([{ name: 'pages', path: '/site/src/content/pages' }] as never)
@@ -299,6 +305,51 @@ describe('ChangesPanel', () => {
         quote: true,
       })
       expect(commands.gitPublish).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('pull requests', () => {
+    const SPRING: GitStatus = {
+      ...CLEAN,
+      branch: 'spring',
+      upstream: 'origin/spring',
+    }
+
+    it('offers Open pull request only when the branch has commits main lacks', async () => {
+      withStatus(SPRING)
+      renderWithProviders(<ChangesPanel />)
+      await screen.findByText('No changes since the last publish.')
+      await vi.waitFor(() =>
+        expect(commands.gitCommitsAheadOfDefault).toHaveBeenCalled()
+      )
+      expect(
+        screen.queryByRole('button', { name: /Open pull request/ })
+      ).toBeNull()
+    })
+
+    it('suggests the latest commit as the title', async () => {
+      withStatus(SPRING)
+      vi.mocked(commands.gitCommitsAheadOfDefault).mockResolvedValue(ok(1))
+      vi.mocked(commands.gitLogGraph).mockResolvedValue(
+        ok([
+          {
+            id: 'c',
+            shortId: 'c',
+            parents: ['a'],
+            summary: 'Add Jordan Ellis',
+            authorName: 'Kevin',
+            time: 0,
+            refs: [{ name: 'HEAD', kind: 'head' }],
+          },
+        ])
+      )
+      renderWithProviders(<ChangesPanel />)
+      await userEvent.click(
+        await screen.findByRole('button', { name: /Open pull request/ })
+      )
+      expect(await screen.findByLabelText('Title')).toHaveValue(
+        'Add Jordan Ellis'
+      )
     })
   })
 })

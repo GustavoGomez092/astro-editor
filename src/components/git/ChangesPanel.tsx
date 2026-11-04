@@ -8,6 +8,7 @@ import {
   publishBlocker,
   publishMessage,
   pullRequestForBranch,
+  pullRequestTitle,
   syncBlocker,
   type GitAction,
 } from '@/lib/git/changes'
@@ -30,6 +31,8 @@ import { useGitHubAuthQuery } from '../../hooks/queries/useGitHubAuthQuery'
 import { useGitHubRepoInfoQuery } from '../../hooks/queries/useGitHubRepoInfoQuery'
 import { useGitBranchesQuery } from '../../hooks/queries/useGitBranchesQuery'
 import { useGitBehindDefaultQuery } from '../../hooks/queries/useGitBehindDefaultQuery'
+import { useGitAheadOfDefaultQuery } from '../../hooks/queries/useGitAheadOfDefaultQuery'
+import { useGitLogQuery } from '../../hooks/queries/useGitLogQuery'
 import { usePullRequestsQuery } from '../../hooks/queries/usePullRequestsQuery'
 import { useEntryLookup } from '../../hooks/queries/useEntryLookup'
 import { useGitPublishMutation } from '../../hooks/mutations/useGitPublishMutation'
@@ -124,6 +127,15 @@ export function ChangesPanel() {
       enabled: isRepo && onFeatureBranch,
     }).data ?? 0
   const behindDefault = onFeatureBranch && behindDefaultCount > 0
+  const canOpenPullRequest = onFeatureBranch && onGitHub && signedIn
+  const aheadOfDefault =
+    useGitAheadOfDefaultQuery(projectPath, {
+      enabled: isRepo && canOpenPullRequest,
+    }).data ?? 0
+  // For the pull request's suggested title
+  const log = useGitLogQuery(projectPath, {
+    enabled: isRepo && canOpenPullRequest && aheadOfDefault > 0,
+  }).data
   const busy = useGitBusy()
 
   const [stored, setStored] = useState<StoredNotice | null>(null)
@@ -349,33 +361,38 @@ export function ChangesPanel() {
   const unpublished = (status?.ahead ?? 0) > 0 || files.length > 0
 
   let pullRequestArea: React.ReactNode = null
-  if (onFeatureBranch && onGitHub && signedIn) {
-    pullRequestArea = currentPullRequest ? (
-      <PullRequestCard
-        pr={currentPullRequest}
-        merging={mergePullRequest.isPending}
-        disabled={busy}
-        unpublished={unpublished}
-        onMerge={() => handleMerge(currentPullRequest)}
-      />
-    ) : (
-      <div className="space-y-1">
-        <Button
-          variant="outline"
-          size="sm"
-          className="w-full"
-          disabled={!status?.upstream || busy}
-          onClick={() => setOpeningPullRequest(true)}
-        >
-          <GitPullRequest /> Open pull request
-        </Button>
-        {!status?.upstream && (
-          <p className="text-center text-xs text-muted-foreground">
-            Publish this branch first.
-          </p>
-        )}
-      </div>
-    )
+  if (canOpenPullRequest) {
+    if (currentPullRequest) {
+      pullRequestArea = (
+        <PullRequestCard
+          pr={currentPullRequest}
+          merging={mergePullRequest.isPending}
+          disabled={busy}
+          unpublished={unpublished}
+          onMerge={() => handleMerge(currentPullRequest)}
+        />
+      )
+    } else if (aheadOfDefault > 0) {
+      // Only with something to propose: GitHub refuses an empty one
+      pullRequestArea = (
+        <div className="space-y-1">
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            disabled={!status?.upstream || busy}
+            onClick={() => setOpeningPullRequest(true)}
+          >
+            <GitPullRequest /> Open pull request
+          </Button>
+          {!status?.upstream && (
+            <p className="text-center text-xs text-muted-foreground">
+              Publish this branch first.
+            </p>
+          )}
+        </div>
+      )
+    }
   }
 
   // Remote-only branches are labelled by the remote's name ("origin"), or
@@ -480,6 +497,7 @@ export function ChangesPanel() {
           onOpenChange={setOpeningPullRequest}
           branch={branch}
           defaultBranch={defaultBranch}
+          defaultTitle={pullRequestTitle(log ?? [], branch, aheadOfDefault)}
           onSubmit={handleOpenPullRequest}
           pending={createPullRequest.isPending}
         />
