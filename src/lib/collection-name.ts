@@ -6,9 +6,10 @@
  */
 export function collectionDisplayName(name: string): string {
   const words = name
+    // A lone I between camelCase words (`whatIBring`), but not the start of a
+    // plural acronym (`myIDs`)
+    .replace(/([a-z])I(?=[A-Z](?!s(?![a-z]))[a-z])/g, '$1 I ')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    // An acronym before a word: `whatIBring`, `HTMLGuide`
-    .replace(/([A-Z])([A-Z][a-z])/g, '$1 $2')
     .split(/[\s_-]+/)
     .filter(Boolean)
     .map((word, index) => {

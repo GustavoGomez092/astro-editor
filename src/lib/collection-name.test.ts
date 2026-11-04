@@ -20,11 +20,20 @@ describe('collectionDisplayName', () => {
     expect(collectionDisplayName('things_i_make')).toBe('Things I make')
     expect(collectionDisplayName('i-wrote-this')).toBe('I wrote this')
     expect(collectionDisplayName('whatIBring')).toBe('What I bring')
+    expect(collectionDisplayName('whatIDo')).toBe('What I do')
   })
 
   it('leaves an i inside a word alone', () => {
     expect(collectionDisplayName('kind-words')).toBe('Kind words')
     expect(collectionDisplayName('ideas-in-progress')).toBe('Ideas in progress')
+  })
+
+  it('keeps plural acronyms as one word', () => {
+    expect(collectionDisplayName('FAQs')).toBe('Faqs')
+    expect(collectionDisplayName('IDs')).toBe('Ids')
+    expect(collectionDisplayName('URLs')).toBe('Urls')
+    expect(collectionDisplayName('team-FAQs')).toBe('Team faqs')
+    expect(collectionDisplayName('myIDs')).toBe('My ids')
   })
 
   it('keeps an all-caps word', () => {
