@@ -16,6 +16,11 @@ use specta::Type;
 /// Harper offers a handful of suggestions; more than this clutters the popup
 const MAX_SUGGESTIONS: usize = 5;
 
+/// Style rules that underline a whole heading or sentence. They're matters of
+/// house style rather than mistakes (many sites use sentence-case headings),
+/// and an underline that long is the opposite of quiet
+const RULES_OFF: [&str; 2] = ["UseTitleCase", "LongSentences"];
+
 /// Which parser rules apply. MDX adds masking for imports, component tags and
 /// `{expressions}`, which Harper's Markdown parser doesn't know about
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -94,7 +99,10 @@ impl Checker {
         dictionary.add_dictionary(FstDictionary::curated());
         dictionary.add_dictionary(Arc::new(personal));
         let dictionary = Arc::new(dictionary);
-        let group = LintGroup::new_curated(dictionary.clone(), dialect.into());
+        let mut group = LintGroup::new_curated(dictionary.clone(), dialect.into());
+        for rule in RULES_OFF {
+            group.config.set_rule_enabled(rule, false);
+        }
         let folded_words = words.iter().map(|w| w.to_lowercase()).collect();
         Self {
             dialect,
@@ -119,7 +127,7 @@ impl Checker {
         let source: String = source.iter().collect();
         let document = Document::new_markdown_default(&source, &*self.dictionary);
 
-        let mut lints: Vec<(String, harper_core::linting::Lint)> = self
+        let lints: Vec<(String, harper_core::linting::Lint)> = self
             .group
             .organized_lints(&document)
             .into_iter()
@@ -135,25 +143,15 @@ impl Checker {
             .collect();
 
         // Several rules can flag the same words ("teh" is both a misspelling and a
-        // typo for "the"). Keep one: a misspelling first, since it offers Add to
-        // dictionary, then the most important by Harper's priority
-        lints.sort_by_key(|(_, lint)| {
+        // typo for "the"), and underlines can't overlap, so keep one of each set
+        let kept = keep_non_overlapping(lints, |(_, lint)| {
             (
                 lint.span.start,
-                lint.lint_kind != LintKind::Spelling,
+                lint.span.end,
+                lint.lint_kind == LintKind::Spelling,
                 lint.priority,
             )
         });
-        let mut kept: Vec<(String, harper_core::linting::Lint)> = Vec::new();
-        for (rule, lint) in lints {
-            if kept
-                .last()
-                .is_some_and(|(_, last)| lint.span.start < last.span.end)
-            {
-                continue;
-            }
-            kept.push((rule, lint));
-        }
 
         let utf16 = utf16_offsets(&chars);
         kept.into_iter()
@@ -192,6 +190,34 @@ impl Checker {
             })
             .collect()
     }
+}
+
+/// Drops items whose ranges overlap one already kept, keeping misspellings
+/// first (they offer Add to dictionary), then the shorter range (so a broad
+/// issue can't hide a typo inside it), then Harper's priority (lower is more
+/// important). `key` gives (start, end, is spelling, priority). Returns the
+/// kept items in text order
+fn keep_non_overlapping<T>(
+    mut items: Vec<T>,
+    key: impl Fn(&T) -> (usize, usize, bool, u8),
+) -> Vec<T> {
+    items.sort_by_key(|item| {
+        let (start, end, spelling, priority) = key(item);
+        (!spelling, end - start, priority, start)
+    });
+    let mut kept: Vec<T> = Vec::new();
+    for item in items {
+        let (start, end, ..) = key(&item);
+        let overlaps = kept.iter().any(|k| {
+            let (k_start, k_end, ..) = key(k);
+            start < k_end && k_start < end
+        });
+        if !overlaps {
+            kept.push(item);
+        }
+    }
+    kept.sort_by_key(|item| key(item).0);
+    kept
 }
 
 /// The UTF-16 offset of every char index, plus one for the end of the text
@@ -481,6 +507,43 @@ mod tests {
         let issues = check("I saw teh dog.", GrammarFileType::Md);
         let on_teh = issues.iter().filter(|i| i.problem == "teh").count();
         assert_eq!(on_teh, 1, "{issues:?}");
+    }
+
+    const LONG_SENTENCE: &str = "This is a very long sentence that keeps going and going with many words in it so that it becomes far too long for a reader to follow comfortably and it also has teh misspelling hidden somewhere in the middle of all these words that keep on coming without any pause at all.";
+
+    #[test]
+    fn spelling_inside_a_long_sentence_is_flagged() {
+        let issues = check(LONG_SENTENCE, GrammarFileType::Md);
+        assert!(issues.iter().any(|i| i.problem == "teh"), "{issues:?}");
+    }
+
+    #[test]
+    fn style_rules_that_cover_whole_lines_are_off() {
+        let issues = check(
+            &format!("# Writing with fewer words\n\n{LONG_SENTENCE}\n"),
+            GrammarFileType::Md,
+        );
+        assert!(
+            issues
+                .iter()
+                .all(|i| i.rule != "UseTitleCase" && i.rule != "LongSentences"),
+            "{issues:?}"
+        );
+    }
+
+    #[test]
+    fn overlaps_keep_spelling_then_the_shorter_issue() {
+        // (start, end, is spelling, priority)
+        let kept = keep_non_overlapping(
+            vec![
+                (0, 16, false, 1),
+                (8, 10, false, 1),
+                (9, 12, true, 255),
+                (20, 24, false, 1),
+            ],
+            |&(start, end, spelling, priority)| (start, end, spelling, priority),
+        );
+        assert_eq!(kept, vec![(9, 12, true, 255), (20, 24, false, 1)]);
     }
 
     #[test]
