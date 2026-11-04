@@ -54,6 +54,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::project::load_file_based_collection,
             crate::commands::project::scan_directory,
             crate::commands::project::count_collection_files_recursive,
+            crate::commands::project::collection_has_body_text,
             crate::commands::project::scan_collection_files_recursive,
             // watcher.rs commands
             crate::commands::watcher::start_watching_project,

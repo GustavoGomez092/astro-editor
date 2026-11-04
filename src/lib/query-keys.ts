@@ -7,6 +7,13 @@ export const queryKeys = {
   // Every file in a collection, with its frontmatter, for entry pickers
   collectionFiles: (projectPath: string, collectionName: string) =>
     [...queryKeys.collections(projectPath), collectionName, 'files'] as const,
+  // Whether any entry has body text. Under collectionFiles, so whatever
+  // refreshes the collection's files refreshes it too
+  collectionHasBody: (projectPath: string, collectionName: string) =>
+    [
+      ...queryKeys.collectionFiles(projectPath, collectionName),
+      'hasBody',
+    ] as const,
   // The files and folders in one folder of a collection, for the sidebar
   directoryContents: (
     projectPath: string,
