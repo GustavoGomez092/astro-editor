@@ -78,10 +78,12 @@ pub fn discard_file(repo: &Repository, path: &str) -> Result<GitStatus, String> 
     let clean = checked_path(repo, path)?;
     let path = clean.to_string_lossy().replace('\\', "/");
     let changes = changed_files(repo)?;
-    let Some(change) = changes
-        .iter()
-        .find(|f| f.path == path || f.old_path.as_deref() == Some(path.as_str()))
-    else {
+    // The entry listed under this path, else a rename away from it
+    let Some(change) = changes.iter().find(|f| f.path == path).or_else(|| {
+        changes
+            .iter()
+            .find(|f| f.old_path.as_deref() == Some(path.as_str()))
+    }) else {
         return repo_status(repo);
     };
     let head_tree = repo.head().and_then(|h| h.peel_to_tree()).ok();
@@ -224,6 +226,38 @@ mod tests {
             std::fs::read_to_string(elsewhere.path().join("x.md")).unwrap(),
             "keep\n"
         );
+    }
+
+    #[test]
+    fn a_new_file_at_a_renamed_away_path_is_its_own_entry() {
+        let (_dir, repo) = committed();
+        // a.md renamed to 0-renamed.md (staged, and listed before a.md), then a new
+        // a.md written
+        std::fs::rename(
+            repo.workdir().unwrap().join("a.md"),
+            repo.workdir().unwrap().join("0-renamed.md"),
+        )
+        .unwrap();
+        stage(&repo, "0-renamed.md");
+        let mut index = repo.index().unwrap();
+        index.remove_path(Path::new("a.md")).unwrap();
+        index.write().unwrap();
+        write(&repo, "a.md", "a brand new a\n");
+        let before = changed_files(&repo).unwrap();
+        assert!(
+            before.iter().any(|f| f.path == "a.md"),
+            "a.md is listed itself: {before:?}"
+        );
+
+        discard_file(&repo, "a.md").unwrap();
+        // The rename isn't touched
+        assert_eq!(read(&repo, "0-renamed.md"), "a\n");
+        let after = changed_files(&repo).unwrap();
+        assert!(
+            after.iter().any(|f| f.path == "0-renamed.md"),
+            "the rename is still there: {after:?}"
+        );
+        assert!(!after.iter().any(|f| f.path == "a.md"), "{after:?}");
     }
 
     #[test]
