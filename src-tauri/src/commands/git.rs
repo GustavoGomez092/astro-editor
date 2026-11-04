@@ -2,24 +2,34 @@
 //! thread so the UI never waits on disk or network. The logic lives in `crate::git`.
 
 use crate::git::{
-    BranchInfo, CommitDetails, FileDiff, GitStatus, GraphCommit, PublishResult, SyncResult,
+    self, BranchInfo, CommitDetails, FileDiff, GitStatus, GraphCommit, PublishResult, SyncResult,
 };
+use std::path::PathBuf;
 
 const NOT_IMPLEMENTED: &str = "not implemented";
+
+/// Run libgit2 work on a blocking thread
+async fn blocking<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("The git operation stopped unexpectedly: {e}"))?
+}
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_status(project_path: String) -> Result<GitStatus, String> {
-    let _ = project_path;
-    Err(NOT_IMPLEMENTED.to_string())
+    blocking(move || git::status::status(&PathBuf::from(project_path))).await
 }
 
 /// Working tree vs `HEAD` for one file
 #[tauri::command]
 #[specta::specta]
 pub async fn git_file_diff(project_path: String, path: String) -> Result<FileDiff, String> {
-    let _ = (project_path, path);
-    Err(NOT_IMPLEMENTED.to_string())
+    blocking(move || git::diff::file_diff(&PathBuf::from(project_path), &path)).await
 }
 
 #[tauri::command]
@@ -93,8 +103,7 @@ pub async fn git_commit_file_diff(
     id: String,
     path: String,
 ) -> Result<FileDiff, String> {
-    let _ = (project_path, id, path);
-    Err(NOT_IMPLEMENTED.to_string())
+    blocking(move || git::diff::commit_file_diff(&PathBuf::from(project_path), &id, &path)).await
 }
 
 /// "Bring in changes from main": merge the default branch into the current one

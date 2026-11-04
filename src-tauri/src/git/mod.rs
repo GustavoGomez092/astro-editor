@@ -6,8 +6,10 @@
 //! Checkouts and fast-forwards use libgit2's safe checkout, and a merge that conflicts
 //! is aborted with the repository restored. See `docs/developer/git-and-github.md`.
 
+use git2::{ErrorCode, Repository};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::path::Path;
 
 /// How a file differs from `HEAD`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -168,4 +170,32 @@ pub struct CommitDetails {
 pub struct CloneProgress {
     pub received: u32,
     pub total: u32,
+}
+
+pub mod diff;
+pub mod status;
+#[cfg(test)]
+pub(crate) mod test_support;
+
+const NOT_A_REPO: &str = "This folder isn't a git repository";
+
+/// The repository containing `project_path`, or `None` if there isn't one.
+/// A project can live in a subfolder of its repository.
+pub(crate) fn open(project_path: &Path) -> Result<Option<Repository>, String> {
+    match Repository::discover(project_path) {
+        Ok(repo) if repo.is_bare() => Ok(None),
+        Ok(repo) => Ok(Some(repo)),
+        Err(e) if e.code() == ErrorCode::NotFound => Ok(None),
+        Err(e) => Err(format!("Couldn't open the git repository: {}", e.message())),
+    }
+}
+
+/// Like [`open`], but a folder without a repository is an error
+pub(crate) fn open_required(project_path: &Path) -> Result<Repository, String> {
+    open(project_path)?.ok_or_else(|| NOT_A_REPO.to_string())
+}
+
+/// Plain-language text for a libgit2 error, prefixed with what was being done
+pub(crate) fn describe(action: &str, e: &git2::Error) -> String {
+    format!("{action}: {}", e.message())
 }
