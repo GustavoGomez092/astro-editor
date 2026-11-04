@@ -58,4 +58,64 @@ describe('hidesBodyEditor', () => {
       })
     ).toBe(false)
   })
+
+  describe('while the open file is still loading', () => {
+    // openFile empties the body before the file loads, so its text is unknown
+    const loading = {
+      fileHasBody: undefined,
+    } as const
+
+    it('keeps the previous choice when only the file can decide', () => {
+      for (const previous of [true, false]) {
+        for (const collectionHasBody of [true, undefined]) {
+          expect(
+            hidesBodyEditor({
+              ...loading,
+              setting: 'hide',
+              collectionHasBody,
+              previous,
+            })
+          ).toBe(previous)
+        }
+      }
+    })
+
+    it('decides at once when no entry has body text', () => {
+      expect(
+        hidesBodyEditor({
+          ...loading,
+          setting: 'hide',
+          collectionHasBody: false,
+          previous: false,
+        })
+      ).toBe(true)
+      expect(
+        hidesBodyEditor({
+          ...loading,
+          setting: undefined,
+          collectionHasBody: false,
+          previous: false,
+        })
+      ).toBe(true)
+    })
+
+    it('decides at once when the file has no say', () => {
+      expect(
+        hidesBodyEditor({
+          ...loading,
+          setting: 'show',
+          collectionHasBody: false,
+          previous: true,
+        })
+      ).toBe(false)
+      expect(
+        hidesBodyEditor({
+          ...loading,
+          setting: undefined,
+          collectionHasBody: true,
+          previous: true,
+        })
+      ).toBe(false)
+    })
+  })
 })
