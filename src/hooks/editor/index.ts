@@ -15,4 +15,5 @@
 export { useEditorSetup } from './useEditorSetup'
 export { useEditorHandlers } from './useEditorHandlers'
 export { useImageHover } from './useImageHover'
+export { useGrammarRefresh } from './useGrammarRefresh'
 export type { HoveredImage } from './useImageHover'

@@ -64,6 +64,12 @@ describe('issuesToDiagnostics', () => {
       'Ignore',
       'Add to dictionary',
     ])
+    expect(d?.actions?.map(a => a.markClass)).toEqual([
+      'cm-grammar-suggestion',
+      'cm-grammar-suggestion',
+      'cm-grammar-secondary',
+      'cm-grammar-secondary',
+    ])
   })
 
   test('labels an empty suggestion Remove and offers no dictionary for grammar', () => {
@@ -100,7 +106,12 @@ describe('issuesToDiagnostics', () => {
     const [d] = issuesToDiagnostics(DOC, [spelling], '/a.md', h)
     d?.actions?.[2]?.apply(view, d.from, d.to)
     d?.actions?.[3]?.apply(view, d.from, d.to)
-    expect(h.onIgnore).toHaveBeenCalledWith(view, ignoreKey(DOC, spelling))
+    expect(h.onIgnore).toHaveBeenCalledWith(
+      view,
+      ignoreKey(DOC, spelling),
+      8,
+      11
+    )
     expect(h.onAddWord).toHaveBeenCalledWith(view, 'teh')
     view.destroy()
   })

@@ -10,7 +10,8 @@ import type { GrammarIssue } from '@/lib/bindings'
 import { ignoreKey, isIgnored } from './ignored'
 
 export interface GrammarActionHandlers {
-  onIgnore: (view: EditorView, key: string) => void
+  /** `from` and `to` are the issue's range now, after any edits since the check */
+  onIgnore: (view: EditorView, key: string, from: number, to: number) => void
   onAddWord: (view: EditorView, word: string) => void
 }
 
@@ -34,6 +35,7 @@ export function issuesToDiagnostics(
     const spelling = issue.kind === 'spelling'
     const actions: Action[] = issue.suggestions.map(replacement => ({
       name: replacement || 'Remove',
+      markClass: 'cm-grammar-suggestion',
       apply: (view, from, to) => {
         view.dispatch({
           changes: { from, to, insert: replacement },
@@ -43,11 +45,13 @@ export function issuesToDiagnostics(
     }))
     actions.push({
       name: 'Ignore',
-      apply: view => handlers.onIgnore(view, key),
+      markClass: 'cm-grammar-secondary',
+      apply: (view, from, to) => handlers.onIgnore(view, key, from, to),
     })
     if (spelling && !/\s/.test(issue.problem)) {
       actions.push({
         name: 'Add to dictionary',
+        markClass: 'cm-grammar-secondary',
         apply: view => handlers.onAddWord(view, issue.problem),
       })
     }

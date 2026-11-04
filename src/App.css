@@ -227,6 +227,16 @@
     oklch(0.9491 0 0 / 0.5),
     oklch(0.2645 0 0 / 0.5)
   );
+  /* Grammar and spelling underlines: quiet, so they don't pull the eye while
+     writing. Spelling is a soft red, grammar a soft blue */
+  --editor-color-spelling: light-dark(
+    oklch(0.5749 0.1711 35.6912 / 0.65),
+    oklch(0.6981 0.1094 38.1559 / 0.7)
+  );
+  --editor-color-grammar: light-dark(
+    oklch(0.5543 0.1199 250.587 / 0.6),
+    oklch(0.6885 0.0623 247.237 / 0.75)
+  );
   --editor-color-selectedtext-background: light-dark(
     oklch(0.9081 0.0548 219.767),
     oklch(0.3624 0.0572 224.086)
