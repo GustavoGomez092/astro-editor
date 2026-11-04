@@ -71,7 +71,15 @@ describe('PreviewButton', () => {
   })
 
   it('is hidden while the preview tools are off', () => {
-    useProjectStore.setState({ globalSettings: DEFAULT_GLOBAL_SETTINGS })
+    useProjectStore.setState({
+      globalSettings: {
+        ...DEFAULT_GLOBAL_SETTINGS,
+        general: {
+          ...DEFAULT_GLOBAL_SETTINGS.general,
+          showPublishingTools: false,
+        },
+      },
+    })
     renderWithProviders(<PreviewButton />)
     expect(screen.queryByText('Preview')).toBeNull()
   })

@@ -4,7 +4,7 @@ The frontend of the optional publishing tools: the **Changes** tab in the left s
 
 ## Switched off by default
 
-Everything here is behind the General preference **Show preview and publishing tools** (`general.showPublishingTools`, default `false`), read with `useShowPublishingTools()`. While it's off:
+Everything here is behind the General preference **Show preview and publishing tools** (`general.showPublishingTools`, default `PUBLISHING_TOOLS_DEFAULT` in `defaults.ts`, `true` in this fork), read with `useShowPublishingTools()`. While it's off:
 
 - no git or GitHub query runs (each query hook checks the preference in `enabled`);
 - the sidebar has no tabs and renders the Files panel exactly as before;

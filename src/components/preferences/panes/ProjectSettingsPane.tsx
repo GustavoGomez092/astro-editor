@@ -18,6 +18,7 @@ import { SettingsSection } from '../SettingsSection'
 import { PreferencesTextInput } from '../PreferencesTextInput'
 import { DocsLink } from '../DocsLink'
 import { DOCS_URLS } from '../../../lib/docs-urls'
+import { PUBLISHING_TOOLS_DEFAULT } from '../../../lib/project-registry/defaults'
 import { useProjectDependenciesQuery } from '../../../hooks/queries/useProjectDependenciesQuery'
 
 export const ProjectSettingsPane: React.FC = () => {
@@ -37,7 +38,7 @@ export const ProjectSettingsPane: React.FC = () => {
   const mdxDirId = React.useId()
   const devCommandId = React.useId()
   const showPublishingTools =
-    globalSettings?.general?.showPublishingTools ?? false
+    globalSettings?.general?.showPublishingTools ?? PUBLISHING_TOOLS_DEFAULT
   // A select trigger is a button, which htmlFor would click, so it names
   // itself with aria-labelledby
   const fileTypeLabelId = React.useId()

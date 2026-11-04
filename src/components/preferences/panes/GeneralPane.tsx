@@ -21,7 +21,10 @@ import { SettingsSection } from '../SettingsSection'
 import { PreferencesTextInput } from '../PreferencesTextInput'
 import { DocsLink } from '../DocsLink'
 import { DOCS_URLS } from '../../../lib/docs-urls'
-import { DEFAULT_GLOBAL_SETTINGS } from '../../../lib/project-registry/defaults'
+import {
+  DEFAULT_GLOBAL_SETTINGS,
+  PUBLISHING_TOOLS_DEFAULT,
+} from '../../../lib/project-registry/defaults'
 
 const DEFAULT_HEADING_COLOR = DEFAULT_GLOBAL_SETTINGS.appearance.headingColor
 
@@ -207,7 +210,10 @@ export const GeneralPane: React.FC = () => {
             </div>
             <Switch
               id={`${id}-publishing-tools`}
-              checked={globalSettings?.general?.showPublishingTools ?? false}
+              checked={
+                globalSettings?.general?.showPublishingTools ??
+                PUBLISHING_TOOLS_DEFAULT
+              }
               onCheckedChange={checked =>
                 void updateGlobal({
                   general: { showPublishingTools: checked },

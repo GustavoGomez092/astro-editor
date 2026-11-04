@@ -14,6 +14,12 @@ export const DEFAULT_PUBLISHED_DATE_FIELDS = [
   'publishedDate',
 ]
 
+/**
+ * Whether the preview and publishing tools (Preview, Publish, the Changes tab)
+ * show when the preference isn't set. On in this fork; change it here only
+ */
+export const PUBLISHING_TOOLS_DEFAULT = true
+
 export const DEFAULT_PROJECT_SETTINGS: ProjectSettings = {
   pathOverrides: {
     contentDirectory: 'src/content/',
@@ -42,7 +48,7 @@ export const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
     },
     autoSaveDelay: 2,
     defaultFileType: 'md',
-    showPublishingTools: false,
+    showPublishingTools: PUBLISHING_TOOLS_DEFAULT,
   },
   appearance: {
     headingColor: {

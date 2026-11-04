@@ -204,9 +204,9 @@ describe('Project Registry System', () => {
     expect(saved).not.toContain('devCommand')
   })
 
-  it('hides the preview and publishing tools by default', async () => {
+  it('shows the preview and publishing tools by default in this fork', async () => {
     setupInitializationMocks(mockInvoke)
     await manager.initialize()
-    expect(manager.getGlobalSettings().general.showPublishingTools).toBe(false)
+    expect(manager.getGlobalSettings().general.showPublishingTools).toBe(true)
   })
 })

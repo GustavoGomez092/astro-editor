@@ -8,12 +8,14 @@ import {
 import { useGitStore } from '@/store/gitStore'
 import { useUIStore } from '@/store/uiStore'
 import type { AppCommand, CommandContext } from './types'
+import { PUBLISHING_TOOLS_DEFAULT } from '../project-registry/defaults'
 
 const available = (context: CommandContext) =>
   Boolean(
     context.projectPath &&
     context.isGitRepo &&
-    context.globalSettings?.general.showPublishingTools
+    (context.globalSettings?.general.showPublishingTools ??
+      PUBLISHING_TOOLS_DEFAULT)
   )
 
 /** Shows the Changes tab, opening the sidebar if it's closed. */
@@ -84,6 +86,9 @@ export const publishingCommands: AppCommand[] = [
     },
     // Needs no open project
     isAvailable: context =>
-      Boolean(context.globalSettings?.general.showPublishingTools),
+      Boolean(
+        context.globalSettings?.general.showPublishingTools ??
+        PUBLISHING_TOOLS_DEFAULT
+      ),
   },
 ]
