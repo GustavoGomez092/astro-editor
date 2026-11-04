@@ -80,7 +80,10 @@ export const commands = {
 	loadFileBasedCollection: (projectPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("load_file_based_collection", { projectPath, collectionName })),
 	/**  Scan a single directory (non-recursive) for subdirectories and markdown/mdx files */
 	scanDirectory: (directoryPath: string, collectionName: string, collectionRoot: string) => typedError<DirectoryScanResult, string>(__TAURI_INVOKE("scan_directory", { directoryPath, collectionName, collectionRoot })),
-	/**  Count all markdown/mdx files recursively in a collection */
+	/**
+	 *  Count all markdown/mdx files recursively in a collection, on a blocking
+	 *  thread
+	 */
 	countCollectionFilesRecursive: (collectionPath: string) => typedError<number, string>(__TAURI_INVOKE("count_collection_files_recursive", { collectionPath })),
 	/**
 	 *  Whether any entry in a collection has body text. Collections made only of
