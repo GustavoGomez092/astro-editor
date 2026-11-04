@@ -63,7 +63,7 @@ export const fileCommands: AppCommand[] = [
     execute: () => renameCurrentFileToTitle(),
     isAvailable: (context: CommandContext) => {
       const file = context.currentFile
-      if (!file) return false
+      if (!file || isGitBusy()) return false
       // The title as it is now in the form, which may not be saved yet
       return canRenameToTitle(
         file,

@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { trackSave } from '../../lib/files/pending-saves'
 import {
   info,
   error as logError,
@@ -301,7 +302,7 @@ export function useEditorActions() {
 
   const saveFile = useCallback(
     (showToast = true, reportFields = false) =>
-      saveCurrentFile(queryClient, showToast, reportFields),
+      trackSave(saveCurrentFile(queryClient, showToast, reportFields)),
     [queryClient]
   )
 

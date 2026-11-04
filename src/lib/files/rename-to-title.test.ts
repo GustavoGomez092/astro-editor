@@ -47,6 +47,18 @@ describe('renameTargetFor', () => {
     ).toBe('fresh-heading-2.md')
   })
 
+  it('treats names that differ only in case as taken', () => {
+    expect(
+      renameTargetFor('Fresh Heading', 'old.md', ['old.md', 'Fresh-Heading.md'])
+    ).toBe('fresh-heading-1.md')
+  })
+
+  it('allows a case-only rename of the file itself', () => {
+    expect(
+      renameTargetFor('Fresh Heading', 'Fresh-Heading.md', ['Fresh-Heading.md'])
+    ).toBe('fresh-heading.md')
+  })
+
   it('returns null when the name already follows the title', () => {
     expect(
       renameTargetFor('Fresh Title', 'fresh-title.md', ['fresh-title.md'])

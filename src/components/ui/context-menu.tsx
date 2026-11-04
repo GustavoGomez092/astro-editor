@@ -13,6 +13,7 @@ import type { FileEntry } from '@/types'
 import { useProjectStore } from '../../store/projectStore'
 import { openInIde } from '../../lib/ide'
 import { canRenameToTitle, titleOf } from '@/lib/files/rename-to-title-action'
+import { isGitBusy } from '@/lib/git/busy'
 import { getTitle } from '@/lib/files/sorting'
 import { getPlatform } from '@/hooks/usePlatform'
 import { getPlatformString } from '@/lib/platform-strings'
@@ -182,6 +183,7 @@ export class FileContextMenu {
       // Only when the file's name no longer follows its title
       const renameToTitleItem =
         onRenameToTitle &&
+        !isGitBusy() &&
         canRenameToTitle(file, titleOf(file, file.frontmatter ?? {}))
           ? await MenuItem.new({
               id: 'rename-to-title',

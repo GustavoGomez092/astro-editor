@@ -2,11 +2,19 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { FileEntry } from '@/types'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
+import { queryClient } from '../query-client'
+import { queryKeys } from '../query-keys'
+import { GIT_CHANGE_MUTATION_KEY } from '../git/repo-change'
 
 const { scanDirectory, renameFile, toast } = vi.hoisted(() => ({
   scanDirectory: vi.fn(),
   renameFile: vi.fn(),
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: {
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+  },
 }))
 
 vi.mock('@/lib/bindings', () => ({
@@ -179,5 +187,100 @@ describe('renameCurrentFileToTitle', () => {
     expect(useEditorStore.getState().currentFile?.path).toBe(
       '/site/blog/old-name.md'
     )
+  })
+
+  it('says so when the name already matches', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({ frontmatter: { title: 'Old Name' } })
+
+    await renameCurrentFileToTitle()
+
+    expect(renameFile).not.toHaveBeenCalled()
+    expect(toast.info).toHaveBeenCalled()
+  })
+
+  it('does nothing, and says why, while git is changing files', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    const mutation = queryClient.getMutationCache().build(queryClient, {
+      mutationKey: GIT_CHANGE_MUTATION_KEY,
+      mutationFn: () => new Promise(() => {}),
+    })
+    void mutation.execute(undefined).catch(() => {})
+    await Promise.resolve()
+
+    await renameCurrentFileToTitle()
+
+    expect(renameFile).not.toHaveBeenCalled()
+    expect(save).not.toHaveBeenCalled()
+    expect(toast.warning).toHaveBeenCalledWith('Wait for the sync to finish')
+    queryClient.getMutationCache().clear()
+  })
+
+  it('puts the slug back when the rename fails after it was saved', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({
+      frontmatter: { title: 'Fresh Title', slug: 'old-name' },
+      isDirty: true,
+    })
+    const saved: unknown[] = []
+    save.mockImplementation(() => {
+      saved.push(useEditorStore.getState().frontmatter.slug)
+      useEditorStore.setState({ isDirty: false })
+      return Promise.resolve()
+    })
+    renameFile.mockResolvedValue({ status: 'error', error: 'exists' })
+
+    await renameCurrentFileToTitle()
+
+    expect(saved).toEqual(['fresh-title', 'old-name'])
+    expect(useEditorStore.getState().frontmatter.slug).toBe('old-name')
+    expect(toast.error).toHaveBeenCalled()
+  })
+
+  it('uses the title as it is after the save, not before', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({
+      frontmatter: { title: 'Fresh Title', slug: 'old-name' },
+      isDirty: true,
+    })
+    save.mockImplementationOnce(() => {
+      // a keystroke lands while the save runs
+      useEditorStore.setState({
+        frontmatter: { title: 'Fresher Title', slug: 'fresh-title' },
+        isDirty: false,
+      })
+      return Promise.resolve()
+    })
+
+    await renameCurrentFileToTitle()
+
+    expect(renameFile.mock.calls[0]![1]).toBe('/site/blog/fresher-title.md')
+  })
+
+  it('says so when another entry is opened before the rename', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    useEditorStore.setState({ isDirty: true })
+    save.mockImplementation(() => {
+      useEditorStore.setState({
+        currentFile: file('elsewhere'),
+        isDirty: false,
+      })
+      return Promise.resolve()
+    })
+
+    await renameCurrentFileToTitle()
+
+    expect(renameFile).not.toHaveBeenCalled()
+    expect(toast.warning).toHaveBeenCalled()
+  })
+
+  it('forgets the old id’s cached content after the rename', async () => {
+    scanDirectory.mockResolvedValue(siblings('old-name'))
+    const key = queryKeys.fileContent('/site', 'blog/old-name')
+    queryClient.setQueryData(key, { content: 'old' })
+
+    await renameCurrentFileToTitle()
+
+    expect(queryClient.getQueryData(key)).toBeUndefined()
   })
 })

@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import type { CommandContext } from './types'
 import { fileCommands, navigationCommands } from './app-commands'
+import { queryClient } from '@/lib/query-client'
+import { GIT_CHANGE_MUTATION_KEY } from '@/lib/git/repo-change'
 import { useEditorStore } from '@/store/editorStore'
 import type { FileEntry } from '@/types'
 
@@ -52,5 +54,16 @@ describe('Rename File to Match Title', () => {
     expect(rename.isAvailable({ currentFile: null } as CommandContext)).toBe(
       false
     )
+  })
+  it('is not offered while git is changing files', () => {
+    useEditorStore.setState({ frontmatter: { title: 'Fresh Heading' } })
+    const mutation = queryClient.getMutationCache().build(queryClient, {
+      mutationKey: GIT_CHANGE_MUTATION_KEY,
+      mutationFn: () => new Promise(() => {}),
+    })
+    void mutation.execute(undefined).catch(() => {})
+
+    expect(rename.isAvailable(open)).toBe(false)
+    queryClient.getMutationCache().clear()
   })
 })
