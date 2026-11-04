@@ -207,15 +207,10 @@ describe('projectStore.updateProjectSettings with collection folders', () => {
 
     expect(stop).toHaveBeenCalledWith('/project')
     expect(start).toHaveBeenCalled()
-    const invalidated = vi
-      // oxlint-disable-next-line @typescript-eslint/unbound-method
-      .mocked(queryClient.invalidateQueries)
-      .mock.calls.map(([filters]) => filters?.queryKey)
-    // The collections first, as the other queries read their folders
-    expect(invalidated).toEqual([
-      ['project', '/project', 'collections'],
-      ['project', '/project'],
-    ])
+    // oxlint-disable-next-line @typescript-eslint/unbound-method
+    expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['project', '/project'],
+    })
   })
 
   it('saves and closes the open file when a collection folder changes', async () => {

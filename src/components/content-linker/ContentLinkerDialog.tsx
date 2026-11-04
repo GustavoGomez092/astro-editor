@@ -49,7 +49,11 @@ export function ContentLinkerDialog() {
   // A collection that fails to scan is left out
   const fileQueries = useQueries({
     queries: collections.map(collection => ({
-      queryKey: queryKeys.collectionFiles(projectPath || '', collection.name),
+      queryKey: queryKeys.collectionFiles(
+        projectPath || '',
+        collection.name,
+        collection.path
+      ),
       queryFn: () => fetchCollectionFiles(collection.path, collection.name),
       enabled: isOpen && !!projectPath,
       retry: false,

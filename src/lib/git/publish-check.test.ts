@@ -46,7 +46,10 @@ const changed = (name: string, change: ChangedFile['change'] = 'modified') => ({
 function cache(entries: FileEntry[]) {
   const client = new QueryClient()
   client.setQueryData(queryKeys.collections(SITE), [COLLECTION])
-  client.setQueryData(queryKeys.collectionFiles(SITE, 'testimonials'), entries)
+  client.setQueryData(
+    queryKeys.collectionFiles(SITE, 'testimonials', COLLECTION.path),
+    entries
+  )
   return client
 }
 
@@ -91,7 +94,10 @@ describe('entriesNeedingAttention', () => {
     } as Collection
     const client = cache([entry('jordan', { title: 'Jordan', email: 'nope' })])
     client.setQueryData(queryKeys.collections(SITE), [outer, COLLECTION])
-    client.setQueryData(queryKeys.collectionFiles(SITE, 'pages'), [])
+    client.setQueryData(
+      queryKeys.collectionFiles(SITE, 'pages', outer.path),
+      []
+    )
 
     const found = await entriesNeedingAttention(client, SITE, [
       changed('jordan'),

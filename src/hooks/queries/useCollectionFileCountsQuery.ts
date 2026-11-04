@@ -37,7 +37,8 @@ export const useCollectionFileCountsQuery = (
     queries: collections.map(collection => ({
       queryKey: queryKeys.collectionFileCount(
         projectPath || '',
-        collection.name
+        collection.name,
+        collection.path
       ),
       queryFn: () => countFiles(collection),
       enabled: !!projectPath,

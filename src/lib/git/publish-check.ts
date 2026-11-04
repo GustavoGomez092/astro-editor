@@ -57,7 +57,11 @@ export async function entriesNeedingAttention(
     if (!collection || !fields) continue
 
     const entries = await queryClient.ensureQueryData({
-      queryKey: queryKeys.collectionFiles(projectPath, collection.name),
+      queryKey: queryKeys.collectionFiles(
+        projectPath,
+        collection.name,
+        collection.path
+      ),
       // The same query as useCollectionFilesQuery, usually cached already
       queryFn: () =>
         unwrap(

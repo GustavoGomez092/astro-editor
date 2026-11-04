@@ -45,7 +45,11 @@ export function useEntryLookup(
 
   const results = useQueries({
     queries: touched.map(collection => ({
-      queryKey: queryKeys.collectionFiles(projectPath ?? '', collection.name),
+      queryKey: queryKeys.collectionFiles(
+        projectPath ?? '',
+        collection.name,
+        collection.path
+      ),
       queryFn: () => fetchCollectionFiles(collection.path, collection.name),
     })),
   })

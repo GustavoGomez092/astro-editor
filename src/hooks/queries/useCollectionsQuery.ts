@@ -9,6 +9,7 @@ import {
 } from '@/lib/project-registry/path-resolution'
 import { ASTRO_PATHS } from '@/lib/constants'
 import { ProjectSettings } from '@/lib/project-registry/types'
+import { useProjectStore } from '@/store/projectStore'
 
 // This is our actual data-fetching function using typed Tauri commands.
 const fetchCollections = async (
@@ -38,13 +39,23 @@ const fetchCollections = async (
   return result.data
 }
 
+/**
+ * The project's collections. The folders come from the settings as they are
+ * when it fetches (the store's, for the open project), not as they were when
+ * a component rendered, so a refetch right after a folder setting changes
+ * uses the new folders. The queries that read a collection's folder have it
+ * in their keys, so they follow
+ */
 export const useCollectionsQuery = (
   projectPath: string | null,
   projectSettings?: ProjectSettings | null
 ) => {
-  // Get effective content directory using centralized path resolution
-  const contentDirectory = getEffectiveContentDirectory(projectSettings)
-  const collectionFolders = getCollectionFolderOverrides(projectSettings)
+  const currentSettings = () => {
+    const store = useProjectStore.getState()
+    return store.projectPath === projectPath && store.currentProjectSettings
+      ? store.currentProjectSettings
+      : projectSettings
+  }
 
   return useQuery({
     // The queryKey uniquely identifies this query.
@@ -53,8 +64,14 @@ export const useCollectionsQuery = (
 
     // The queryFn is the function that fetches the data.
     // TanStack Query automatically provides the context, including the queryKey.
-    queryFn: () =>
-      fetchCollections(projectPath!, contentDirectory, collectionFolders),
+    queryFn: () => {
+      const settings = currentSettings()
+      return fetchCollections(
+        projectPath!,
+        getEffectiveContentDirectory(settings),
+        getCollectionFolderOverrides(settings)
+      )
+    },
 
     // We only want to run this query if a projectPath is available.
     enabled: !!projectPath,

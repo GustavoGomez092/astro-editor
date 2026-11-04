@@ -199,7 +199,11 @@ const FilesPanel: React.FC = () => {
       count: fileCounts[collection.name],
       loadFiles: () =>
         queryClient.fetchQuery({
-          queryKey: queryKeys.collectionFiles(projectPath, collection.name),
+          queryKey: queryKeys.collectionFiles(
+            projectPath,
+            collection.name,
+            collection.path
+          ),
           queryFn: () => fetchCollectionFiles(collection.path, collection.name),
         }),
     }).catch((error: unknown) => {

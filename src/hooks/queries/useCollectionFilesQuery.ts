@@ -30,7 +30,8 @@ export const useCollectionFilesQuery = (
   return useQuery({
     queryKey: queryKeys.collectionFiles(
       projectPath || '',
-      collectionName || ''
+      collectionName || '',
+      collectionPath || ''
     ),
     queryFn: () => fetchCollectionFiles(collectionPath!, collectionName!),
     enabled: !!projectPath && !!collectionName && !!collectionPath,

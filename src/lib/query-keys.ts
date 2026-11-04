@@ -8,8 +8,20 @@ export const queryKeys = {
   collections: (projectPath: string) =>
     [...queryKeys.all, projectPath, 'collections'] as const,
   // Every file in a collection, with its frontmatter, for entry pickers
-  collectionFiles: (projectPath: string, collectionName: string) =>
-    [...queryKeys.collections(projectPath), collectionName, 'files'] as const,
+  // The queries that read a collection's folder end with it, so a folder
+  // changing (a folder set in Collection Settings) is a new query. Leave it
+  // out to refresh the collection's queries whatever its folder
+  collectionFiles: (
+    projectPath: string,
+    collectionName: string,
+    collectionPath?: string
+  ) =>
+    [
+      ...queryKeys.collections(projectPath),
+      collectionName,
+      'files',
+      ...(collectionPath ? [collectionPath] : []),
+    ] as const,
   // Whether any entry has body text. Under collectionFiles, so whatever
   // refreshes the collection's files refreshes it too
   collectionHasBody: (projectPath: string, collectionName: string) =>
@@ -22,13 +34,24 @@ export const queryKeys = {
   // edit, and counting walks the whole folder. Refreshed by name instead (the
   // watcher for files added or removed, creating an entry), by
   // reloadProjectFiles, and by Reload Collections with everything else
-  collectionFileCount: (projectPath: string, collectionName: string) =>
-    [...queryKeys.all, projectPath, 'fileCount', collectionName] as const,
+  collectionFileCount: (
+    projectPath: string,
+    collectionName: string,
+    collectionPath?: string
+  ) =>
+    [
+      ...queryKeys.all,
+      projectPath,
+      'fileCount',
+      collectionName,
+      ...(collectionPath ? [collectionPath] : []),
+    ] as const,
   // The files and folders in one folder of a collection, for the sidebar
   directoryContents: (
     projectPath: string,
     collectionName: string,
-    subdirectory: string // 'root' or relative path like "2024/january"
+    subdirectory: string, // 'root' or relative path like "2024/january"
+    collectionPath?: string
   ) =>
     [
       ...queryKeys.all,
@@ -36,6 +59,7 @@ export const queryKeys = {
       collectionName,
       'directory',
       subdirectory,
+      ...(collectionPath ? [collectionPath] : []),
     ] as const,
   fileContent: (projectPath: string, fileId: string) =>
     [...queryKeys.all, projectPath, 'files', fileId] as const,

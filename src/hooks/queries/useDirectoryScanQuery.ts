@@ -35,7 +35,8 @@ export const useDirectoryScanQuery = (
     queryKey: queryKeys.directoryContents(
       projectPath || '',
       collectionName || '',
-      subdirectory || 'root'
+      subdirectory || 'root',
+      collectionPath || ''
     ),
     queryFn: () => {
       const fullPath = subdirectory

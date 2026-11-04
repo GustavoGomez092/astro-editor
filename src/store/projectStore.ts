@@ -484,20 +484,11 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (projectPath) {
         // If path overrides changed, everything read from the project's
         // folders may have moved: collections, file lists and their counts.
-        // The collections first: the other queries read each collection's
-        // folder from them, so they refetch once the new folders have rendered
+        // Those queries have the collection's folder in their keys, so once
+        // the collections come back with new folders they're new queries
         if (pathOverridesChanged) {
           await queryClient.invalidateQueries({
-            queryKey: queryKeys.collections(projectPath),
-          })
-          await new Promise(resolve => setTimeout(resolve, 0))
-          const collectionsKey = queryKeys.collections(projectPath)
-          await queryClient.invalidateQueries({
             queryKey: [...queryKeys.all, projectPath],
-            // Everything but the collections, just refetched
-            predicate: query =>
-              query.queryKey.length !== collectionsKey.length ||
-              query.queryKey[2] !== collectionsKey[2],
           })
 
           // Restart file watcher with new paths
