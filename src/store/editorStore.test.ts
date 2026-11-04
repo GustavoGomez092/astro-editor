@@ -88,7 +88,7 @@ describe('editorStore.openFile', () => {
     expect(state.isFrontmatterDirty).toBe(false)
   })
 
-  // Renaming keeps the id, so a new file can arrive with the old one
+  // A new file can arrive with the renamed file's old name
   it("opens a different file that has the renamed open file's old id", () => {
     useEditorStore.setState({ isDirty: false })
     useEditorStore
@@ -100,6 +100,24 @@ describe('editorStore.openFile', () => {
     const state = useEditorStore.getState()
     expect(state.currentFile?.path).toBe('/test/content/blog/first.md')
     expect(state.editorContent).toBe('')
+  })
+
+  it('updates the path, name and id of the open file after a rename', () => {
+    useEditorStore.setState({
+      currentFile: {
+        ...fileEntry('blog/2024/first'),
+        path: '/test/content/blog/2024/first.md',
+        name: 'first',
+      },
+    })
+    useEditorStore
+      .getState()
+      .updateCurrentFileAfterRename('/test/content/blog/2024/renamed.md')
+
+    const file = useEditorStore.getState().currentFile
+    expect(file?.path).toBe('/test/content/blog/2024/renamed.md')
+    expect(file?.name).toBe('renamed')
+    expect(file?.id).toBe('blog/2024/renamed')
   })
 
   it("still selects the file's collection when the open file is opened again", () => {

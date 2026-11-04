@@ -130,7 +130,8 @@ export function newFileContent(
  * A file name from the title (`andrew-dyk.md`), or today's date when the
  * title has no letters or digits, with `-1`, `-2`, … added until it's unused.
  * A name counts as taken whatever its extension: Astro's id is the name
- * without it, so `andrew-dyk.md` and `andrew-dyk.mdx` would collide.
+ * without it, so `andrew-dyk.md` and `andrew-dyk.mdx` would collide, and
+ * whatever its case, since macOS and Windows disks treat `Andrew-Dyk.md` as it.
  */
 export function newFileName(
   title: string,
@@ -139,13 +140,13 @@ export function newFileName(
   today: string
 ): string {
   const taken = new Set(
-    [...existingNames].map(name => name.replace(/\.[^.]+$/, ''))
+    [...existingNames].map(name => name.replace(/\.[^.]+$/, '').toLowerCase())
   )
   const base = slugFromTitle(title) || today
   let stem = base
   let counter = 1
 
-  while (taken.has(stem)) {
+  while (taken.has(stem.toLowerCase())) {
     stem = `${base}-${counter}`
     counter++
   }

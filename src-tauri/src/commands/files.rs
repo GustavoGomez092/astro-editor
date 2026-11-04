@@ -96,8 +96,29 @@ pub async fn rename_file(
 ) -> Result<(), String> {
     let validated_old_path = validate_project_path(&old_path, &project_root)?;
     let validated_new_path = validate_project_path(&new_path, &project_root)?;
-    std::fs::rename(&validated_old_path, &validated_new_path)
-        .map_err(|e| format!("Failed to rename file: {e}"))
+    rename_without_overwriting(&validated_old_path, &validated_new_path)
+}
+
+/// Renames a file, but never over another one: `fs::rename` replaces its
+/// target silently. A target that exists is only allowed when it is the file
+/// itself under another spelling (`foo.md` to `Foo.md` on a case-insensitive
+/// disk), which canonical paths tell apart from a different file.
+fn rename_without_overwriting(old_path: &Path, new_path: &Path) -> Result<(), String> {
+    // symlink_metadata: a dangling symlink at the target counts as taken too
+    if std::fs::symlink_metadata(new_path).is_ok() {
+        let same_file = match (old_path.canonicalize(), new_path.canonicalize()) {
+            (Ok(old), Ok(new)) => old == new,
+            _ => false,
+        };
+        if !same_file {
+            let name = new_path
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_default();
+            return Err(format!("A file named {name} already exists"));
+        }
+    }
+    std::fs::rename(old_path, new_path).map_err(|e| format!("Failed to rename file: {e}"))
 }
 
 /// Convert a string to kebab case
@@ -885,6 +906,80 @@ mod tests {
     use super::*;
     use std::fs;
     use std::path::Path;
+
+    #[test]
+    fn rename_refuses_to_replace_another_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join("a.md");
+        let taken = dir.path().join("b.md");
+        fs::write(&old, "a").unwrap();
+        fs::write(&taken, "b").unwrap();
+
+        let result = rename_without_overwriting(&old, &taken);
+
+        assert!(result.unwrap_err().contains("already exists"));
+        assert_eq!(fs::read_to_string(&old).unwrap(), "a");
+        assert_eq!(fs::read_to_string(&taken).unwrap(), "b");
+    }
+
+    #[test]
+    fn rename_to_a_free_name_works() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join("a.md");
+        let new = dir.path().join("c.md");
+        fs::write(&old, "a").unwrap();
+
+        rename_without_overwriting(&old, &new).unwrap();
+
+        assert!(!old.exists());
+        assert_eq!(fs::read_to_string(&new).unwrap(), "a");
+    }
+
+    #[test]
+    fn rename_refuses_a_different_file_whose_name_differs_only_in_case() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join("foo.md");
+        let taken = dir.path().join("contact.md");
+        fs::write(&old, "foo").unwrap();
+        fs::write(&taken, "contact").unwrap();
+
+        // On a case-insensitive disk this is the file that is there; on a
+        // case-sensitive one it is another spelling of a name that is free.
+        // Either way, `contact.md` must survive when the target is `Contact.md`
+        let result = rename_without_overwriting(&old, &dir.path().join("Contact.md"));
+
+        let case_insensitive = dir.path().join("CONTACT.MD").exists();
+        if case_insensitive {
+            assert!(result.unwrap_err().contains("already exists"));
+            assert_eq!(fs::read_to_string(&taken).unwrap(), "contact");
+            assert!(old.exists());
+        } else {
+            assert!(result.is_ok());
+            assert_eq!(fs::read_to_string(&taken).unwrap(), "contact");
+        }
+    }
+
+    #[test]
+    fn rename_allows_a_case_only_change_of_the_same_file() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let old = dir.path().join("foo.md");
+        let new = dir.path().join("Foo.md");
+        fs::write(&old, "a").unwrap();
+        // Whether `Foo.md` already "exists" depends on the disk being case-insensitive
+        let case_insensitive = new.exists();
+
+        let result = rename_without_overwriting(&old, &new);
+
+        assert!(result.is_ok(), "{result:?}");
+        assert!(new.exists());
+        if case_insensitive {
+            let names: Vec<_> = fs::read_dir(dir.path())
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().to_string())
+                .collect();
+            assert_eq!(names, vec!["Foo.md".to_string()]);
+        }
+    }
 
     #[test]
     fn test_validate_project_path_valid() {

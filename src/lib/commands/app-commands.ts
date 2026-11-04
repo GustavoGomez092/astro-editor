@@ -16,6 +16,7 @@ import {
   Link,
   BookOpen,
   Keyboard,
+  FilePen,
 } from 'lucide-react'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { AppCommand, CommandContext } from './types'
@@ -28,6 +29,12 @@ import { collectionDisplayName } from '../collection-name'
 import { useContentLinkerStore } from '@/store/contentLinkerStore'
 import { publishingCommands } from './publishing-commands'
 import { isGitBusy } from '../git/busy'
+import {
+  canRenameToTitle,
+  renameCurrentFileToTitle,
+  titleOf,
+} from '../files/rename-to-title-action'
+import { useEditorStore } from '@/store/editorStore'
 import { isBodyEditorHidden } from '../files/focus-new-file'
 
 /**
@@ -45,6 +52,23 @@ export const fileCommands: AppCommand[] = [
     },
     isAvailable: (context: CommandContext) => {
       return Boolean(context.selectedCollection && context.projectPath)
+    },
+  },
+  {
+    id: 'rename-to-title',
+    label: 'Rename File to Match Title',
+    description: 'Change the file name to follow the title',
+    icon: FilePen,
+    group: 'file',
+    execute: () => renameCurrentFileToTitle(),
+    isAvailable: (context: CommandContext) => {
+      const file = context.currentFile
+      if (!file || isGitBusy()) return false
+      // The title as it is now in the form, which may not be saved yet
+      return canRenameToTitle(
+        file,
+        titleOf(file, useEditorStore.getState().frontmatter)
+      )
     },
   },
   {

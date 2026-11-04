@@ -274,6 +274,7 @@ const FieldControl: React.FC<FrontmatterFieldProps> = ({
         required={required}
         field={field}
         showCopyAsSlug={hasUrlPattern}
+        showFileName
       />
     )
   }
