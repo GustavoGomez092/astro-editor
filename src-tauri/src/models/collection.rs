@@ -21,6 +21,11 @@ pub struct Collection {
     #[specta(skip)]
     pub json_schema: Option<String>, // Astro JSON schema from .astro/collections/*.json
 
+    /// The `base` of the collection's `glob()` loader, relative to the project
+    /// root, when the collection's folder came from it
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loader_base: Option<String>,
+
     // Complete merged schema - ONLY this goes to frontend
     #[serde(skip_serializing_if = "Option::is_none")]
     pub complete_schema: Option<String>, // Serialized SchemaDefinition
@@ -33,6 +38,7 @@ impl Collection {
             path,
             schema: None,
             json_schema: None,
+            loader_base: None,
             complete_schema: None,
         }
     }
@@ -44,6 +50,7 @@ impl Collection {
             path,
             schema: Some(schema),
             json_schema: None,
+            loader_base: None,
             complete_schema: None,
         }
     }

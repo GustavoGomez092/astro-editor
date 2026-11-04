@@ -155,6 +155,7 @@ fn parse_collections_with_folders(
             &collections_block,
             &content_dir,
             &clean_content, // Pass full content for schema extraction
+            project_path,
             |name| {
                 collection_folders
                     .get(name)
@@ -383,20 +384,23 @@ fn parse_collection_definitions(
     collections_block: &str,
     content_dir: &Path,
     full_content: &str,
+    project_path: &Path,
     folder_override: impl Fn(&str) -> Option<PathBuf>,
 ) -> Result<Vec<Collection>, String> {
     let mut collections = Vec::new();
     let file_loader_call = Regex::new(&format!("^{FILE_LOADER_CALL}")).unwrap();
 
     for (collection_name, binding) in collection_entries(collections_block) {
-        let (file_based, schema) = match binding {
+        let (file_based, schema, call) = match binding {
             CollectionBinding::Variable(variable) => (
                 is_file_based_collection(full_content, variable),
                 extract_basic_schema(full_content, variable),
+                define_collection_call(full_content, variable),
             ),
             CollectionBinding::Inline(call) => (
                 file_loader_call.is_match(call),
                 extract_schema_from_collection_block(call),
+                Some(call),
             ),
         };
 
@@ -405,19 +409,60 @@ fn parse_collection_definitions(
             continue;
         }
 
-        // Only include directory-based collections: the folder the writer set,
-        // or the one named after the collection in the content directory
-        let collection_path =
-            folder_override(&collection_name).unwrap_or_else(|| content_dir.join(&collection_name));
+        // Only include directory-based collections. Their folder is the one the
+        // writer set, or the glob loader's base when it's there, or the one
+        // named after the collection in the content directory
+        let loader_base = call
+            .and_then(glob_loader_base)
+            .filter(|base| project_folder(project_path, base).is_dir());
+        let (collection_path, loader_base) = match folder_override(&collection_name) {
+            Some(folder) => (folder, None),
+            None => match loader_base {
+                Some(base) => (project_folder(project_path, &base), Some(base)),
+                None => (content_dir.join(&collection_name), None),
+            },
+        };
 
         if collection_path.exists() && collection_path.is_dir() {
             let mut collection = Collection::new(collection_name, collection_path);
             collection.schema = schema;
+            collection.loader_base = loader_base;
             collections.push(collection);
         }
     }
 
     Ok(collections)
+}
+
+/// The text of the `defineCollection(...)` call a variable holds
+fn define_collection_call<'a>(content: &'a str, variable: &str) -> Option<&'a str> {
+    let variable = regex::escape(variable);
+    let re = Regex::new(&format!(
+        r"(?:(?:const|let|var)\s+){variable}\s*=\s*defineCollection\s*\("
+    ))
+    .ok()?;
+    let found = re.find(content)?;
+    let end = find_matching_closing_brace(content, found.end() - 1, '(', ')').ok()?;
+    Some(&content[found.start()..end])
+}
+
+/// The `base` folder of a collection's `glob()` loader when it's written as
+/// a plain string, as given relative to the project root (`writing/posts`)
+fn glob_loader_base(call: &str) -> Option<String> {
+    let glob_start = Regex::new(r"\bglob\s*\(").unwrap().find(call)?;
+    let end = find_matching_closing_brace(call, glob_start.end() - 1, '(', ')').ok()?;
+    let options = &call[glob_start.end()..end];
+    let base = Regex::new(r#"\bbase\s*:\s*(?:'([^']*)'|"([^"]*)"|`([^`$]*)`)"#).unwrap();
+    let captures = base.captures(options)?;
+    let value = captures
+        .get(1)
+        .or_else(|| captures.get(2))
+        .or_else(|| captures.get(3))?
+        .as_str()
+        .trim()
+        .trim_start_matches("./")
+        .trim_end_matches('/');
+    (!value.is_empty()).then(|| value.to_string())
 }
 
 fn extract_basic_schema(content: &str, collection_name: &str) -> Option<String> {

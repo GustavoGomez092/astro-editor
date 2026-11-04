@@ -264,6 +264,11 @@ export type CloneProgress = {
 export type Collection = {
 	name: string,
 	path: string,
+	/**
+	 *  The `base` of the collection's `glob()` loader, relative to the project
+	 *  root, when the collection's folder came from it
+	 */
+	loader_base?: string | null,
 	complete_schema?: string | null,
 };
 

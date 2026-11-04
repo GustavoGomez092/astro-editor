@@ -43,7 +43,8 @@ const DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
 const RESCAN_INTERVAL: Duration = Duration::from_secs(300);
 
 /// The folders to watch: the content directory, and each collection folder
-/// outside it (one the writer set elsewhere). Only folders that exist
+/// outside it (one the writer set, or a glob loader's base). Only folders
+/// that exist
 fn watched_folders(
     project_root: &Path,
     content_directory: Option<&str>,
@@ -54,14 +55,12 @@ fn watched_folders(
         None => project_root.join("src").join("content"),
     };
     let mut folders = vec![content_path];
-    if !collection_folders.is_empty() {
-        let collections =
-            discover_collections(project_root, content_directory, collection_folders)
-                .unwrap_or_default();
-        for collection in collections {
-            if !folders.iter().any(|f| collection.path.starts_with(f)) {
-                folders.push(collection.path);
-            }
+    let collections =
+        discover_collections(project_root, content_directory, collection_folders)
+            .unwrap_or_default();
+    for collection in collections {
+        if !folders.iter().any(|f| collection.path.starts_with(f)) {
+            folders.push(collection.path);
         }
     }
     folders.retain(|folder| folder.exists());
@@ -433,6 +432,22 @@ mod tests {
         let folders = watched_folders(root, None, &overrides);
 
         assert_eq!(folders, vec![root.join("src/content"), root.join("writing")]);
+    }
+
+    #[test]
+    fn watches_a_glob_loader_base_outside_the_content_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src/content")).unwrap();
+        std::fs::create_dir_all(root.join("posts")).unwrap();
+        std::fs::write(
+            root.join("src/content.config.ts"),
+            "const blog = defineCollection({ loader: glob({ base: './posts', pattern: '*.md' }) });\nexport const collections = { blog };\n",
+        )
+        .unwrap();
+
+        let folders = watched_folders(root, None, &CollectionFolders::new());
+        assert_eq!(folders, vec![root.join("src/content"), root.join("posts")]);
     }
 
     #[test]

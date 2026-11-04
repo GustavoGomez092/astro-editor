@@ -1035,6 +1035,64 @@ mod tests {
         assert_eq!(notes.path, temp.path().join("src/content/notes"));
     }
 
+    const LOADER_CONFIG: &str = "import { defineCollection, z } from 'astro:content';\n\
+        import { glob } from 'astro/loaders';\n\
+        const blog = defineCollection({\n\
+          loader: glob({ pattern: '**/[^_]*.{md,mdx}', base: './writing/posts' }),\n\
+          schema: z.object({ title: z.string() }),\n\
+        });\n\
+        export const collections = {\n\
+          blog,\n\
+          notes: defineCollection({ loader: glob({ base: \"src/notes/\", pattern: '*.md' }) }),\n\
+        };\n";
+
+    #[test]
+    fn a_collection_is_found_in_its_glob_loader_base() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+        std::fs::create_dir_all(temp.path().join("src/notes")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &CollectionFolders::new()).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("writing/posts"));
+        assert_eq!(blog.loader_base.as_deref(), Some("writing/posts"));
+        let notes = collections.iter().find(|c| c.name == "notes").unwrap();
+        assert_eq!(notes.path, temp.path().join("src/notes"));
+        assert_eq!(notes.loader_base.as_deref(), Some("src/notes"));
+    }
+
+    #[test]
+    fn a_folder_the_writer_set_beats_the_glob_loader_base() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+        std::fs::create_dir_all(temp.path().join("elsewhere")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "elsewhere")])).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("elsewhere"));
+        assert_eq!(blog.loader_base, None);
+    }
+
+    #[test]
+    fn a_missing_glob_loader_base_falls_back_to_the_content_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &CollectionFolders::new()).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("src/content/blog"));
+        assert_eq!(blog.loader_base, None);
+    }
+
     #[tokio::test]
     async fn a_file_in_an_overridden_folder_resolves_to_its_collection() {
         let temp = tempfile::tempdir().unwrap();
