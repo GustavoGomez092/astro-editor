@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { commands, type GitStatus } from '@/lib/bindings'
+import { useGitStore } from '@/store/gitStore'
 import {
   FETCH_INTERVAL_MS,
   FETCH_SLACK_MS,
+  FRESH_FETCH_MS,
+  fetchIfStale,
   loadGitStatus,
   resetGitFetchTimes,
 } from './status'
@@ -125,5 +128,44 @@ describe('loadGitStatus', () => {
     await expect(
       loadGitStatus('/site', { signedIn: false, now: 0 })
     ).rejects.toThrow('The project folder is missing')
+  })
+})
+
+describe('fetchIfStale (the Changes tab coming into view)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetGitFetchTimes()
+    useGitStore.setState({ checkedAt: {} })
+    vi.mocked(commands.gitStatus).mockResolvedValue({
+      status: 'ok',
+      data: STATUS,
+    })
+    vi.mocked(commands.gitFetch).mockResolvedValue({
+      status: 'ok',
+      data: FETCHED,
+    })
+  })
+
+  it('fetches at most every 30 seconds, counting the status fetch', async () => {
+    await loadGitStatus('/site', { signedIn: true, now: 0 })
+    fetchIfStale('/site', { now: 10_000 })
+    expect(commands.gitFetch).toHaveBeenCalledTimes(1)
+    fetchIfStale('/site', { now: FRESH_FETCH_MS })
+    expect(commands.gitFetch).toHaveBeenCalledTimes(2)
+  })
+
+  it('records when GitHub was last checked, only when the fetch worked', async () => {
+    const onFetched = vi.fn()
+    fetchIfStale('/site', { now: 5_000, onFetched })
+    await vi.waitFor(() => expect(onFetched).toHaveBeenCalledWith(FETCHED))
+    expect(useGitStore.getState().checkedAt['/site']).toBe(5_000)
+
+    vi.mocked(commands.gitFetch).mockResolvedValue({
+      status: 'error',
+      error: 'offline',
+    })
+    fetchIfStale('/site', { now: 60_000 })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(useGitStore.getState().checkedAt['/site']).toBe(5_000)
   })
 })

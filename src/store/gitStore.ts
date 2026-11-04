@@ -29,6 +29,8 @@ interface GitState {
   openFromGitHubOpen: boolean
   /** A clone is downloading: the dialog stays open until it's done */
   cloneInProgress: boolean
+  /** When each project's remote last answered a fetch, by project path */
+  checkedAt: Record<string, number>
 
   setPanelTab: (tab: GitPanelTab) => void
   openDiff: (path: string) => void
@@ -41,6 +43,7 @@ interface GitState {
   setNewBranchOpen: (open: boolean) => void
   setOpenFromGitHubOpen: (open: boolean) => void
   setCloneInProgress: (cloning: boolean) => void
+  setCheckedAt: (projectPath: string, time: number) => void
   /** Back to the initial state, e.g. when another project opens */
   reset: () => void
 }
@@ -60,6 +63,7 @@ const INITIAL = {
   newBranchOpen: false,
   openFromGitHubOpen: false,
   cloneInProgress: false,
+  checkedAt: {} as Record<string, number>,
 }
 
 /**
@@ -88,11 +92,14 @@ export const useGitStore = create<GitState>(set => ({
   setNewBranchOpen: open => set({ newBranchOpen: open }),
   setOpenFromGitHubOpen: open => set({ openFromGitHubOpen: open }),
   setCloneInProgress: cloning => set({ cloneInProgress: cloning }),
+  setCheckedAt: (projectPath, time) =>
+    set(state => ({ checkedAt: { ...state.checkedAt, [projectPath]: time } })),
   // Sign-in and cloning aren't tied to a project (a clone ends by opening
-  // one), so they survive a project switch
+  // one), so they survive a project switch; check times are kept per project
   reset: () =>
     set(state => ({
       ...INITIAL,
+      checkedAt: state.checkedAt,
       signIn: state.signIn,
       openFromGitHubOpen: state.openFromGitHubOpen,
       cloneInProgress: state.cloneInProgress,

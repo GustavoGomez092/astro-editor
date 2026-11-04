@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { commands, type SyncOutcome } from '@/lib/bindings'
 import { refreshGit } from '@/lib/git/cache'
+import { markChecked } from '@/lib/git/status'
 import { broughtInMessage, showSyncOutcome } from '@/lib/git/messages'
 import { queryKeys } from '@/lib/query-keys'
 import {
@@ -45,6 +46,8 @@ export const useMergeDefaultBranchMutation = ({
     }),
     onSuccess: async (result, { projectPath }, context) => {
       void refreshGit(queryClient, projectPath, result.status)
+      // It fetched first, so that counts as checking GitHub
+      markChecked(projectPath)
       // Awaited: editing stays blocked until the open file shows the result
       await reloadProjectFiles(queryClient, projectPath)
       if (needsAttention(result.outcome) && onNeedsAttention) {

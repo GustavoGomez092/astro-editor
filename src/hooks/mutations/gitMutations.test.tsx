@@ -12,6 +12,7 @@ import { mockToast, resetToastMocks } from '@/test/mocks/toast'
 import { SAVE_FAILED } from '@/lib/git/repo-change'
 import { useEditorStore } from '@/store/editorStore'
 import { useProjectStore } from '@/store/projectStore'
+import { useGitStore } from '@/store/gitStore'
 import { useGitBusy } from '../useGitBusy'
 import { useGitPublishMutation } from './useGitPublishMutation'
 import { useGitSyncMutation } from './useGitSyncMutation'
@@ -178,6 +179,16 @@ describe('git mutations', () => {
     const { client, result } = setup(useGitSyncMutation)
     await act(() => result.current.mutateAsync({ projectPath: P }))
     expectGitRefreshed(client)
+  })
+
+  it('a sync or publish that reached GitHub counts as checking it', async () => {
+    useGitStore.setState({ checkedAt: {} })
+    vi.mocked(commands.gitSync).mockResolvedValue(
+      ok({ outcome: 'upToDate', message: 'Up to date', status: STATUS })
+    )
+    const { result } = setup(useGitSyncMutation)
+    await act(() => result.current.mutateAsync({ projectPath: P }))
+    expect(useGitStore.getState().checkedAt[P]).toBeTypeOf('number')
   })
 
   it('checkout refreshes git data', async () => {

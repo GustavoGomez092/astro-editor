@@ -7,6 +7,9 @@ import { renderWithProviders } from '@/test/test-utils'
 import { mockToast, resetToastMocks } from '@/test/mocks/toast'
 import { useProjectStore } from '@/store/projectStore'
 import { useEditorStore } from '@/store/editorStore'
+import { useGitStore } from '@/store/gitStore'
+import { useUIStore } from '@/store/uiStore'
+import { resetGitFetchTimes } from '@/lib/git/status'
 import { ChangesPanel } from './ChangesPanel'
 
 vi.mock('@/lib/bindings', () => ({
@@ -350,6 +353,32 @@ describe('ChangesPanel', () => {
       expect(await screen.findByLabelText('Title')).toHaveValue(
         'Add Jordan Ellis'
       )
+    })
+  })
+
+  describe('freshness', () => {
+    it('fetches when the Changes tab comes into view, at most every 30 seconds', async () => {
+      resetGitFetchTimes()
+      let clock = 1_000_000
+      const now = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+      useGitStore.setState({ panelTab: 'changes', checkedAt: {} })
+      useUIStore.setState({ sidebarVisible: true })
+      withStatus(CLEAN)
+      renderWithProviders(<ChangesPanel />)
+      // Shown once signed in
+      await vi.waitFor(() => expect(commands.gitFetch).toHaveBeenCalledTimes(1))
+
+      act(() => useGitStore.getState().setPanelTab('files'))
+      clock += 10_000
+      act(() => useGitStore.getState().setPanelTab('changes'))
+      expect(commands.gitFetch).toHaveBeenCalledTimes(1)
+
+      act(() => useGitStore.getState().setPanelTab('files'))
+      clock += 30_000
+      act(() => useGitStore.getState().setPanelTab('changes'))
+      expect(commands.gitFetch).toHaveBeenCalledTimes(2)
+      expect(await screen.findByText('Checked just now')).toBeInTheDocument()
+      now.mockRestore()
     })
   })
 })

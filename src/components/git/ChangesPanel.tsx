@@ -4,6 +4,7 @@ import { GitPullRequest } from 'lucide-react'
 import type { GitStatus, PullRequest, SyncOutcome } from '@/lib/bindings'
 import {
   bringInBlocker,
+  checkedLabel,
   gitStateSignature,
   publishBlocker,
   publishMessage,
@@ -19,6 +20,8 @@ import {
   type EntryNeedingAttention,
 } from '@/lib/git/publish-check'
 import { needsAttention } from '@/lib/git/repo-change'
+import { applyFetchedStatus } from '@/lib/git/cache'
+import { fetchIfStale } from '@/lib/git/status'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
 import { toast } from '@/lib/toast'
 import { useProjectStore } from '../../store/projectStore'
@@ -26,6 +29,7 @@ import { useGitStore } from '../../store/gitStore'
 import { useUIStore } from '../../store/uiStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useGitBusy } from '../../hooks/useGitBusy'
+import { useNow } from '../../hooks/useNow'
 import { useGitStatusQuery } from '../../hooks/queries/useGitStatusQuery'
 import { useGitHubAuthQuery } from '../../hooks/queries/useGitHubAuthQuery'
 import { useGitHubRepoInfoQuery } from '../../hooks/queries/useGitHubRepoInfoQuery'
@@ -175,9 +179,27 @@ export function ChangesPanel() {
     )
   const message = draft ?? messageFor(files)
   const unsavedEdits = useEditorStore(state => state.isDirty)
-  const queryClient = useQueryClient()
   // Changed entries with fields that need attention, while Publish asks
   const [checked, setChecked] = useState<EntryNeedingAttention[] | null>(null)
+
+  // Fresh when it comes into view: a fetch, unless one ran in the last 30 s
+  const panelTab = useGitStore(state => state.panelTab)
+  const sidebarVisible = useUIStore(state => state.sidebarVisible)
+  const inView = panelTab === 'changes' && sidebarVisible
+  const queryClient = useQueryClient()
+  useEffect(() => {
+    if (!inView || !signedIn || !onGitHub || !isRepo || !projectPath) return
+    fetchIfStale(projectPath, {
+      onFetched: fetched =>
+        applyFetchedStatus(queryClient, projectPath, fetched),
+    })
+  }, [inView, signedIn, onGitHub, isRepo, projectPath, queryClient])
+  const checkedAt = useGitStore(state =>
+    projectPath ? (state.checkedAt[projectPath] ?? null) : null
+  )
+  const now = useNow(30 * 1000)
+  const lastChecked =
+    checkedAt !== null && signedIn ? checkedLabel(checkedAt, now) : null
 
   const [openingPullRequest, setOpeningPullRequest] = useState(false)
   const selectedDiffPath = useGitStore(state => state.selectedDiffPath)
@@ -409,6 +431,7 @@ export function ChangesPanel() {
         loading={statusQuery.isPending}
         error={statusQuery.error?.message ?? null}
         onRetry={() => void statusQuery.refetch()}
+        checked={lastChecked}
         remoteName={remoteName}
         needsSignIn={needsSignIn}
         onSignIn={() => void startGitHubSignIn()}

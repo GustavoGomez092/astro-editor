@@ -5,6 +5,7 @@ import {
   REPEAT,
   branchNameFrom,
   bringInBlocker,
+  checkedLabel,
   entryTitle,
   gitStateSignature,
   publishBlocker,
@@ -299,5 +300,17 @@ describe('pullRequestTitle', () => {
     const log = [commit('a', 'Start', [], true)]
     expect(pullRequestTitle(log, 'spring', 0)).toBe('Changes from spring')
     expect(pullRequestTitle([], 'spring', 1)).toBe('Changes from spring')
+  })
+})
+
+describe('checkedLabel', () => {
+  const now = 10 * 24 * 60 * 60 * 1000
+  const ago = (ms: number) => checkedLabel(now - ms, now)
+  it('says how long ago GitHub was checked, in plain words', () => {
+    expect(ago(20_000)).toBe('Checked just now')
+    expect(ago(3 * 60_000)).toBe('Checked 3 min ago')
+    expect(ago(60 * 60_000)).toBe('Checked 1 hour ago')
+    expect(ago(5 * 60 * 60_000)).toBe('Checked 5 hours ago')
+    expect(ago(2 * 24 * 60 * 60_000)).toBe('Checked 2 days ago')
   })
 })

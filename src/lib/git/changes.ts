@@ -150,6 +150,18 @@ export function syncSummary(
   return parts.length > 0 ? parts.join(' · ') : `Up to date with ${remoteName}`
 }
 
+/** "Checked just now", "Checked 3 min ago": when GitHub last answered. */
+export function checkedLabel(checkedAt: number, now: number): string {
+  const minutes = Math.floor(Math.max(0, now - checkedAt) / 60_000)
+  if (minutes < 1) return 'Checked just now'
+  if (minutes < 60) return `Checked ${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24)
+    return `Checked ${hours} ${hours === 1 ? 'hour' : 'hours'} ago`
+  const days = Math.floor(hours / 24)
+  return `Checked ${days} ${days === 1 ? 'day' : 'days'} ago`
+}
+
 /** "Everything is saved. 2 updates waiting to be published." */
 export function waitingToPublish(ahead: number): string {
   const noun = ahead === 1 ? 'update' : 'updates'

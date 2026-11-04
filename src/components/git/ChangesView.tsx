@@ -41,6 +41,8 @@ export interface ChangesViewProps {
   loading: boolean
   error: string | null
   onRetry: () => void
+  /** When GitHub last answered: "Checked 3 min ago" */
+  checked?: string | null
   /** "GitHub" when origin is on github.com */
   remoteName: string
   /** Origin is on GitHub and the writer isn't signed in */
@@ -125,6 +127,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 
 function RepoChanges({
   status,
+  checked,
   remoteName,
   needsSignIn,
   onSignIn,
@@ -186,6 +189,9 @@ function RepoChanges({
           <p className="px-2 pt-1 text-xs text-muted-foreground">
             {syncSummary(status, remoteName)}
           </p>
+        )}
+        {!needsSignIn && checked && (
+          <p className="px-2 text-xs text-muted-foreground">{checked}</p>
         )}
       </div>
 

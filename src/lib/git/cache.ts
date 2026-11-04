@@ -15,3 +15,28 @@ export function refreshGit(
   if (status) queryClient.setQueryData(queryKeys.gitStatus(projectPath), status)
   return queryClient.invalidateQueries({ queryKey: queryKeys.git(projectPath) })
 }
+
+/**
+ * A background fetch moved remote branches: show its status, and reload what
+ * depends on them (branches, the default-branch counts, history, pull
+ * requests).
+ */
+export function applyFetchedStatus(
+  queryClient: QueryClient,
+  projectPath: string,
+  status: GitStatus
+): void {
+  queryClient.setQueryData(queryKeys.gitStatus(projectPath), status)
+  // A load that started before the fetch finished could land after it; the
+  // local status now reflects the fetch, so read it again (it won't refetch)
+  for (const key of [
+    queryKeys.gitStatus(projectPath),
+    queryKeys.gitBranches(projectPath),
+    queryKeys.gitBehindDefault(projectPath),
+    queryKeys.gitAheadOfDefault(projectPath),
+    [...queryKeys.git(projectPath), 'log'],
+    queryKeys.pullRequests(projectPath),
+  ]) {
+    void queryClient.invalidateQueries({ queryKey: key })
+  }
+}
