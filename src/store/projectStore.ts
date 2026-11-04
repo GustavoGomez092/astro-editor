@@ -81,7 +81,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
         // The previous project's dev server would keep running unseen
         const previousPath = get().projectPath
-        if (previousPath && previousPath !== path) stopDevServer(previousPath)
+        if (previousPath && previousPath !== path)
+          void stopDevServer(previousPath)
 
         // Register the project and get its ID
         await info(`Astro Editor [PROJECT_SETUP] Registering project: ${path}`)

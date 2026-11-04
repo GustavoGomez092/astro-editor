@@ -69,3 +69,7 @@ Dev logs go to `~/Library/Logs/is.danny.astroeditor.dev/`:
 - **`tauri-dev.log`:** the `tauri:dev` terminal output (Vite and cargo), replaced on each run
 
 `bun run app logs` searches both. See the skill for the flags.
+
+## Driving the Preview control
+
+Astro 7 detaches its dev server when it sees an AI agent's environment variables (`CLAUDECODE`, `AI_AGENT`, …), and the dev app passes its environment on to the servers it starts. When an agent launches `tauri:dev` to try the Preview control, it should unset them first, or the server escapes its process group. See `dev-server.md`.

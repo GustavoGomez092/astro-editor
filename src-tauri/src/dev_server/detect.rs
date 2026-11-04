@@ -36,7 +36,8 @@ impl PackageManager {
     }
 
     /// The file inside `node_modules` the package manager rewrites on every
-    /// install. Without one, the `node_modules` folder's own time stands in.
+    /// install. bun's isn't certain to exist, so for bun the `node_modules`
+    /// folder's own time stands in when it's missing.
     fn install_markers(self) -> &'static [&'static str] {
         match self {
             Self::Bun => &[".bun-tag"],
@@ -118,12 +119,21 @@ pub fn needs_install(root: &Path, pm: PackageManager) -> bool {
     let Some(lock_time) = lockfile(root, pm).and_then(|path| modified(&path)) else {
         return false;
     };
-    let installed_time = pm
+    let marker_time = pm
         .install_markers()
         .iter()
-        .find_map(|marker| modified(&node_modules.join(marker)))
-        .or_else(|| modified(&node_modules));
-    installed_time.map_or(true, |installed| lock_time > installed)
+        .find_map(|marker| modified(&node_modules.join(marker)));
+    let installed_time = match marker_time {
+        Some(time) => time,
+        // npm, pnpm and yarn always write their marker, so without one the
+        // last install didn't finish (it was stopped, or failed part-way)
+        None if pm != PackageManager::Bun => return true,
+        None => match modified(&node_modules) {
+            Some(time) => time,
+            None => return true,
+        },
+    };
+    lock_time > installed_time
 }
 
 fn modified(path: &Path) -> Option<SystemTime> {
@@ -370,6 +380,26 @@ mod tests {
 
             set_mtime(&dir.path().join(lock), earlier - Duration::from_secs(60));
             assert!(!needs_install(dir.path(), pm), "{lock} older than {marker}");
+        }
+    }
+
+    #[test]
+    fn needs_install_when_marker_missing() {
+        // npm, pnpm and yarn always write their marker, so a node_modules
+        // without one is an install that didn't finish
+        for (pm, lock) in [
+            (PackageManager::Npm, "package-lock.json"),
+            (PackageManager::Pnpm, "pnpm-lock.yaml"),
+            (PackageManager::Yarn, "yarn.lock"),
+        ] {
+            let dir = project(&[lock, "node_modules/astro/package.json"]);
+            let old = SystemTime::now() - Duration::from_secs(60);
+            filetime::set_file_mtime(
+                dir.path().join(lock),
+                filetime::FileTime::from_system_time(old),
+            )
+            .unwrap();
+            assert!(needs_install(dir.path(), pm), "{lock}");
         }
     }
 

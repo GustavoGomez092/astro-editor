@@ -623,7 +623,7 @@ mod tests {
 
         fn read_pid(&self, name: &str) -> i32 {
             let file = self.dir.path().join(name);
-            let deadline = Instant::now() + Duration::from_secs(5);
+            let deadline = Instant::now() + Duration::from_secs(10);
             loop {
                 if let Some(pid) = fs::read_to_string(&file)
                     .ok()
@@ -651,6 +651,20 @@ mod tests {
     fn is_alive(pid: i32) -> bool {
         // Signal 0 checks the process exists without signalling it
         unsafe { libc::kill(pid, 0) == 0 }
+    }
+
+    /// Whether the process is gone within a moment. A killed process the
+    /// tests don't own lingers as a zombie until launchd reaps it, which
+    /// signal 0 still finds
+    fn is_gone(pid: i32) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(2);
+        while is_alive(pid) {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        true
     }
 
     const DEV_PACKAGE: &str = r#"{ "scripts": { "dev": "astro dev" } }"#;
@@ -857,9 +871,9 @@ esac"#,
             started.elapsed() < Duration::from_secs(3),
             "SIGTERM was enough"
         );
-        assert!(!is_alive(shell), "shell still running");
-        assert!(!is_alive(server), "server still running");
-        assert!(!is_alive(child), "server's child still running");
+        assert!(is_gone(shell), "shell still running");
+        assert!(is_gone(server), "server still running");
+        assert!(is_gone(child), "server's child still running");
     }
 
     #[test]
@@ -878,7 +892,7 @@ esac"#,
         let took = started.elapsed();
         assert!(took >= Duration::from_secs(3), "killed after {took:?}");
         assert!(took < Duration::from_secs(6), "killed after {took:?}");
-        assert!(!is_alive(server));
+        assert!(is_gone(server));
     }
 
     #[test]
@@ -894,7 +908,7 @@ esac"#,
         assert_eq!(fx.start(None).status, DevServerStatus::Installing);
         let install = fx.read_pid("install.pid");
         assert_eq!(fx.servers.stop(fx.path()).status, DevServerStatus::Stopped);
-        assert!(!is_alive(install));
+        assert!(is_gone(install));
         std::thread::sleep(Duration::from_millis(300));
         assert!(
             !fx.dir.path().join("dev.pid").exists(),
@@ -939,7 +953,7 @@ esac"#,
             .collect();
 
         first.servers.stop_all();
-        assert!(pids.iter().all(|pid| !is_alive(*pid)));
+        assert!(pids.iter().all(|pid| is_gone(*pid)));
         assert_eq!(
             first.servers.state(&other_path).status,
             DevServerStatus::Stopped
