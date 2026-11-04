@@ -1,0 +1,2090 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Astro Editor theme",
+  "description": "A colour theme for Astro Editor. Tokens you leave out use the Default theme.",
+  "type": "object",
+  "required": ["id", "name", "appearance", "tokens"],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]*$",
+      "description": "A short unique name: lower-case letters, numbers, dashes."
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Shown in Settings."
+    },
+    "author": {
+      "type": "string"
+    },
+    "appearance": {
+      "enum": ["light", "dark", "both"],
+      "description": "Where the theme can be picked: light mode, dark mode, or either."
+    },
+    "tokens": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "background": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "card": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "card-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "popover": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "popover-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "primary": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "primary-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "secondary": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "secondary-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "muted": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "muted-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "accent": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "accent-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "destructive": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "destructive-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "border": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "input": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "ring": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar-primary": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar-primary-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar-accent": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar-accent-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar-border": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "sidebar-ring": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "heading": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "icon": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "active": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "overlay": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "image-preview": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "image-preview-border": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "image-preview-shadow": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "image-preview-spinner": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "framework-astro": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "framework-react": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "framework-vue": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "framework-svelte": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "window-control-hover": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "window-close": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "window-close-foreground": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "draft": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "draft-bg": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "filter": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "filter-bg": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "required": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "server-running": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "server-error": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-add": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-add-bg": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-del": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-del-bg": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-0": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-1": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-2": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-3": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-4": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-5": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-6": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "git-lane-7": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-carat": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-background": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-text": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-mdtag": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-underline": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-brown": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-red": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-pink": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-blue": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-green": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-codeblock-background": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-selectedtext-background": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-heading": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-highlight-background": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-highlight-underline": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-highlight-text": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-snippet-border": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        },
+        "editor-color-snippet-border-active": {
+          "oneOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+            },
+            {
+              "type": "object",
+              "description": "Different values for light and dark mode.",
+              "properties": {
+                "light": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                },
+                "dark": {
+                  "type": "string",
+                  "minLength": 1,
+                  "description": "Any CSS colour: #rrggbb, rgb(), hsl(), oklch(), a colour name, or a var() of another token."
+                }
+              },
+              "additionalProperties": false
+            }
+          ]
+        }
+      }
+    }
+  }
+}

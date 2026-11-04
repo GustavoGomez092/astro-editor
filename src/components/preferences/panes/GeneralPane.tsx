@@ -20,6 +20,7 @@ import { useTheme } from '../../../lib/theme-provider'
 import { SettingsSection } from '../SettingsSection'
 import { PreferencesTextInput } from '../PreferencesTextInput'
 import { DocsLink } from '../DocsLink'
+import { ThemePicker } from '../ThemePicker'
 import { DOCS_URLS } from '../../../lib/docs-urls'
 import {
   DEFAULT_GLOBAL_SETTINGS,
@@ -143,7 +144,7 @@ export const GeneralPane: React.FC = () => {
         </Field>
 
         <Field>
-          <FieldLabel id={`${id}-theme`}>Theme</FieldLabel>
+          <FieldLabel id={`${id}-theme`}>Light or dark</FieldLabel>
           <FieldContent>
             <Select
               items={THEME_ITEMS}
@@ -162,7 +163,8 @@ export const GeneralPane: React.FC = () => {
               </SelectContent>
             </Select>
             <FieldDescription>
-              Choose your preferred color theme
+              Light, dark, or the same as your computer. The colours for each
+              are chosen below.
             </FieldDescription>
           </FieldContent>
         </Field>
@@ -225,6 +227,8 @@ export const GeneralPane: React.FC = () => {
       </SettingsSection>
 
       <SettingsSection title="Appearance">
+        <ThemePicker />
+
         <Field>
           <FieldLabel htmlFor={`${id}-heading-light`}>
             Heading Color (Light Mode)

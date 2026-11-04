@@ -117,6 +117,9 @@ export interface GlobalSettings {
       dark: string
     }
     editorBaseFontSize?: number // 1-30, default 18
+    // Colour theme ids for light and dark mode (src/lib/themes); default 'default'
+    lightTheme?: string
+    darkTheme?: string
   }
   advanced?: {
     // OAuth app client ID for GitHub sign-in, for builds compiled without one.

@@ -88,3 +88,49 @@ pub async fn reset_all_preferences(
     // This line is unreachable but required for the function signature
     Ok(())
 }
+
+/// Resolves the folder for the user's colour theme files, creating it if needed
+fn themes_dir(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    let dir = app
+        .path()
+        .resolve("themes", BaseDirectory::AppLocalData)
+        .map_err(|e| format!("Failed to resolve themes directory: {e}"))?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Failed to create themes folder: {e}"))?;
+    Ok(dir)
+}
+
+/// Lists the names of the `.json` files in the themes folder, sorted
+#[tauri::command]
+#[specta::specta]
+pub async fn list_theme_files(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let dir = themes_dir(&app)?;
+    let mut names: Vec<String> = std::fs::read_dir(&dir)
+        .map_err(|e| format!("Failed to read themes folder: {e}"))?
+        .filter_map(|entry| entry.ok())
+        .filter(|entry| entry.path().is_file())
+        .filter_map(|entry| entry.file_name().into_string().ok())
+        .filter(|name| name.to_lowercase().ends_with(".json") && !name.starts_with('.'))
+        .collect();
+    names.sort();
+    Ok(names)
+}
+
+/// Opens the themes folder in the system's file manager
+#[tauri::command]
+#[specta::specta]
+pub async fn open_themes_folder(app: tauri::AppHandle) -> Result<(), String> {
+    let dir = themes_dir(&app)?;
+
+    #[cfg(target_os = "macos")]
+    let opener = "open";
+    #[cfg(target_os = "windows")]
+    let opener = "explorer";
+    #[cfg(target_os = "linux")]
+    let opener = "xdg-open";
+
+    std::process::Command::new(opener)
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Failed to open themes folder: {e}"))?;
+    Ok(())
+}

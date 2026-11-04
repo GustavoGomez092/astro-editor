@@ -17,6 +17,7 @@ Inside it:
 - `preferences/global-settings.json`: app-wide settings (theme, IDE command, auto-save delay, appearance and so on).
 - `preferences/project-registry.json`: every project ever opened (ID, name, path, dates) and which was open last.
 - `preferences/projects/{id}.json`: one project's settings, including its collection overrides.
+- `themes/`: the writer's own colour theme files, plus a copy of the theme schema. See `color-system.md`.
 - `recovery/` and `crash-reports/`: see [Recovery Files](#recovery-files).
 - `telemetry.json`: the anonymous install ID. Release builds only.
 - `.window-state.json`: window size and position, from the window-state plugin.
