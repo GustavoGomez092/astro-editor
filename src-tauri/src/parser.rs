@@ -15,7 +15,8 @@
 
 use crate::models::Collection;
 use regex::Regex;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 /// Finds the position of the matching closing brace for an opening brace
 ///
@@ -78,9 +79,20 @@ struct HelperMatch {
 }
 
 /// Parse Astro content config file and extract collection definitions
+/// Collection folders the writer set, by collection name, relative to the
+/// project root. They replace `<content directory>/<name>`
+pub type CollectionFolders = HashMap<String, String>;
+
+/// A folder given relative to the project root (`./src/blog/`, `src/blog`)
+pub fn project_folder(project_path: &Path, relative: &str) -> PathBuf {
+    let trimmed = relative.trim().trim_start_matches("./").trim_end_matches('/');
+    project_path.join(trimmed)
+}
+
 pub fn parse_astro_config(
     project_path: &Path,
     content_directory_override: Option<&str>,
+    collection_folders: &CollectionFolders,
 ) -> Result<Vec<Collection>, String> {
     // Try both possible config file locations
     let config_paths = [
@@ -93,10 +105,11 @@ pub fn parse_astro_config(
             let content = std::fs::read_to_string(config_path)
                 .map_err(|e| format!("Failed to read config file: {e}"))?;
 
-            return parse_collections_from_content(
+            return parse_collections_with_folders(
                 &content,
                 project_path,
                 content_directory_override,
+                collection_folders,
             );
         }
     }
@@ -104,10 +117,25 @@ pub fn parse_astro_config(
     Ok(vec![])
 }
 
+#[cfg(test)]
 fn parse_collections_from_content(
     content: &str,
     project_path: &Path,
     content_directory_override: Option<&str>,
+) -> Result<Vec<Collection>, String> {
+    parse_collections_with_folders(
+        content,
+        project_path,
+        content_directory_override,
+        &CollectionFolders::new(),
+    )
+}
+
+fn parse_collections_with_folders(
+    content: &str,
+    project_path: &Path,
+    content_directory_override: Option<&str>,
+    collection_folders: &CollectionFolders,
 ) -> Result<Vec<Collection>, String> {
     let mut collections = Vec::new();
 
@@ -127,6 +155,11 @@ fn parse_collections_from_content(
             &collections_block,
             &content_dir,
             &clean_content, // Pass full content for schema extraction
+            |name| {
+                collection_folders
+                    .get(name)
+                    .map(|folder| project_folder(project_path, folder))
+            },
         )?);
     }
 
@@ -350,6 +383,7 @@ fn parse_collection_definitions(
     collections_block: &str,
     content_dir: &Path,
     full_content: &str,
+    folder_override: impl Fn(&str) -> Option<PathBuf>,
 ) -> Result<Vec<Collection>, String> {
     let mut collections = Vec::new();
     let file_loader_call = Regex::new(&format!("^{FILE_LOADER_CALL}")).unwrap();
@@ -371,8 +405,10 @@ fn parse_collection_definitions(
             continue;
         }
 
-        // Only include directory-based collections
-        let collection_path = content_dir.join(&collection_name);
+        // Only include directory-based collections: the folder the writer set,
+        // or the one named after the collection in the content directory
+        let collection_path =
+            folder_override(&collection_name).unwrap_or_else(|| content_dir.join(&collection_name));
 
         if collection_path.exists() && collection_path.is_dir() {
             let mut collection = Collection::new(collection_name, collection_path);

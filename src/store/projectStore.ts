@@ -17,6 +17,7 @@ import {
   DeepPartial,
 } from '../lib/project-registry'
 import { useEditorStore } from './editorStore'
+import { getCollectionFolderOverrides } from '../lib/project-registry/path-resolution'
 import { queryClient } from '../lib/query-client'
 import { queryKeys } from '../lib/query-keys'
 import { wasStartupClaimedByDeepLink } from '../lib/deep-link'
@@ -175,23 +176,19 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
     if (!projectPath) return
 
     try {
-      // Use path override if configured
+      // Watch the content directory (or its override) and any collection
+      // folder set outside it
       const contentDirectory =
         currentProjectSettings?.pathOverrides?.contentDirectory
-
-      if (contentDirectory && contentDirectory !== ASTRO_PATHS.CONTENT_DIR) {
-        const result = await commands.startWatchingProjectWithContentDir(
-          projectPath,
-          contentDirectory
-        )
-        if (result.status === 'error') {
-          throw new Error(result.error)
-        }
-      } else {
-        const result = await commands.startWatchingProject(projectPath)
-        if (result.status === 'error') {
-          throw new Error(result.error)
-        }
+      const result = await commands.startWatchingProjectWithContentDir(
+        projectPath,
+        contentDirectory && contentDirectory !== ASTRO_PATHS.CONTENT_DIR
+          ? contentDirectory
+          : null,
+        getCollectionFolderOverrides(currentProjectSettings)
+      )
+      if (result.status === 'error') {
+        throw new Error(result.error)
       }
 
       // Listen for file change events

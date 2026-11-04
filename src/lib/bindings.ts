@@ -69,7 +69,12 @@ export const commands = {
 	 */
 	foldersExist: (paths: string[]) => __TAURI_INVOKE<boolean[]>("folders_exist", { paths }),
 	scanProject: (projectPath: string) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project", { projectPath })),
-	scanProjectWithContentDir: (projectPath: string, contentDirectory: string | null) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project_with_content_dir", { projectPath, contentDirectory })),
+	/**
+	 *  The project's collections with their schemas. `collection_directories`
+	 *  holds the folders the writer set for some collections, by name, relative
+	 *  to the project root; the rest are `<content directory>/<name>`
+	 */
+	scanProjectWithContentDir: (projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project_with_content_dir", { projectPath, contentDirectory, collectionDirectories })),
 	/**
 	 *  Resolves an absolute file path to a `FileEntry` within the given project, if the
 	 *  file is a Markdown/MDX item owned by one of the project's content collections.
@@ -82,7 +87,7 @@ export const commands = {
 	 *  Markdown item owned by a loadable collection (the caller opens the project and
 	 *  shows a "couldn't find that file" toast).
 	 */
-	resolveFileEntry: (filePath: string, projectPath: string, contentDirectory: string | null) => typedError<FileEntry | null, string>(__TAURI_INVOKE("resolve_file_entry", { filePath, projectPath, contentDirectory })),
+	resolveFileEntry: (filePath: string, projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<FileEntry | null, string>(__TAURI_INVOKE("resolve_file_entry", { filePath, projectPath, contentDirectory, collectionDirectories })),
 	loadFileBasedCollection: (projectPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("load_file_based_collection", { projectPath, collectionName })),
 	/**  Scan a single directory (non-recursive) for subdirectories and markdown/mdx files */
 	scanDirectory: (directoryPath: string, collectionName: string, collectionRoot: string) => typedError<DirectoryScanResult, string>(__TAURI_INVOKE("scan_directory", { directoryPath, collectionName, collectionRoot })),
@@ -101,7 +106,7 @@ export const commands = {
 	/**  Scan all markdown/mdx files recursively in a collection directory */
 	scanCollectionFilesRecursive: (collectionPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("scan_collection_files_recursive", { collectionPath, collectionName })),
 	startWatchingProject: (projectPath: string) => typedError<null, string>(__TAURI_INVOKE("start_watching_project", { projectPath })),
-	startWatchingProjectWithContentDir: (projectPath: string, contentDirectory: string | null) => typedError<null, string>(__TAURI_INVOKE("start_watching_project_with_content_dir", { projectPath, contentDirectory })),
+	startWatchingProjectWithContentDir: (projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<null, string>(__TAURI_INVOKE("start_watching_project_with_content_dir", { projectPath, contentDirectory, collectionDirectories })),
 	stopWatchingProject: (projectPath: string) => typedError<null, string>(__TAURI_INVOKE("stop_watching_project", { projectPath })),
 	/**  Opens the preferences folder in the system's default file manager */
 	openPreferencesFolder: () => typedError<null, string>(__TAURI_INVOKE("open_preferences_folder")),

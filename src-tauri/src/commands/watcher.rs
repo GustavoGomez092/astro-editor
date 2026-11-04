@@ -1,6 +1,8 @@
 use notify::{Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use crate::commands::project::discover_collections;
+use crate::parser::{project_folder, CollectionFolders};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
@@ -40,10 +42,37 @@ const DEBOUNCE_DURATION: Duration = Duration::from_millis(500);
 /// Periodic rescan interval: emit rescan event every 5 minutes as a safety net
 const RESCAN_INTERVAL: Duration = Duration::from_secs(300);
 
+/// The folders to watch: the content directory, and each collection folder
+/// outside it (one the writer set elsewhere). Only folders that exist
+fn watched_folders(
+    project_root: &Path,
+    content_directory: Option<&str>,
+    collection_folders: &CollectionFolders,
+) -> Vec<PathBuf> {
+    let content_path = match content_directory {
+        Some(content_dir) => project_folder(project_root, content_dir),
+        None => project_root.join("src").join("content"),
+    };
+    let mut folders = vec![content_path];
+    if !collection_folders.is_empty() {
+        let collections =
+            discover_collections(project_root, content_directory, collection_folders)
+                .unwrap_or_default();
+        for collection in collections {
+            if !folders.iter().any(|f| collection.path.starts_with(f)) {
+                folders.push(collection.path);
+            }
+        }
+    }
+    folders.retain(|folder| folder.exists());
+    folders
+}
+
 /// Create a configured file watcher for a project's content directories.
 fn create_project_watcher(
     project_path: &str,
     content_directory: Option<&str>,
+    collection_folders: &CollectionFolders,
 ) -> Result<ProjectWatcher, String> {
     let (tx, rx) = mpsc::channel();
     let project_path_log = project_path.to_string();
@@ -63,16 +92,10 @@ fn create_project_watcher(
 
     let project_root = PathBuf::from(project_path);
 
-    // Watch the content directory specifically (use override if provided)
-    let content_path = if let Some(content_dir) = content_directory {
-        project_root.join(content_dir)
-    } else {
-        project_root.join("src").join("content")
-    };
-
-    if content_path.exists() {
+    // Watch the content directory (or its override) and collection folders
+    for folder in watched_folders(&project_root, content_directory, collection_folders) {
         watcher
-            .watch(&content_path, RecursiveMode::Recursive)
+            .watch(&folder, RecursiveMode::Recursive)
             .map_err(|e| format!("Failed to watch content directory: {e}"))?;
     }
 
@@ -108,7 +131,7 @@ fn create_project_watcher(
 #[tauri::command]
 #[specta::specta]
 pub async fn start_watching_project(app: AppHandle, project_path: String) -> Result<(), String> {
-    start_watching_project_with_content_dir(app, project_path, None).await
+    start_watching_project_with_content_dir(app, project_path, None, None).await
 }
 
 #[tauri::command]
@@ -117,12 +140,18 @@ pub async fn start_watching_project_with_content_dir(
     app: AppHandle,
     project_path: String,
     content_directory: Option<String>,
+    collection_directories: Option<HashMap<String, String>>,
 ) -> Result<(), String> {
+    let collection_folders = collection_directories.unwrap_or_default();
     let ProjectWatcher {
         watcher,
         rx,
         watches_schemas,
-    } = create_project_watcher(&project_path, content_directory.as_deref())?;
+    } = create_project_watcher(
+        &project_path,
+        content_directory.as_deref(),
+        &collection_folders,
+    )?;
     let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
 
     // Store the watcher so it doesn't get dropped. This replaces (and drops) any
@@ -147,6 +176,7 @@ pub async fn start_watching_project_with_content_dir(
             rx,
             project_path,
             content_directory,
+            collection_folders,
             generation,
             watches_schemas,
         )
@@ -172,6 +202,7 @@ async fn run_event_loop(
     mut rx: Receiver<Event>,
     project_path: String,
     content_directory: Option<String>,
+    collection_folders: CollectionFolders,
     generation: u64,
     mut watches_schemas: bool,
 ) {
@@ -226,7 +257,11 @@ async fn run_event_loop(
                 // Built without holding the lock, so a slow path can't block
                 // starting or stopping other projects' watchers
                 let rebuilt =
-                    match create_project_watcher(&project_path, content_directory.as_deref()) {
+                    match create_project_watcher(
+                        &project_path,
+                        content_directory.as_deref(),
+                        &collection_folders,
+                    ) {
                         Ok(built) => built,
                         Err(e) => {
                             log::error!("Failed to rebuild file watcher for {project_path}: {e}");
@@ -379,4 +414,34 @@ struct FileChangeEvent {
 // Initialize the watcher map when the app starts
 pub fn init_watcher_state() -> WatcherMap {
     Arc::new(Mutex::new(HashMap::new()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn watches_collection_folders_outside_the_content_directory() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(root.join("src/content/notes")).unwrap();
+        std::fs::create_dir_all(root.join("writing")).unwrap();
+
+        let overrides: CollectionFolders =
+            [("blog".to_string(), "writing".to_string())].into_iter().collect();
+        let folders = watched_folders(root, None, &overrides);
+
+        assert_eq!(folders, vec![root.join("src/content"), root.join("writing")]);
+    }
+
+    #[test]
+    fn watches_only_the_content_directory_without_overrides() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        std::fs::create_dir_all(root.join("src/content/blog")).unwrap();
+
+        let folders = watched_folders(root, None, &CollectionFolders::new());
+        assert_eq!(folders, vec![root.join("src/content")]);
+    }
 }

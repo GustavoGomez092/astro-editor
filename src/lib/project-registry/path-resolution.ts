@@ -77,3 +77,18 @@ export function getEffectiveAssetsDirectory(
   // Fall back to default
   return ASTRO_PATHS.ASSETS_DIR
 }
+
+/**
+ * The content folder set for each collection that has one, by collection
+ * name, relative to the project root. Rust uses these as the collections'
+ * folders when it scans, resolves links and watches. Null when there are none
+ */
+export function getCollectionFolderOverrides(
+  projectSettings?: ProjectSettings | null
+): Record<string, string> | null {
+  const entries = (projectSettings?.collections ?? []).flatMap(c => {
+    const folder = c.settings.pathOverrides?.contentDirectory
+    return folder ? [[c.name, folder] as const] : []
+  })
+  return entries.length > 0 ? Object.fromEntries(entries) : null
+}

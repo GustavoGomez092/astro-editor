@@ -1,9 +1,10 @@
 use crate::models::{Collection, DirectoryInfo, FileEntry};
-use crate::parser::parse_astro_config;
+use crate::parser::{parse_astro_config, project_folder, CollectionFolders};
 use crate::schema_merger;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
 use specta::Type;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use tauri::Emitter;
 use tauri_plugin_dialog::DialogExt;
@@ -193,14 +194,18 @@ pub async fn folders_exist(paths: Vec<String>) -> Vec<bool> {
 #[specta::specta]
 pub async fn scan_project(project_path: String) -> Result<Vec<Collection>, String> {
     info!("Astro Editor [PROJECT_SCAN] Scanning project at path: {project_path}");
-    scan_project_with_content_dir(project_path, None).await
+    scan_project_with_content_dir(project_path, None, None).await
 }
 
+/// The project's collections with their schemas. `collection_directories`
+/// holds the folders the writer set for some collections, by name, relative
+/// to the project root; the rest are `<content directory>/<name>`
 #[tauri::command]
 #[specta::specta]
 pub async fn scan_project_with_content_dir(
     project_path: String,
     content_directory: Option<String>,
+    collection_directories: Option<HashMap<String, String>>,
 ) -> Result<Vec<Collection>, String> {
     info!("Astro Editor [PROJECT_SCAN] Scanning project at path: {project_path}");
     info!(
@@ -208,88 +213,69 @@ pub async fn scan_project_with_content_dir(
         content_directory.as_deref().unwrap_or("src/content")
     );
 
-    let path = PathBuf::from(&project_path);
+    let folders = collection_directories.unwrap_or_default();
+    let mut collections = discover_collections(
+        Path::new(&project_path),
+        content_directory.as_deref(),
+        &folders,
+    )?;
 
-    // Try to parse Astro config first
+    for collection in &mut collections {
+        if let Ok(json_schema) = load_json_schema_for_collection(&project_path, &collection.name)
+        {
+            debug!(
+                "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
+                collection.name
+            );
+            collection.json_schema = Some(json_schema);
+        }
+        generate_complete_schema(collection);
+    }
+
+    Ok(collections)
+}
+
+/// The project's collections and their folders, from the Astro config, or from
+/// the content directory's folders when the config gives none. A folder the
+/// writer set for a collection replaces the one found
+pub fn discover_collections(
+    project_path: &Path,
+    content_directory: Option<&str>,
+    collection_folders: &CollectionFolders,
+) -> Result<Vec<Collection>, String> {
     debug!("Astro Editor [PROJECT_SCAN] Attempting to parse Astro config");
-    match parse_astro_config(&path, content_directory.as_deref()) {
-        Ok(mut collections) if !collections.is_empty() => {
+    let mut collections = match parse_astro_config(project_path, content_directory, collection_folders)
+    {
+        Ok(collections) if !collections.is_empty() => {
             info!(
                 "Astro Editor [PROJECT_SCAN] Found {} collections from Astro config",
                 collections.len()
             );
-
-            // Try to load JSON schemas for each collection
-            for collection in &mut collections {
-                if let Ok(json_schema) =
-                    load_json_schema_for_collection(&project_path, &collection.name)
-                {
-                    debug!(
-                        "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
-                        collection.name
-                    );
-                    collection.json_schema = Some(json_schema);
-                }
-            }
-
-            // Generate complete schema for each collection
-            for collection in &mut collections {
-                generate_complete_schema(collection);
-            }
-
-            Ok(collections)
+            collections
         }
         Ok(_) => {
             debug!("Astro Editor [PROJECT_SCAN] Astro config returned empty collections, falling back to directory scan");
-            let mut collections =
-                scan_content_directories_with_override(path.as_path(), content_directory)?;
-
-            // Try to load JSON schemas for directory-scanned collections
-            for collection in &mut collections {
-                if let Ok(json_schema) =
-                    load_json_schema_for_collection(&project_path, &collection.name)
-                {
-                    debug!(
-                        "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
-                        collection.name
-                    );
-                    collection.json_schema = Some(json_schema);
-                }
-            }
-
-            // Generate complete schema for each collection
-            for collection in &mut collections {
-                generate_complete_schema(collection);
-            }
-
-            Ok(collections)
+            scan_content_directories_with_override(
+                project_path,
+                content_directory.map(str::to_string),
+            )?
         }
         Err(err) => {
             debug!("Astro Editor [PROJECT_SCAN] Astro config parsing failed: {err}, falling back to directory scan");
-            let mut collections =
-                scan_content_directories_with_override(path.as_path(), content_directory)?;
+            scan_content_directories_with_override(
+                project_path,
+                content_directory.map(str::to_string),
+            )?
+        }
+    };
 
-            // Try to load JSON schemas for directory-scanned collections
-            for collection in &mut collections {
-                if let Ok(json_schema) =
-                    load_json_schema_for_collection(&project_path, &collection.name)
-                {
-                    debug!(
-                        "Astro Editor [PROJECT_SCAN] Loaded JSON schema for collection: {}",
-                        collection.name
-                    );
-                    collection.json_schema = Some(json_schema);
-                }
-            }
-
-            // Generate complete schema for each collection
-            for collection in &mut collections {
-                generate_complete_schema(collection);
-            }
-
-            Ok(collections)
+    for collection in &mut collections {
+        if let Some(folder) = collection_folders.get(&collection.name) {
+            collection.path = project_folder(project_path, folder);
         }
     }
+
+    Ok(collections)
 }
 
 fn load_json_schema_for_collection(
@@ -835,6 +821,7 @@ pub async fn resolve_file_entry(
     file_path: String,
     project_path: String,
     content_directory: Option<String>,
+    collection_directories: Option<HashMap<String, String>>,
 ) -> Result<Option<FileEntry>, String> {
     // Canonicalize the project root (must exist).
     let project_canon =
@@ -862,7 +849,11 @@ pub async fn resolve_file_entry(
     }
 
     // Reuse the existing project scan to discover collections and their roots.
-    let collections = scan_project_with_content_dir(project_path, content_directory).await?;
+    let collections = discover_collections(
+        &project_canon,
+        content_directory.as_deref(),
+        &collection_directories.unwrap_or_default(),
+    )?;
 
     // Find the collection whose directory is the most specific ancestor of the file.
     let owning = collections
@@ -995,6 +986,73 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let missing = temp.path().join("missing").to_string_lossy().to_string();
         assert_eq!(collection_has_body_text(missing).await, Ok(false));
+    }
+
+    // --- collection folders the writer set ---
+
+    const BLOG_CONFIG: &str = "import { defineCollection, z } from 'astro:content';\n\
+        const blog = defineCollection({ schema: z.object({ title: z.string() }) });\n\
+        export const collections = { blog };\n";
+
+    fn folders(pairs: &[(&str, &str)]) -> CollectionFolders {
+        pairs
+            .iter()
+            .map(|(name, folder)| (name.to_string(), folder.to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn a_collection_folder_override_is_used_from_the_config() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", BLOG_CONFIG);
+        // Only the overridden folder exists: without the override, there's no blog
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+
+        let collections = discover_collections(
+            temp.path(),
+            None,
+            &folders(&[("blog", "./writing/posts/")]),
+        )
+        .unwrap();
+
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].name, "blog");
+        assert_eq!(collections[0].path, temp.path().join("writing/posts"));
+    }
+
+    #[test]
+    fn a_collection_folder_override_is_used_without_a_config() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/notes")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "posts")])).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        let notes = collections.iter().find(|c| c.name == "notes").unwrap();
+        assert_eq!(blog.path, temp.path().join("posts"));
+        assert_eq!(notes.path, temp.path().join("src/content/notes"));
+    }
+
+    #[tokio::test]
+    async fn a_file_in_an_overridden_folder_resolves_to_its_collection() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", BLOG_CONFIG);
+        write_entry(&temp.path().join("writing"), "hello.md", "---\ntitle: Hi\n---\n");
+        let project = temp.path().to_string_lossy().to_string();
+        let file = temp.path().join("writing/hello.md").to_string_lossy().to_string();
+
+        let entry = resolve_file_entry(
+            file,
+            project,
+            None,
+            Some(folders(&[("blog", "writing")])),
+        )
+        .await
+        .unwrap()
+        .expect("the file belongs to blog");
+        assert_eq!(entry.collection, "blog");
     }
 
     #[test]
@@ -1207,6 +1265,7 @@ mod tests {
             file_path.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1225,6 +1284,7 @@ mod tests {
         let result = resolve_file_entry(
             file_path.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
+            None,
             None,
         )
         .await
@@ -1249,6 +1309,7 @@ mod tests {
             outside_file.to_string_lossy().to_string(),
             project.path().to_string_lossy().to_string(),
             None,
+            None,
         )
         .await;
 
@@ -1269,6 +1330,7 @@ mod tests {
         let result = resolve_file_entry(
             traversal.to_string_lossy().to_string(),
             project_dir.to_string_lossy().to_string(),
+            None,
             None,
         )
         .await;
@@ -1291,6 +1353,7 @@ mod tests {
         let result = resolve_file_entry(
             file_path.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
+            None,
             None,
         )
         .await
@@ -1316,6 +1379,7 @@ mod tests {
             missing.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
             None,
+            None,
         )
         .await
         .unwrap();
@@ -1334,6 +1398,7 @@ mod tests {
         let result = resolve_file_entry(
             readme.to_string_lossy().to_string(),
             temp.path().to_string_lossy().to_string(),
+            None,
             None,
         )
         .await
