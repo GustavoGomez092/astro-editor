@@ -481,7 +481,7 @@ pub fn run() {
             tauri::RunEvent::Exit => {
                 log::info!("Application exiting");
                 // Normally already done by the quit flow
-                commands::dev_server::stop_dev_servers(app_handle);
+                commands::quit::finish_background_work(app_handle);
                 #[cfg(debug_assertions)]
                 agent_bridge::stop(app_handle);
             }

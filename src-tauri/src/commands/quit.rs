@@ -12,7 +12,10 @@
 //!   `request_quit`.
 //!
 //! Quitting also stops every dev server (`commands/dev_server.rs`), which can
-//! take a few seconds, so it happens on a thread of its own before the reply.
+//! take a few seconds, and waits (up to `git::QUIT_WAIT`, 30 s) for running git
+//! commands, keeping their locks so none starts after: a process killed
+//! mid-write leaves `.git/index.lock` behind and git refuses to work until it's
+//! removed. Both happen on threads of their own before the reply.
 //!
 //! If the frontend doesn't answer within `QUIT_TIMEOUT` (the webview hung, or
 //! the page hasn't loaded yet), the app quits anyway, and if that doesn't end
@@ -76,7 +79,7 @@ pub fn request_quit(app: &AppHandle) {
         log::warn!("The frontend didn't answer the quit request, quitting anyway");
         {
             let _finish = FinishOnDrop::new(&app, true);
-            super::dev_server::stop_dev_servers(&app);
+            finish_background_work(&app);
         }
 
         // Still running means the main thread is stuck
@@ -95,8 +98,17 @@ pub fn quit_app(app: AppHandle) {
     // Off the main thread: stopping waits for the servers to exit
     std::thread::spawn(move || {
         let _finish = FinishOnDrop::new(&app, was_pending);
-        super::dev_server::stop_dev_servers(&app);
+        finish_background_work(&app);
     });
+}
+
+/// Stops the dev servers and, meanwhile, waits for running git commands and
+/// keeps their locks. `RunEvent::Exit` calls it too; the second time it
+/// returns as soon as the servers are gone.
+pub fn finish_background_work(app: &AppHandle) {
+    let git = std::thread::spawn(|| crate::git::hold_all_repo_locks(crate::git::QUIT_WAIT));
+    super::dev_server::stop_dev_servers(app);
+    let _ = git.join();
 }
 
 /// Quits when dropped, so quitting finishes even if stopping the dev servers
