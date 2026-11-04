@@ -66,9 +66,13 @@ export const FieldWrapper: React.FC<FieldWrapperProps> = ({
   )
 }
 
-/** The numbers a description mentions, so a hint doesn't repeat them */
+/**
+ * The numbers a description mentions, so a hint doesn't repeat them. A minus
+ * sign counts unless it follows a digit, where it's a range ("0-95")
+ */
 function numbersIn(text?: string): Set<number> {
-  return new Set((text?.match(/\d+(?:\.\d+)?/g) ?? []).map(Number))
+  const matches = (text ?? '').matchAll(/(?:^|[^\d.])(-?\d+(?:\.\d+)?)/g)
+  return new Set([...matches].map(match => Number(match[1])))
 }
 
 /** An empty default (`''`, `[]`, `{}`) says nothing, so it isn't shown */
@@ -88,7 +92,7 @@ function formatMetadata(
   // number in it ("in % of the section (0–95)")
   const mentioned = numbersIn(description)
   const stated = (...bounds: number[]) =>
-    bounds.every(bound => mentioned.has(Math.abs(bound)))
+    bounds.every(bound => mentioned.has(bound))
 
   if (constraints) {
     // Numeric constraints. Exclusive bounds (`gt`, `lt`) show as "> 0"

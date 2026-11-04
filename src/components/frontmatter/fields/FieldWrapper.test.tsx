@@ -405,6 +405,27 @@ describe('FieldWrapper', () => {
       expect(screen.queryByText('Max 200 chars')).not.toBeInTheDocument()
     })
 
+    it('reads a minus sign as part of the number', () => {
+      hint({
+        constraints: { min: -10, max: 10 },
+        description: 'Tilt in degrees, from -10 to 10.',
+      })
+      expect(screen.queryByText('-10–10')).not.toBeInTheDocument()
+    })
+
+    it("doesn't count a positive number as stating a negative bound", () => {
+      hint({ constraints: { min: -5 }, description: 'At least 5 px.' })
+      expect(screen.getByText('Min: -5')).toBeInTheDocument()
+    })
+
+    it('reads a hyphen between numbers as a range, not a sign', () => {
+      hint({
+        constraints: { min: 0, max: 95 },
+        description: 'In % of the section (0-95).',
+      })
+      expect(screen.queryByText('0–95')).not.toBeInTheDocument()
+    })
+
     it("doesn't match a number inside a longer one", () => {
       hint({ constraints: { max: 95 }, description: 'Around 950 px wide.' })
       expect(screen.getByText('Max: 95')).toBeInTheDocument()
