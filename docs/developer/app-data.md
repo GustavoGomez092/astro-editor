@@ -6,11 +6,11 @@ What the app stores on the user's machine, where, and the reasoning behind the s
 
 Everything is in Tauri's `AppLocalData` folder, named after the bundle identifier:
 
-- **macOS:** `~/Library/Application Support/is.danny.astroeditor/`
-- **Windows:** `%LOCALAPPDATA%\is.danny.astroeditor\`
-- **Linux:** `~/.local/share/is.danny.astroeditor/` (or under `$XDG_DATA_HOME`)
+- **macOS:** `~/Library/Application Support/is.gustavogomez.astroeditorplus/`
+- **Windows:** `%LOCALAPPDATA%\is.gustavogomez.astroeditorplus\`
+- **Linux:** `~/.local/share/is.gustavogomez.astroeditorplus/` (or under `$XDG_DATA_HOME`)
 
-Dev builds use `is.danny.astroeditor.dev` instead, so they never read or write the installed app's data (see `agent-tooling.md`).
+Dev builds use `is.gustavogomez.astroeditorplus.dev` instead, so they never read or write the installed app's data (see `agent-tooling.md`).
 
 Inside it:
 

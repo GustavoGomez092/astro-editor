@@ -17,10 +17,12 @@
   "sandbox": {
     "filesystem": {
       "allowRead": [
-        "~/Library/Application Support/is.danny.astroeditor",
-        "~/Library/Application Support/is.danny.astroeditor.dev"
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev"
       ],
-      "allowWrite": ["~/Library/Application Support/is.danny.astroeditor.dev"]
+      "allowWrite": [
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev"
+      ]
     }
   }
 }

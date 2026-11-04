@@ -4,10 +4,10 @@ Dev builds include tooling that lets coding agents (and you) see and drive the r
 
 ## Dev identity
 
-`bun run tauri:dev` runs `scripts/tauri-dev.sh`, which applies `src-tauri/tauri.dev.conf.json`. That overlay gives dev builds their own identifier (`is.danny.astroeditor.dev`) and product name ("Astro Editor Dev"), so they get their own:
+`bun run tauri:dev` runs `scripts/tauri-dev.sh`, which applies `src-tauri/tauri.dev.conf.json`. That overlay gives dev builds their own identifier (`is.gustavogomez.astroeditorplus.dev`) and product name ("Astro Editor+ Dev"), so they get their own:
 
-- app data and preferences: `~/Library/Application Support/is.danny.astroeditor.dev/`
-- logs: `~/Library/Logs/is.danny.astroeditor.dev/`
+- app data and preferences: `~/Library/Application Support/is.gustavogomez.astroeditorplus.dev/`
+- logs: `~/Library/Logs/is.gustavogomez.astroeditorplus.dev/`
 - window state and single-instance socket
 
 The installed app and the dev build can run side by side without touching each other's state. Keep window settings out of the overlay (see Tauri config in `cross-platform.md`).
@@ -51,9 +51,9 @@ Rust's `log` macros and the frontend's `@tauri-apps/plugin-log` calls both go th
 
 The installed app writes `Astro Editor.log` to:
 
-- **macOS:** `~/Library/Logs/is.danny.astroeditor/`
-- **Windows:** `%LOCALAPPDATA%\is.danny.astroeditor\logs\`
-- **Linux:** `~/.local/share/is.danny.astroeditor/logs/`
+- **macOS:** `~/Library/Logs/is.gustavogomez.astroeditorplus/`
+- **Windows:** `%LOCALAPPDATA%\is.gustavogomez.astroeditorplus\logs\`
+- **Linux:** `~/.local/share/is.gustavogomez.astroeditorplus/logs/`
 
 When the file reaches 5 MB it's renamed with its date and a new one starts; the two most recent old files are kept. The plugin's default (40 KB, then delete the file) would leave a support log nearly empty.
 
@@ -63,9 +63,9 @@ What to ask users for when they report a problem is on the website's troubleshoo
 
 ### Dev logs
 
-Dev logs go to `~/Library/Logs/is.danny.astroeditor.dev/`:
+Dev logs go to `~/Library/Logs/is.gustavogomez.astroeditorplus.dev/`:
 
-- **`Astro Editor Dev.log`:** Rust `log` output and webview logging. In dev builds `console.*` is forwarded there too, marked `[console]` (`lib/agent-bridge/console.ts`). It rotates like the release log.
+- **`Astro Editor+ Dev.log`:** Rust `log` output and webview logging. In dev builds `console.*` is forwarded there too, marked `[console]` (`lib/agent-bridge/console.ts`). It rotates like the release log.
 - **`tauri-dev.log`:** the `tauri:dev` terminal output (Vite and cargo), replaced on each run
 
 `bun run app logs` searches both. See the skill for the flags.

@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Astro Editor",
+  "productName": "Astro Editor+",
   "version": "1.0.20",
-  "identifier": "is.danny.astroeditor",
+  "identifier": "is.gustavogomez.astroeditorplus",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "Astro Editor",
+        "title": "Astro Editor+",
         "width": 1400,
         "height": 900,
         "minWidth": 1000,
@@ -29,7 +29,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self' https://updateserver.dny.li; img-src 'self' asset: http://asset.localhost data: https:; style-src 'self' 'unsafe-inline'",
+      "csp": "default-src 'self' ipc: http://ipc.localhost; connect-src 'self'; img-src 'self' asset: http://asset.localhost data: https:; style-src 'self' 'unsafe-inline'",
       "assetProtocol": {
         "enable": true,
         "scope": [
@@ -96,10 +96,10 @@
     "updater": {
       "active": true,
       "endpoints": [
-        "https://github.com/dannysmith/astro-editor/releases/latest/download/latest.json"
+        "https://github.com/GustavoGomez092/astro-editor/releases/latest/download/latest.json"
       ],
       "dialog": false,
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEIxRjIwNEJDQkRFRDcwRDkKUldUWmNPMjl2QVR5c2VhQjRwTXBqRi9ZMk81azVERVlXMk1tQmdpZ01QdlY0RWExdE5yZXA4SS8K"
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDRERjNCODk5M0MyM0FEM0EKUldRNnJTTThtYmp6VFVXMmlISlZ0bHVTSmlQU0FaZ0I4WHZMTE9iSDNra3BadlJ1NmFFUW1raFMK"
     }
   }
 }

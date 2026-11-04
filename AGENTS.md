@@ -92,7 +92,7 @@ bun run reset:testdata  # reset temp-dummy-astro-project from test/
 bun run tauri:dev       # the dev app (agents: Danny keeps it running; never start it)
 ```
 
-Dev builds run as a separate app (`is.danny.astroeditor.dev`, "Astro Editor Dev") with their own settings, data and logs, so they never touch the installed app. See `docs/developer/agent-tooling.md`.
+Dev builds run as a separate app (`is.gustavogomez.astroeditorplus.dev`, "Astro Editor+ Dev") with their own settings, data and logs, so they never touch the installed app. See `docs/developer/agent-tooling.md`.
 
 ## Skills
 

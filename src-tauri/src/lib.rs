@@ -7,6 +7,8 @@ mod mdx_esm;
 mod models;
 mod parser;
 mod schema_merger;
+// Fork: kept for upstream merges but never called (telemetry is disabled).
+#[allow(dead_code)]
 mod telemetry;
 mod utils;
 
@@ -111,19 +113,7 @@ pub fn run() {
             log::info!("Platform: {}", std::env::consts::OS);
             log::info!("Architecture: {}", std::env::consts::ARCH);
 
-            // Send telemetry on startup (non-blocking, fails silently). Dev builds and
-            // CI (ci.yml launches the app) skip it so they don't count as installs.
-            if !cfg!(debug_assertions) && std::env::var_os("CI").is_none() {
-                let app_handle = app.handle().clone();
-                let version = package_info.version.to_string();
-                tauri::async_runtime::spawn(async move {
-                    if let Ok(app_data_dir) = app_handle.path().app_local_data_dir() {
-                        if let Err(e) = telemetry::send_telemetry_event(app_data_dir, version).await {
-                            log::warn!("Telemetry event failed (this is expected and safe to ignore): {e}");
-                        }
-                    }
-                });
-            }
+            // Fork: telemetry is disabled. Astro Editor+ never phones home.
 
             // Make the dev build easy to tell apart in Mission Control and the Window menu
             #[cfg(debug_assertions)]
