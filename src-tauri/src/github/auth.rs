@@ -269,6 +269,13 @@ impl Auth {
         Ok(status)
     }
 
+    /// Stops waiting for the writer to approve a code. A stored token and the
+    /// profile are kept, so closing the sign-in sheet never signs anyone out.
+    pub fn cancel_sign_in(&self) {
+        self.cancel_poll();
+        *lock(&self.pending) = None;
+    }
+
     pub async fn sign_out(&self) -> Result<(), String> {
         self.cancel_poll();
         *lock(&self.pending) = None;
@@ -731,6 +738,32 @@ mod tests {
         assert_eq!(result.unwrap_err(), "Sign-in was cancelled.");
         assert_eq!(auth.store.get().unwrap(), None);
         assert!(!auth.status().await.unwrap().signed_in);
+    }
+
+    #[tokio::test]
+    async fn cancel_sign_in_stops_the_poll_and_keeps_the_token() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/login/device/code")
+            .with_body(r#"{"device_code":"dev-123","user_code":"AAAA-BBBB","verification_uri":"https://github.com/login/device","expires_in":900,"interval":5}"#)
+            .create_async()
+            .await;
+        let auth = Arc::new(auth_with(&server, Some("gho_kept")));
+        auth.device_start("client-abc").await.unwrap();
+
+        let polling = auth.clone();
+        let poll = tokio::spawn(async move { polling.device_poll().await });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        auth.cancel_sign_in();
+
+        let result = tokio::time::timeout(Duration::from_secs(2), poll)
+            .await
+            .expect("poll should stop promptly")
+            .unwrap();
+        assert_eq!(result.unwrap_err(), "Sign-in was cancelled.");
+        assert_eq!(auth.store.get().unwrap().as_deref(), Some("gho_kept"));
+        // Nothing left to poll
+        assert!(auth.device_poll().await.is_err());
     }
 
     #[tokio::test]

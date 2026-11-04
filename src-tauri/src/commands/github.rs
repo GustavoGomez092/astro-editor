@@ -73,7 +73,8 @@ pub async fn github_device_poll() -> Result<GitHubAuthStatus, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn github_cancel_sign_in() -> Result<(), String> {
-    Err("Not available yet.".to_string())
+    auth()?.cancel_sign_in();
+    Ok(())
 }
 
 #[tauri::command]
