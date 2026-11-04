@@ -55,9 +55,12 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # HTTP server for the debug-only agent bridge (src/agent_bridge)
 tiny_http = "0.12"
 # Git for the Git panel (src/git). Vendored libgit2 so it works on a Mac without the
-# Xcode command-line tools; no SSH, so nothing links OpenSSL on macOS
+# Xcode command-line tools. libgit2's HTTPS uses OpenSSL on macOS too, so OpenSSL is
+# vendored (built in) as well: otherwise the app links Homebrew's OpenSSL and won't start
+# on a Mac without it, and the universal build can't find one for x86_64. No SSH.
 git2 = { version = "0.20", default-features = false, features = [
   "vendored-libgit2",
+  "vendored-openssl",
   "https",
 ] }
 # The GitHub token lives in the OS credential store (the Keychain on macOS)
