@@ -18,10 +18,18 @@
     "filesystem": {
       "allowRead": [
         "~/Library/Application Support/is.gustavogomez.astroeditorplus",
-        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev"
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev1",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev2",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev3",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev4"
       ],
       "allowWrite": [
-        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev"
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev1",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev2",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev3",
+        "~/Library/Application Support/is.gustavogomez.astroeditorplus.dev4"
       ]
     }
   }
