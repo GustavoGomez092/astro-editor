@@ -274,8 +274,33 @@ pub(crate) fn opened_repositories() -> Vec<PathBuf> {
 /// How long quitting waits, in all, for git commands that are still running
 pub const QUIT_WAIT: Duration = Duration::from_secs(30);
 
-/// Repositories whose lock quitting has taken
-static HELD_FOR_QUIT: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+/// What quitting has done so far: the locks it holds, and the one deadline every
+/// call shares, so asking again (`RunEvent::Exit` after `quit_app`) never adds
+/// another wait
+#[derive(Default)]
+struct QuitHold {
+    held: Vec<PathBuf>,
+    deadline: Option<Instant>,
+}
+
+static QUIT_HOLD: Mutex<QuitHold> = Mutex::new(QuitHold {
+    held: Vec::new(),
+    deadline: None,
+});
+
+fn hold_for_quit(
+    state: &Mutex<QuitHold>,
+    locks: &[(PathBuf, Arc<Mutex<()>>)],
+    timeout: Duration,
+) -> bool {
+    // A second call waits here while the first is still waiting, then finds
+    // the deadline passed and only tries each remaining lock once
+    let mut state = state.lock().unwrap_or_else(|e| e.into_inner());
+    let deadline = *state
+        .deadline
+        .get_or_insert_with(|| Instant::now() + timeout);
+    hold_locks(locks, &mut state.held, deadline)
+}
 
 /// Waits (at most `timeout` in all) for every running git command to finish, and
 /// keeps each repository's lock so no new one starts: quitting calls it, so the
@@ -294,8 +319,7 @@ pub fn hold_all_repo_locks(timeout: Duration) -> bool {
                 .collect()
         })
         .unwrap_or_default();
-    let mut held = HELD_FOR_QUIT.lock().unwrap_or_else(|e| e.into_inner());
-    let all = hold_locks(&locks, &mut held, Instant::now() + timeout);
+    let all = hold_for_quit(&QUIT_HOLD, &locks, timeout);
     if !all {
         ::log::warn!(
             "Astro Editor [GIT] A git command was still running after {}s; quitting anyway",
@@ -336,9 +360,25 @@ fn hold_locks(
     all
 }
 
-/// A `.git/index.lock` older than this, with no command of ours running, was
-/// left by a git process that died
-const STALE_INDEX_LOCK: Duration = Duration::from_secs(60);
+/// A `.git/index.lock` older than this, when the app first opens the repository,
+/// was left by a git process that died. Long, because a `git commit` waiting on
+/// its editor holds the lock for as long as the editor is open.
+const STALE_INDEX_LOCK: Duration = Duration::from_secs(10 * 60);
+
+/// Repositories checked for a stale `index.lock` since launch
+static CHECKED_FOR_STALE_LOCK: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+/// Whether this is the first time since launch that `git_dir` is opened
+fn first_open(git_dir: &Path) -> bool {
+    let mut checked = CHECKED_FOR_STALE_LOCK
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
+    if checked.iter().any(|p| p == git_dir) {
+        return false;
+    }
+    checked.push(git_dir.to_path_buf());
+    true
+}
 
 /// Removes a stale `index.lock` from `git_dir`. Returns whether it did.
 fn remove_stale_index_lock(git_dir: &Path, max_age: Duration) -> bool {
@@ -368,6 +408,22 @@ fn remove_stale_index_lock(git_dir: &Path, max_age: Duration) -> bool {
     }
 }
 
+/// Runs `work` on the repository at `git_dir` if no command is using it, holding
+/// its lock meanwhile; `None` if it's busy
+pub(crate) fn with_repo_if_free<T>(
+    git_dir: &Path,
+    work: impl FnOnce(&Repository) -> T,
+) -> Option<T> {
+    let repo = Repository::open(git_dir).ok()?;
+    let lock = repo_lock(repo.path());
+    let _guard = match lock.try_lock() {
+        Ok(guard) => guard,
+        Err(TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(TryLockError::WouldBlock) => return None,
+    };
+    Some(work(&repo))
+}
+
 /// Open the project's repository and run `work` while holding its lock
 pub(crate) fn with_repo<T>(
     project_path: &Path,
@@ -376,8 +432,11 @@ pub(crate) fn with_repo<T>(
     let repo = open_required(project_path)?;
     let lock = repo_lock(repo.path());
     let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-    // No command of ours is running on it now, so an old index.lock is a leftover
-    remove_stale_index_lock(repo.path(), STALE_INDEX_LOCK);
+    // No command of ours is running on it now, so on first opening it an old
+    // index.lock is a leftover from a git process that died
+    if first_open(repo.path()) {
+        remove_stale_index_lock(repo.path(), STALE_INDEX_LOCK);
+    }
     work(&repo)
 }
 
@@ -501,6 +560,37 @@ mod tests {
     }
 
     #[test]
+    fn asking_again_after_quitting_gave_up_does_not_wait_again() {
+        let (path, lock) = named_lock("/tmp/quit-c/.git");
+        let _guard = lock.lock().unwrap();
+        let state = Mutex::new(QuitHold::default());
+        let locks = [(path, lock.clone())];
+        let begun = Instant::now();
+        assert!(!hold_for_quit(&state, &locks, Duration::from_millis(200)));
+        assert!(begun.elapsed() >= Duration::from_millis(200));
+
+        let again = Instant::now();
+        assert!(!hold_for_quit(&state, &locks, Duration::from_secs(5)));
+        assert!(
+            again.elapsed() < Duration::from_millis(100),
+            "waited {:?} again",
+            again.elapsed()
+        );
+    }
+
+    #[test]
+    fn a_busy_repository_is_skipped_and_a_free_one_used() {
+        let (_dir, repo) = test_support::init_repo();
+        let git_dir = repo.path().to_path_buf();
+        let lock = repo_lock(&git_dir);
+        {
+            let _busy = lock.lock().unwrap();
+            assert_eq!(with_repo_if_free(&git_dir, |_| 1), None);
+        }
+        assert_eq!(with_repo_if_free(&git_dir, |_| 1), Some(1));
+    }
+
+    #[test]
     fn quitting_gives_up_waiting_at_the_deadline() {
         let (path, lock) = named_lock("/tmp/quit-b/.git");
         let _guard = lock.lock().unwrap();
@@ -535,7 +625,11 @@ mod tests {
         std::fs::write(&lock, "").unwrap();
         assert!(!remove_stale_index_lock(repo.path(), STALE_INDEX_LOCK));
         assert!(lock.exists());
+        // A git commit waiting on its editor can hold it for minutes
         age(&lock, 120);
+        assert!(!remove_stale_index_lock(repo.path(), STALE_INDEX_LOCK));
+        assert!(lock.exists());
+        age(&lock, 11 * 60);
         assert!(remove_stale_index_lock(repo.path(), STALE_INDEX_LOCK));
         assert!(!lock.exists());
         assert!(!remove_stale_index_lock(repo.path(), STALE_INDEX_LOCK));
@@ -547,11 +641,17 @@ mod tests {
         test_support::write(&repo, "a.md", "a\n");
         let lock = repo.path().join("index.lock");
         std::fs::write(&lock, "").unwrap();
-        age(&lock, 120);
+        age(&lock, 11 * 60);
         with_repo(dir.path(), |_| Ok(())).unwrap();
         assert!(!lock.exists());
         // And git can write the index again
         test_support::commit_all(&repo, "First");
+
+        // Only when it's first opened: later commands leave a lock alone
+        std::fs::write(&lock, "").unwrap();
+        age(&lock, 11 * 60);
+        with_repo(dir.path(), |_| Ok(())).unwrap();
+        assert!(lock.exists());
     }
 
     #[test]

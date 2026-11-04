@@ -68,15 +68,14 @@ pub async fn github_device_start(app: AppHandle) -> Result<DeviceCode, String> {
 pub async fn github_device_poll() -> Result<GitHubAuthStatus, String> {
     let status = auth()?.device_poll().await?;
     // Repositories opened so far get the profile's name for commits, if git
-    // has none
+    // has none. One a git command is using is skipped rather than waited for;
+    // its next sync, publish or merge writes it.
     if let Some(user) = auth()?.cached_user() {
         let _ = tokio::task::spawn_blocking(move || {
             for git_dir in git::opened_repositories() {
-                if let Ok(repo) = git2::Repository::open(&git_dir) {
-                    let lock = git::repo_lock(repo.path());
-                    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
-                    crate::commands::git::remember_identity(&repo, &user);
-                }
+                git::with_repo_if_free(&git_dir, |repo| {
+                    crate::commands::git::remember_identity(repo, &user);
+                });
             }
         })
         .await;

@@ -48,6 +48,14 @@ pub(crate) async fn signed_in_profile() -> Option<GitHubUser> {
     auth.cached_user()
 }
 
+/// [`remember_identity`] for the profile `author_fallback` found, which it finds
+/// only when git has no identity
+fn remember_identity_of(repo: &git2::Repository, user: Option<&GitHubUser>) {
+    if let Some(user) = user {
+        remember_identity(repo, user);
+    }
+}
+
 /// Write the profile's name and no-reply address into the repository's own
 /// config when git has none, so every tool commits with the same name. Best
 /// effort: commits still fall back to the profile without it.
@@ -104,6 +112,7 @@ pub async fn git_sync(project_path: String) -> Result<SyncResult, String> {
     let user = author_fallback(&project_path).await;
     blocking(move || {
         git::with_repo(&PathBuf::from(project_path), |repo| {
+            remember_identity_of(repo, user.as_ref());
             git::sync::sync(repo, auth::token().as_deref(), user.as_ref())
         })
     })
@@ -117,9 +126,7 @@ pub async fn git_publish(project_path: String, message: String) -> Result<Publis
     let user = author_fallback(&project_path).await;
     blocking(move || {
         git::with_repo(&PathBuf::from(project_path), |repo| {
-            if let Some(user) = &user {
-                remember_identity(repo, user);
-            }
+            remember_identity_of(repo, user.as_ref());
             git::sync::publish(repo, &message, auth::token().as_deref(), user.as_ref())
         })
     })
@@ -220,6 +227,7 @@ pub async fn git_merge_default_branch(project_path: String) -> Result<SyncResult
     let user = author_fallback(&project_path).await;
     blocking(move || {
         git::with_repo(&PathBuf::from(project_path), |repo| {
+            remember_identity_of(repo, user.as_ref());
             git::sync::merge_default_branch(repo, auth::token().as_deref(), user.as_ref())
         })
     })
@@ -272,6 +280,7 @@ pub async fn git_resolve_conflicts(
     let user = author_fallback(&project_path).await;
     blocking(move || {
         git::with_repo(&PathBuf::from(project_path), |repo| {
+            remember_identity_of(repo, user.as_ref());
             let label = git::sync::remote_label(repo);
             git::conflicts::resolve_conflicts(repo, &choices, &label, &|| {
                 git::sync::commit_identity(repo, user.as_ref())
