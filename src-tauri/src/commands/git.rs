@@ -45,7 +45,7 @@ async fn author_fallback(project_path: &str) -> Option<GitHubUser> {
 pub(crate) async fn signed_in_profile() -> Option<GitHubUser> {
     let auth = auth::auth().ok()?;
     let _ = auth.status().await;
-    auth.cached_user()
+    auth.cached_user().await
 }
 
 /// [`remember_identity`] for the profile `author_fallback` found, which it finds

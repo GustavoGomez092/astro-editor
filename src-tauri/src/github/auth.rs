@@ -206,9 +206,9 @@ impl Auth {
         self
     }
 
-    fn remember(&self, user: &GitHubUser) {
+    async fn remember(&self, user: &GitHubUser) {
         *lock(&self.user) = Some(user.clone());
-        let Some(path) = &self.profile_file else {
+        let Some(path) = self.profile_file.clone() else {
             return;
         };
         let profile = SavedProfile {
@@ -216,28 +216,33 @@ impl Auth {
             login: user.login.clone(),
             name: user.name.clone(),
         };
-        let written = serde_json::to_string(&profile)
-            .map_err(|e| e.to_string())
-            .and_then(|json| {
-                if let Some(dir) = path.parent() {
-                    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-                }
-                std::fs::write(path, json).map_err(|e| e.to_string())
-            });
+        let written = on_disk(move || {
+            let json = serde_json::to_string(&profile).map_err(|e| e.to_string())?;
+            if let Some(dir) = path.parent() {
+                std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+            }
+            std::fs::write(&path, json).map_err(|e| e.to_string())
+        })
+        .await
+        .unwrap_or_else(Err);
         if let Err(e) = written {
             log::warn!("Astro Editor [GITHUB] Couldn't save the GitHub profile: {e}");
         }
     }
 
-    fn forget(&self) {
+    async fn forget(&self) {
         *lock(&self.user) = None;
-        if let Some(path) = &self.profile_file {
-            let _ = std::fs::remove_file(path);
+        if let Some(path) = self.profile_file.clone() {
+            let _ = on_disk(move || std::fs::remove_file(path)).await;
         }
     }
 
-    fn saved_profile(&self) -> Option<GitHubUser> {
-        let text = std::fs::read_to_string(self.profile_file.as_ref()?).ok()?;
+    async fn saved_profile(&self) -> Option<GitHubUser> {
+        let path = self.profile_file.clone()?;
+        let text = on_disk(move || std::fs::read_to_string(path).ok())
+            .await
+            .ok()
+            .flatten()?;
         let profile: SavedProfile = serde_json::from_str(&text).ok()?;
         Some(GitHubUser {
             id: profile.id,
@@ -259,15 +264,19 @@ impl Auth {
 
     /// The profile fetched by the last successful [`Auth::status`] or sign-in,
     /// else the one saved on disk (when GitHub can't be reached)
-    pub fn cached_user(&self) -> Option<GitHubUser> {
-        lock(&self.user).clone().or_else(|| self.saved_profile())
+    pub async fn cached_user(&self) -> Option<GitHubUser> {
+        let cached = lock(&self.user).clone();
+        match cached {
+            Some(user) => Some(user),
+            None => self.saved_profile().await,
+        }
     }
 
     /// Reads the token and, once, the profile. A revoked token signs out; when
     /// GitHub can't be reached the writer stays signed in (without a profile).
     pub async fn status(&self) -> Result<GitHubAuthStatus, String> {
         let Some(token) = on_store(&self.store, |store| store.get()).await? else {
-            self.forget();
+            self.forget().await;
             return Ok(GitHubAuthStatus::signed_out());
         };
         if let Some(user) = lock(&self.user).as_ref() {
@@ -275,12 +284,12 @@ impl Auth {
         }
         match self.client.get::<GitHubUser>(&token, "/user").await {
             Ok(user) => {
-                self.remember(&user);
+                self.remember(&user).await;
                 Ok(GitHubAuthStatus::from(&user))
             }
             Err(e) if e.status == Some(StatusCode::UNAUTHORIZED) => {
                 log::info!("Astro Editor [GITHUB] Saved token was rejected; signing out");
-                self.forget();
+                self.forget().await;
                 on_store(&self.store, |store| store.delete()).await?;
                 Ok(GitHubAuthStatus::signed_out())
             }
@@ -325,7 +334,7 @@ impl Auth {
         }
         let user = result?;
         log::info!("Astro Editor [GITHUB] Signed in as {}", user.login);
-        self.remember(&user);
+        self.remember(&user).await;
         Ok(GitHubAuthStatus::from(&user))
     }
 
@@ -339,7 +348,7 @@ impl Auth {
     pub async fn sign_out(&self) -> Result<(), String> {
         self.cancel_poll();
         *lock(&self.pending) = None;
-        self.forget();
+        self.forget().await;
         on_store(&self.store, |store| store.delete()).await
     }
 
@@ -459,6 +468,17 @@ impl<S: TokenStore> TokenStore for CachedStore<S> {
         *cache = Some(None);
         Ok(())
     }
+}
+
+/// Run file work (the saved profile) on a blocking thread, off the async runtime
+async fn on_disk<T, F>(work: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> T + Send + 'static,
+{
+    tokio::task::spawn_blocking(work)
+        .await
+        .map_err(|e| format!("Reading the GitHub profile stopped unexpectedly: {e}"))
 }
 
 /// Run a store call on a blocking thread, off the async runtime
@@ -969,7 +989,7 @@ mod tests {
         // Next launch, offline
         let offline = offline_auth(Some("gho_saved"), &file);
         assert!(offline.status().await.unwrap().signed_in);
-        let user = offline.cached_user().unwrap();
+        let user = offline.cached_user().await.unwrap();
         assert_eq!((user.id, user.login.as_str()), (42, "kevin"));
         assert_eq!(user.name.as_deref(), Some("Kevin Robinson"));
     }
@@ -997,7 +1017,7 @@ mod tests {
         auth.device_start("client-abc").await.unwrap();
         auth.device_poll().await.unwrap();
         let offline = offline_auth(Some("gho_new"), &file);
-        assert_eq!(offline.cached_user().unwrap().login, "ada");
+        assert_eq!(offline.cached_user().await.unwrap().login, "ada");
     }
 
     #[tokio::test]
@@ -1005,10 +1025,40 @@ mod tests {
         let (_dir, file) = profile_file();
         std::fs::write(&file, r#"{"id":1,"login":"kevin","name":null}"#).unwrap();
         let auth = offline_auth(Some("gho_saved"), &file);
-        assert!(auth.cached_user().is_some());
+        assert!(auth.cached_user().await.is_some());
         auth.sign_out().await.unwrap();
-        assert!(auth.cached_user().is_none());
+        assert!(auth.cached_user().await.is_none());
         assert!(!file.exists());
+    }
+
+    /// The saved profile is read and written off the async runtime: with a FIFO
+    /// in its place, opening it blocks until a writer comes, and the runtime
+    /// must keep running meanwhile
+    #[cfg(unix)]
+    #[test]
+    fn the_saved_profile_is_read_off_the_async_runtime() {
+        let (_dir, file) = profile_file();
+        let c_path = std::ffi::CString::new(file.to_str().unwrap()).unwrap();
+        assert_eq!(unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) }, 0);
+        let auth = offline_auth(Some("gho_saved"), &file);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .unwrap();
+            let timed_out = runtime.block_on(async {
+                tokio::time::timeout(Duration::from_millis(200), auth.cached_user())
+                    .await
+                    .is_err()
+            });
+            let _ = tx.send(timed_out);
+        });
+        let result = rx.recv_timeout(Duration::from_secs(3));
+        // Let the blocked read finish either way
+        let _ = std::fs::OpenOptions::new().write(true).open(&file);
+        assert_eq!(result, Ok(true), "the runtime was blocked by the read");
     }
 
     #[tokio::test]
@@ -1017,6 +1067,6 @@ mod tests {
         std::fs::write(&file, r#"{"id":1,"login":"kevin","name":null}"#).unwrap();
         let auth = offline_auth(None, &file);
         assert!(!auth.status().await.unwrap().signed_in);
-        assert!(auth.cached_user().is_none());
+        assert!(auth.cached_user().await.is_none());
     }
 }

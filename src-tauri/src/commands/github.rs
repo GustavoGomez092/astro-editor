@@ -70,7 +70,7 @@ pub async fn github_device_poll() -> Result<GitHubAuthStatus, String> {
     // Repositories opened so far get the profile's name for commits, if git
     // has none. One a git command is using is skipped rather than waited for;
     // its next sync, publish or merge writes it.
-    if let Some(user) = auth()?.cached_user() {
+    if let Some(user) = auth()?.cached_user().await {
         let _ = tokio::task::spawn_blocking(move || {
             for git_dir in git::opened_repositories() {
                 git::with_repo_if_free(&git_dir, |repo| {
