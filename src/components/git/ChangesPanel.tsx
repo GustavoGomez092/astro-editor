@@ -53,7 +53,7 @@ import { useCreatePullRequestMutation } from '../../hooks/mutations/useCreatePul
 import { useMergePullRequestMutation } from '../../hooks/mutations/useMergePullRequestMutation'
 import { useMergeDefaultBranchMutation } from '../../hooks/mutations/useMergeDefaultBranchMutation'
 import { useGitDiscardFileMutation } from '../../hooks/mutations/useGitDiscardFileMutation'
-import { Button } from '../ui/button'
+import { Button, buttonVariants } from '../ui/button'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -613,6 +613,7 @@ export function ChangesPanel() {
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
+              className={buttonVariants({ variant: 'destructive' })}
               onClick={() => {
                 const path = discarding
                 setDiscarding(null)

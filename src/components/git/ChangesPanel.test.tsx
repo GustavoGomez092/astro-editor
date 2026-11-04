@@ -406,9 +406,9 @@ describe('ChangesPanel', () => {
     expect(dialog).toHaveTextContent('Throw away your changes to “About me”?')
     expect(dialog).toHaveTextContent("This can't be undone.")
     expect(commands.gitDiscardFile).not.toHaveBeenCalled()
-    await userEvent.click(
-      screen.getByRole('button', { name: 'Discard changes' })
-    )
+    const confirm = screen.getByRole('button', { name: 'Discard changes' })
+    expect(confirm).toHaveClass('bg-destructive')
+    await userEvent.click(confirm)
     await vi.waitFor(() =>
       expect(commands.gitDiscardFile).toHaveBeenCalledWith(SITE, ABOUT)
     )

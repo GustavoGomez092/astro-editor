@@ -243,4 +243,30 @@ describe('PullRequestCard', () => {
       screen.getByRole('button', { name: /Discard changes to/ })
     ).toBeDisabled()
   })
+
+  it("doesn't offer to discard a renamed file, which is two paths", () => {
+    renderView({
+      onDiscardFile: vi.fn(),
+      status: {
+        ...STATUS,
+        files: [
+          {
+            path: 'src/content/pages/about-me.md',
+            oldPath: 'src/content/pages/about.md',
+            change: 'renamed',
+          },
+        ],
+      },
+    })
+    expect(
+      screen.queryByRole('button', { name: /Discard changes to/ })
+    ).toBeNull()
+  })
+
+  it('shows Discard on every row, not only on hover', () => {
+    renderView({ onDiscardFile: vi.fn() })
+    expect(
+      screen.getByRole('button', { name: /Discard changes to/ })
+    ).not.toHaveClass('opacity-0')
+  })
 })

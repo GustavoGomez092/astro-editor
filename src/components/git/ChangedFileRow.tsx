@@ -6,8 +6,9 @@ import { FileChangeIcon, fileChangeLabel } from './FileChangeIcon'
 /**
  * One changed file in a list: its change icon and its entry title, or its
  * file name and folder; the full path is in the tooltip. Clicking it opens the
- * file's diff. With `onDiscard`, a button on the row (shown on hover or
- * focus) throws its changes away; the caller confirms first.
+ * file's diff. With `onDiscard`, a button on the row throws its changes
+ * away; the caller confirms first. A rename has no Discard: it's two paths,
+ * and putting one back would leave the other behind.
  */
 export function ChangedFileRow({
   file,
@@ -58,14 +59,14 @@ export function ChangedFileRow({
           </span>
         )}
       </button>
-      {onDiscard && (
+      {onDiscard && file.change !== 'renamed' && (
         <button
           type="button"
           title="Discard changes"
           aria-label={`Discard changes to ${title ?? name}`}
           disabled={discardDisabled}
           onClick={() => onDiscard(file.path)}
-          className="mr-1 flex size-6 shrink-0 items-center justify-center rounded text-icon opacity-0 group-focus-within:opacity-100 group-hover:opacity-100 hover:bg-background hover:text-foreground focus-visible:opacity-100 disabled:pointer-events-none"
+          className="mr-1 flex size-6 shrink-0 items-center justify-center rounded text-icon hover:bg-background hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
         >
           <Undo2 className="size-3.5" />
         </button>
