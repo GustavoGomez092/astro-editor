@@ -5,6 +5,7 @@ pub mod files;
 pub mod fonts;
 pub mod git;
 pub mod github;
+pub mod grammar;
 pub mod ide;
 pub mod mdx_components;
 pub mod menu;

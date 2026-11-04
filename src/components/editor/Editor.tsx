@@ -8,7 +8,11 @@ import { useUIStore } from '../../store/uiStore'
 import { useComponentBuilderStore } from '../../store/componentBuilderStore'
 import { useContentLinkerStore } from '../../store/contentLinkerStore'
 import { useProjectStore } from '../../store/projectStore'
-import { useEditorSetup, useEditorHandlers } from '../../hooks/editor'
+import {
+  useEditorSetup,
+  useEditorHandlers,
+  useGrammarRefresh,
+} from '../../hooks/editor'
 import { useImageHover } from '../../hooks/editor/useImageHover'
 import { handleTauriFileDrop } from '../../lib/editor/dragdrop'
 import { isGitBusy } from '../../lib/git/busy'
@@ -49,6 +53,7 @@ const EditorViewComponent: React.FC = () => {
   }, [])
 
   const { handleChange, handleFocus, handleBlur } = useEditorHandlers()
+  useGrammarRefresh()
 
   const componentBuilderHandler = useCallback((view: EditorView) => {
     // Handled (by doing nothing) while git rewrites the file, so the shortcut

@@ -263,6 +263,14 @@
     "editor-color-highlight-text": {
       "light": "#2e3440",
       "dark": "#ebcb8b"
+    },
+    "editor-color-spelling": {
+      "light": "#bf616aa6",
+      "dark": "#bf616ab3"
+    },
+    "editor-color-grammar": {
+      "light": "#5e81ac99",
+      "dark": "#81a1c1bf"
     }
   }
 }

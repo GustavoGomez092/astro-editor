@@ -5,6 +5,7 @@ mod commands;
 mod dev_server;
 mod git;
 mod github;
+mod grammar;
 mod mdx_components;
 mod mdx_esm;
 mod models;
@@ -111,6 +112,7 @@ pub fn run() {
         .plugin(tauri_plugin_os::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(commands::watcher::init_watcher_state())
+        .manage(commands::grammar::GrammarState::default())
         .setup(|app| {
             // Log app startup information
             let package_info = app.package_info();

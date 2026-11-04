@@ -63,6 +63,10 @@ git2 = { version = "0.20", default-features = false, features = [
   "vendored-openssl",
   "https",
 ] }
+# Grammar and spell checking (src/grammar). Exact version: lint output can change between releases
+harper-core = { version = "=3.0.0", default-features = false, features = [
+  "concurrent",
+] }
 # The GitHub token lives in the OS credential store (the Keychain on macOS)
 keyring = { version = "3", features = [
   "apple-native",
@@ -116,5 +120,37 @@ tauri-plugin-updater = "2"
 codegen-units = 1 # Better LLVM optimization
 lto = true # Link-time optimizations
 opt-level = "s" # Prioritize small binary size
-panic = "abort" # Disable panic handlers
+# Unwind rather than abort, so a panic in the grammar checker (Harper) is caught
+# on its thread (commands/grammar.rs) instead of closing the app with unsaved work
+panic = "unwind"
 strip = true # Remove debug symbols
+
+# Harper and its part-of-speech tagger are 10 to 20 times slower unoptimised, which
+# made grammar checking lag in dev builds. Optimising just those crates keeps the
+# app's own code quick to rebuild
+[profile.dev.package.harper-core]
+opt-level = 3
+
+[profile.dev.package.harper-brill]
+opt-level = 3
+
+[profile.dev.package.fst]
+opt-level = 3
+
+[profile.dev.package.harper-pos-utils]
+opt-level = 3
+
+[profile.dev.package.burn-ndarray]
+opt-level = 3
+
+[profile.dev.package.burn-tensor]
+opt-level = 3
+
+[profile.dev.package.ndarray]
+opt-level = 3
+
+[profile.dev.package.matrixmultiply]
+opt-level = 3
+
+[profile.dev.package.levenshtein_automata]
+opt-level = 3

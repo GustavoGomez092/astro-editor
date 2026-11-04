@@ -272,6 +272,14 @@
       "light": "oklch(0.9491 0 0 / 0.5)",
       "dark": "oklch(0.2645 0 0 / 0.5)"
     },
+    "editor-color-spelling": {
+      "light": "oklch(0.5749 0.1711 35.6912 / 0.65)",
+      "dark": "oklch(0.6981 0.1094 38.1559 / 0.7)"
+    },
+    "editor-color-grammar": {
+      "light": "oklch(0.5543 0.1199 250.587 / 0.6)",
+      "dark": "oklch(0.6885 0.0623 247.237 / 0.75)"
+    },
     "editor-color-selectedtext-background": {
       "light": "oklch(0.9081 0.0548 219.767)",
       "dark": "oklch(0.3624 0.0572 224.086)"

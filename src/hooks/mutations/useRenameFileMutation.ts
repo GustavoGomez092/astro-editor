@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { commands } from '@/lib/bindings'
 import { queryKeys } from '@/lib/query-keys'
 import { toast } from '@/lib/toast'
+import { moveIgnoredIssues } from '@/lib/grammar'
 import { useProjectStore } from '@/store/projectStore'
 
 interface RenameFilePayload {
@@ -23,6 +24,7 @@ const renameFile = async (payload: RenameFilePayload) => {
   if (result.status === 'error') {
     throw new Error(result.error)
   }
+  moveIgnoredIssues(payload.oldPath, payload.newPath)
   return result.data
 }
 

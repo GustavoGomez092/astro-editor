@@ -119,6 +119,8 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::github::github_create_pull_request,
             crate::commands::github::github_merge_pull_request,
             crate::commands::github::github_list_repos,
+            // grammar.rs commands
+            crate::commands::grammar::check_grammar,
         ])
         // Payload of the `git-clone-progress` event, which isn't a command's return type
         .typ::<crate::git::CloneProgress>()

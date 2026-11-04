@@ -177,6 +177,27 @@ export type {
    */
   ConflictResolution,
   /**
+   * One spelling or grammar problem from `checkGrammar` (Harper).
+   * @see src-tauri/src/grammar/mod.rs
+   *
+   * Fields:
+   * - `from`, `to` - The range in the text that was checked, in UTF-16 code units (CodeMirror positions)
+   * - `rule` - Harper's rule name, such as `SpellCheck`
+   * - `kind` - `spelling` or `grammar`, which underline it gets
+   * - `problem` - The text in the range
+   * - `message` - Harper's explanation
+   * - `suggestions` - Replacement text for the range, best first; `""` removes it
+   */
+  GrammarIssue,
+  /**
+   * `md` or `mdx`: MDX also skips imports, component tags and `{expressions}`.
+   */
+  GrammarFileType,
+  /**
+   * The English dialect to check against. American unless set.
+   */
+  GrammarDialect,
+  /**
    * JSON-compatible value type (serde_json::Value).
    * Used for dynamic frontmatter data.
    */

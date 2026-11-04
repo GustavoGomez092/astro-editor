@@ -34,6 +34,7 @@ Save is deliberately not in the palette. Everyone uses Cmd+S, and it made the li
 
 ## Shortcuts
 
+- **Cmd+. (Ctrl+.)** in the editor opens the grammar popup for the issue at the cursor (a CodeMirror keymap in `extensions/grammar-popup.ts`); Escape closes it.
 - **App shortcuts** are `useHotkeys` calls in `src/hooks/useKeyboardShortcuts.ts`, plus Cmd+P in `useCommandPalette`. They use `enableOnFormTags` and `enableOnContentEditable` (`DEFAULT_HOTKEY_OPTS`): the editor is a contenteditable and the frontmatter fields are inputs, so without them Cmd+S and the rest would do nothing while you type, which is most of the time.
 - **Editor shortcuts** (formatting, headings, focus and typewriter mode, Tab) are CodeMirror keymaps in `src/lib/editor/extensions/keymap.ts`. They only fire while the editor has focus. The file's header lists them and their precedence. CodeMirror's `Mod-/` comment toggle is removed from the defaults and rebound to the component builder, which falls back to toggling a comment.
 - **Several keys are bound both as native menu accelerators and as JS shortcuts** (Cmd+S, Cmd+N, Cmd+Shift+O, Cmd+B/I/K, Option+Cmd+1–4). Only one fires. WebKit gives the page a key before the menu, and a hotkey or CodeMirror keymap that handles it calls `preventDefault`, so the menu never sees it; when nothing on the page handles it (Cmd+B outside the editor), the menu does. Windows and Linux have no native menu, so the JS bindings are their only path. Keep both.

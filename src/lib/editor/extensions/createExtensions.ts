@@ -26,6 +26,7 @@
  * 5. Writing Modes
  *    - Focus mode (sentence-based dimming)
  *    - Copyedit mode (parts of speech highlighting)
+ *    - Grammar and spelling underlines (Harper)
  *
  * 6. Visual Enhancements
  *    - Hanging headers (# in margin)
@@ -52,6 +53,7 @@ import { createEditorTheme } from './theme'
 import { createFocusModeExtension } from './focus-mode'
 import { createCopyeditModeExtension } from './copyedit-mode'
 import { createTypewriterModeExtension } from './typewriter-mode'
+import { createGrammarExtension } from './grammar'
 import { hangingHeadersExtension } from './hanging-headers'
 import { syntaxMarkDecorationsExtension } from './syntax-mark-decorations'
 import { codeBlockBackgroundExtension } from './code-block-background'
@@ -122,6 +124,7 @@ export const createExtensions = (config: ExtensionConfig) => {
     ...createFocusModeExtension(),
     ...createCopyeditModeExtension(),
     ...createTypewriterModeExtension(),
+    ...createGrammarExtension(),
 
     // Visual enhancements
     hangingHeadersExtension,
