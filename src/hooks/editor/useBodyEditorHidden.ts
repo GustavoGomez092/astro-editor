@@ -13,7 +13,9 @@ export function useBodyEditorHidden(): boolean {
   const collectionName = useEditorStore(
     state => state.currentFile?.collection ?? null
   )
-  const fileHasBody = useEditorStore(state => state.editorContent.trim() !== '')
+  // A regex test rather than trim(), which copies the whole body on every
+  // keystroke
+  const fileHasBody = useEditorStore(state => /\S/.test(state.editorContent))
   const projectPath = useProjectStore(state => state.projectPath)
   const projectSettings = useProjectStore(state => state.currentProjectSettings)
   const setting = projectSettings?.collections?.find(

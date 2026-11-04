@@ -893,6 +893,14 @@ mod tests {
         assert!(has_body_text("Just text, no frontmatter.\n"));
     }
 
+    // A file that doesn't parse might have a body, so it never hides the editor
+    #[test]
+    fn a_file_that_does_not_parse_counts_as_having_body_text() {
+        let broken = "---\ntitle: [unclosed\n---\n";
+        assert!(crate::commands::files::parse_frontmatter_internal(broken).is_err());
+        assert!(has_body_text(broken));
+    }
+
     #[tokio::test]
     async fn collection_without_body_text() {
         let temp = tempfile::tempdir().unwrap();
