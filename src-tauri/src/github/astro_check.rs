@@ -17,6 +17,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
+use tokio::time::Instant;
 
 /// Repositories per GraphQL query
 const BATCH_SIZE: usize = 50;
@@ -25,6 +26,8 @@ const BIG_ACCOUNT_BATCH_SIZE: usize = 25;
 const BIG_ACCOUNT: usize = 300;
 /// Queries in flight at once
 const MAX_IN_FLIGHT: usize = 3;
+/// The whole call gives up after this long; what isn't answered by then is unknown
+const DEADLINE: Duration = Duration::from_secs(90);
 /// A `Retry-After` longer than this isn't waited for
 const MAX_RETRY_WAIT_SECS: u64 = 60;
 /// A `package.json` bigger than this can't be judged
@@ -40,6 +43,7 @@ const CONFIG_FILES: [&str; 6] = [
 
 #[derive(Deserialize)]
 struct GraphQlResponse {
+    errors: Option<Vec<Value>>,
     data: Option<HashMap<String, Option<RepoNode>>>,
 }
 
@@ -152,7 +156,24 @@ async fn query_batch(
         }
     }
     // Errors for single repositories leave a null in `data`, which is "unknown"
-    let data = response?.data.unwrap_or_default();
+    let response = response?;
+    // No data at all means the whole query failed, not just one repository
+    let Some(data) = response.data else {
+        let message = response
+            .errors
+            .as_deref()
+            .and_then(|e| e.first())
+            .and_then(|e| e.get("message"))
+            .and_then(Value::as_str)
+            .map_or("GitHub sent no answer.".to_string(), |m| {
+                format!("GitHub said: {m}")
+            });
+        return Err(ApiError {
+            status: None,
+            retry_after: None,
+            message,
+        });
+    };
     Ok(batch
         .iter()
         .enumerate()
@@ -171,6 +192,15 @@ pub async fn check_repos(
     client: &GitHubClient,
     token: &str,
     full_names: &[String],
+) -> Result<Vec<RepoAstroCheck>, String> {
+    check_repos_within(client, token, full_names, DEADLINE).await
+}
+
+async fn check_repos_within(
+    client: &GitHubClient,
+    token: &str,
+    full_names: &[String],
+    deadline: Duration,
 ) -> Result<Vec<RepoAstroCheck>, String> {
     let valid: Vec<(String, String, String)> = full_names
         .iter()
@@ -199,7 +229,23 @@ pub async fn check_repos(
     }
     let mut answers: HashMap<String, AstroCheck> = HashMap::new();
     let mut failures: Vec<String> = Vec::new();
-    while let Some(done) = tasks.join_next().await {
+    let until = Instant::now() + deadline;
+    let mut finished = 0;
+    loop {
+        let done = match tokio::time::timeout_at(until, tasks.join_next()).await {
+            Ok(Some(done)) => done,
+            Ok(None) => break,
+            Err(_) => {
+                log::warn!(
+                    "Astro Editor [GITHUB] Checking repositories took too long; {} of {total} queries unanswered",
+                    total - finished
+                );
+                tasks.abort_all();
+                failures.extend((finished..total).map(|_| "Checking took too long.".to_string()));
+                break;
+            }
+        };
+        finished += 1;
         let Ok((index, result)) = done else {
             failures.push("The check stopped unexpectedly.".to_string());
             continue;
@@ -511,5 +557,68 @@ mod tests {
         check_repos(&client, "t", &names).await.unwrap();
         // 320 repositories in queries of 25 is 13 requests (50 would be 7)
         mock.assert_async().await;
+    }
+
+    #[tokio::test]
+    async fn queries_not_answered_by_the_deadline_are_unknown() {
+        let mut server = mockito::Server::new_async().await;
+        let mut first = serde_json::Map::new();
+        for i in 0..50 {
+            first.insert(format!("r{i}"), node(Some("astro.config.ts"), None, false));
+        }
+        server
+            .mock("POST", "/graphql")
+            .match_body(Matcher::Regex(r#""n1":"repo-1""#.into()))
+            .with_body(json!({"data": first}).to_string())
+            .create_async()
+            .await;
+        server
+            .mock("POST", "/graphql")
+            .match_body(Matcher::Regex(r#""n1":"repo-51""#.into()))
+            .with_chunked_body(|w| {
+                std::thread::sleep(Duration::from_millis(1500));
+                w.write_all(b"{}")
+            })
+            .create_async()
+            .await;
+        let client = GitHubClient::with_base_urls(&server.url(), &server.url());
+        let names: Vec<String> = (0..52).map(|i| format!("k/repo-{i}")).collect();
+        let started = Instant::now();
+        let got = check_repos_within(&client, "t", &names, Duration::from_millis(300))
+            .await
+            .unwrap();
+        assert!(started.elapsed() < Duration::from_millis(1200));
+        assert_eq!(got[0].check, AstroCheck::Astro);
+        assert_eq!(got[50].check, AstroCheck::Unknown);
+        assert_eq!(got[51].check, AstroCheck::Unknown);
+    }
+
+    #[tokio::test]
+    async fn errors_with_no_data_are_a_failed_query() {
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/graphql")
+            .with_body(
+                json!({"data": null, "errors": [{"message": "Something broke"}]}).to_string(),
+            )
+            .create_async()
+            .await;
+        let client = GitHubClient::with_base_urls(&server.url(), &server.url());
+        let err = check_repos(&client, "t", &["k/a".to_string()])
+            .await
+            .unwrap_err();
+        assert_eq!(err, "GitHub said: Something broke");
+
+        // A missing `data` is the same
+        let mut server = mockito::Server::new_async().await;
+        server
+            .mock("POST", "/graphql")
+            .with_body(json!({"errors": [{"message": "Nope"}]}).to_string())
+            .create_async()
+            .await;
+        let client = GitHubClient::with_base_urls(&server.url(), &server.url());
+        assert!(check_repos(&client, "t", &["k/a".to_string()])
+            .await
+            .is_err());
     }
 }

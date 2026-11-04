@@ -139,12 +139,17 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
   )
   const selection = chosen ?? pasted
   const stillChecking = (repos.data ?? []).some(r => statusOf(r) === 'checking')
-  // Said aloud once the answers are in, so the list changing isn't a surprise
+  // Said aloud when the check finishes or the switch changes, so the list
+  // changing isn't a surprise. Not affected by the search box or the pick.
+  const listed = visibleRepos(repos.data ?? [], statusOf, showAll)
+  const unchecked = listed.filter(r => statusOf(r) === 'unknown').length
   const listStatus =
     repos.data && !stillChecking
       ? showAll
-        ? `Showing all ${repos.data.length} repositories`
-        : `Showing ${matches.length} Astro ${matches.length === 1 ? 'site' : 'sites'}`
+        ? `Showing all ${listed.length} repositories`
+        : `Showing ${listed.length} Astro ${listed.length === 1 ? 'site' : 'sites'}${
+            unchecked > 0 ? ` (${unchecked} couldn't be checked)` : ''
+          }`
       : ''
   const destination =
     parentDir && selection

@@ -296,6 +296,23 @@ describe('OpenFromGitHubDialog', () => {
         )
       })
 
+      it("mentions repositories that couldn't be checked, and doesn't change while searching", async () => {
+        vi.mocked(commands.githubCheckAstroRepos).mockResolvedValue(
+          ok([
+            { fullName: 'kr/site', check: 'astro' },
+            { fullName: 'kr/notes', check: 'notAstro' },
+            { fullName: 'kr/empty', check: 'unknown' },
+          ])
+        )
+        renderWithProviders(<OpenFromGitHubDialog />)
+        const text = "Showing 2 Astro sites (1 couldn't be checked)"
+        await vi.waitFor(() =>
+          expect(screen.getByRole('status')).toHaveTextContent(text)
+        )
+        await userEvent.type(screen.getByRole('textbox'), 'si')
+        expect(screen.getByRole('status')).toHaveTextContent(text)
+      })
+
       it('says so when nothing is an Astro site, and shows everything on request', async () => {
         vi.mocked(commands.githubCheckAstroRepos).mockResolvedValue(
           ok(
