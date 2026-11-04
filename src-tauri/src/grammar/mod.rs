@@ -256,7 +256,13 @@ fn mask_mdx(chars: &[char]) -> (Vec<char>, Vec<(usize, usize)>) {
                 i = line_end;
                 continue;
             }
-            if !in_fence && (trimmed.starts_with("import ") || trimmed.starts_with("export ")) {
+            // ESM only starts a block, so a wrapped line of a paragraph that
+            // happens to begin with "export " is still prose
+            let starts_block = i == 0 || (i >= 2 && chars[i - 2] == '\n');
+            if !in_fence
+                && starts_block
+                && (trimmed.starts_with("import ") || trimmed.starts_with("export "))
+            {
                 let end = esm_statement_end(chars, i);
                 blank(&mut out, &mut masked, i, end);
                 i = end;
@@ -477,6 +483,13 @@ mod tests {
             issues.iter().any(|i| i.problem == "teh"),
             "text inside a component wasn't checked: {issues:?}"
         );
+    }
+
+    #[test]
+    fn mdx_checks_a_wrapped_line_that_starts_with_export() {
+        let text = "You can save the page and\nexport teh file later.\n";
+        let issues = check(text, GrammarFileType::Mdx);
+        assert!(issues.iter().any(|i| i.problem == "teh"), "{issues:?}");
     }
 
     #[test]
