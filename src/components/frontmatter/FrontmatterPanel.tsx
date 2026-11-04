@@ -194,7 +194,7 @@ export const FrontmatterPanel: React.FC = () => {
         ) : (
           <div className="py-12 text-center">
             <p className="text-sm text-muted-foreground">
-              Select a file to edit its frontmatter.
+              Select an entry to see its details.
             </p>
           </div>
         )}

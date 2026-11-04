@@ -35,9 +35,23 @@ describe('presentGitMessage', () => {
         'Your changes and the changes on the remote both edited src/content/articles/2023-12-05-schema.md.',
         { onGitHub: false, titleFor }
       )
-    ).toBe(
-      'Your changes and the changes on the remote both edited “Schema article”.'
-    )
+    ).toBe('Your changes and the other changes both edited “Schema article”.')
+  })
+
+  it('says "the other changes" for a remote that is not GitHub', () => {
+    expect(
+      presentGitMessage(
+        'Your changes and the changes on origin both edited a.md.',
+        { onGitHub: false, titleFor }
+      )
+    ).toBe('Your changes and the other changes both edited a.md.')
+    // A branch keeps its name
+    expect(
+      presentGitMessage('This branch and the changes on main differ.', {
+        onGitHub: false,
+        titleFor,
+      })
+    ).toBe('This branch and the changes on main differ.')
   })
 
   it('leaves paths it has no title for', () => {

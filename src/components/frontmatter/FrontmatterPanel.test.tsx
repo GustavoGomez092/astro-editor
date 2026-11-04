@@ -69,7 +69,7 @@ describe('FrontmatterPanel Component', () => {
     renderWithProviders(<FrontmatterPanel />)
 
     expect(
-      screen.getByText('Select a file to edit its frontmatter.')
+      screen.getByText('Select an entry to see its details.')
     ).toBeInTheDocument()
   })
 

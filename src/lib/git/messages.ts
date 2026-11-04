@@ -38,7 +38,7 @@ export function pathsIn(message: string): string[] {
 /**
  * An engine message as the writer should read it: entries named by their
  * titles rather than their paths, and "GitHub" rather than "the remote" when
- * the remote is GitHub.
+ * the remote is GitHub ("the other changes" when it isn't).
  */
 export function presentGitMessage(
   message: string,
@@ -55,6 +55,12 @@ export function presentGitMessage(
     text = text
       .replace(/\bThe remote\b/g, 'GitHub')
       .replace(/\bthe remote\b/g, 'GitHub')
+  } else {
+    // A remote's name means nothing to the writer
+    text = text.replace(
+      /\bthe changes on (?:the remote|origin)\b/g,
+      'the other changes'
+    )
   }
   return text
 }
