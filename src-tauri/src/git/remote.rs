@@ -15,14 +15,10 @@ const SIGN_IN_NEEDED: &str = "Sign in with GitHub to sync this repository.";
 
 /// Whether a remote URL is github.com over HTTPS, where the token can be used
 pub(crate) fn is_github_https(url: &str) -> bool {
-    // HTTPS only: over plain HTTP the token would go out in the clear
-    let Some(rest) = url.strip_prefix("https://") else {
-        return false;
-    };
-    let authority = rest.split('/').next().unwrap_or("");
-    let host = authority.rsplit('@').next().unwrap_or("");
-    let host = host.split(':').next().unwrap_or("");
-    host.eq_ignore_ascii_case("github.com") || host.eq_ignore_ascii_case("www.github.com")
+    // HTTPS only: over plain HTTP the token would go out in the clear. Parsed,
+    // not matched by hand, so `user@`, `\\` and port tricks can't fake the host
+    url::Url::parse(url.trim())
+        .is_ok_and(|url| url.scheme() == "https" && url.host_str() == Some("github.com"))
 }
 
 /// Credentials for `origin`: the GitHub token for github.com, else git's credential
@@ -304,6 +300,17 @@ mod tests {
         assert!(!is_github_https("/tmp/remote"));
         // Plain HTTP would send the token in the clear
         assert!(!is_github_https("http://github.com/owner/repo.git"));
+        // The host is exactly github.com, however the URL is dressed up
+        assert!(!is_github_https(
+            "https://evil.example\\@github.com/owner/repo"
+        ));
+        assert!(!is_github_https(
+            "https://github.com@evil.example/owner/repo"
+        ));
+        assert!(!is_github_https("https://www.github.com/owner/repo"));
+        assert!(!is_github_https("https://api.github.com/owner/repo"));
+        assert!(is_github_https("https://github.com:443/owner/repo"));
+        assert!(!is_github_https("not a url"));
     }
 
     #[test]

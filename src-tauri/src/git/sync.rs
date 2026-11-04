@@ -34,12 +34,13 @@ pub fn sync(
             status: repo_status(repo)?,
         });
     };
+    let label = remote_label(repo);
     let integration = integrate(
         repo,
         &branch,
-        &upstream_name,
         upstream,
-        &remote_label(repo),
+        &label,
+        &combine_message(&label, &upstream_name),
         &|| commit_identity(repo, user),
     )?;
     Ok(SyncResult {
@@ -88,9 +89,14 @@ pub fn publish(
 
     let mut outcome = SyncOutcome::UpToDate;
     if let Some((upstream_name, upstream)) = upstream_of(repo, &branch) {
-        let integration = integrate(repo, &branch, &upstream_name, upstream, &label, &|| {
-            commit_identity(repo, user)
-        })?;
+        let integration = integrate(
+            repo,
+            &branch,
+            upstream,
+            &label,
+            &combine_message(&label, &upstream_name),
+            &|| commit_identity(repo, user),
+        )?;
         match integration.outcome {
             SyncOutcome::Conflict => {
                 let file = integration.conflict_file.unwrap_or_default();
@@ -143,20 +149,22 @@ pub fn merge_default_branch(
             status: repo_status(repo)?,
         });
     }
-    let (name, target) = [
+    let target = [
         (format!("origin/{default}"), BranchType::Remote),
         (default.clone(), BranchType::Local),
     ]
     .into_iter()
-    .find_map(|(name, kind)| {
-        let oid = repo.find_branch(&name, kind).ok()?.get().target()?;
-        Some((name, oid))
-    })
+    .find_map(|(name, kind)| repo.find_branch(&name, kind).ok()?.get().target())
     .ok_or_else(|| format!("Couldn't find the {default} branch."))?;
 
-    let integration = integrate(repo, &branch, &name, target, &default, &|| {
-        commit_identity(repo, user)
-    })?;
+    let integration = integrate(
+        repo,
+        &branch,
+        target,
+        &default,
+        &format!("Bring in changes from {default}"),
+        &|| commit_identity(repo, user),
+    )?;
     // Publishing can't sort out a conflict with the default branch, so the
     // message doesn't point there
     let message = match (&integration.outcome, &integration.conflict_file) {
@@ -340,6 +348,14 @@ fn commit_everything(
     .map_err(|e| describe("Couldn't save your changes", &e))
 }
 
+/// A checkout that failed for a reason other than local changes
+fn checkout_failed(label: &str, e: &git2::Error) -> String {
+    format!(
+        "Couldn't bring in the changes from {label}, so nothing was changed: {}",
+        e.message()
+    )
+}
+
 struct Integration {
     outcome: SyncOutcome,
     message: String,
@@ -410,16 +426,16 @@ pub(crate) fn move_branch(
     })
 }
 
-/// Bring the commit `incoming` (named `incoming_name`, from `label`) into `branch`,
+/// Bring the commit `incoming` (from `label`) into `branch`,
 /// the checked-out branch: fast-forward when only it has new commits and that won't
 /// touch locally changed files; merge when both have new commits and there are no
 /// local changes; otherwise leave everything as it is and say why.
 fn integrate(
     repo: &Repository,
     branch: &str,
-    incoming_name: &str,
     incoming: Oid,
     label: &str,
+    merge_message: &str,
     identity: &dyn Fn() -> Result<Signature<'static>, String>,
 ) -> Result<Integration, String> {
     let local = repo
@@ -492,7 +508,12 @@ fn integrate(
                 }
                 return Ok(blocked(&files));
             }
-            Err(CheckoutRefused::Failed(_)) => return Ok(blocked(&[])),
+            Err(CheckoutRefused::Failed(e)) => {
+                return Ok(Integration::new(
+                    SyncOutcome::BlockedByLocalChanges,
+                    checkout_failed(label, &e),
+                ))
+            }
         }
         move_branch(repo, branch, incoming, local, "fast-forward")?;
         return Ok(Integration::new(
@@ -528,7 +549,7 @@ fn integrate(
         return Ok(Integration {
             outcome: SyncOutcome::Conflict,
             message: format!(
-                "Your changes and the changes on {label} both edited {file}. Publish isn't possible until that's sorted out."
+                "Your changes and the changes on {label} both edited {file}, so they can't be combined automatically."
             ),
             conflict_file: Some(file),
         });
@@ -545,7 +566,7 @@ fn integrate(
             None,
             &signature,
             &signature,
-            &format!("Merge {incoming_name} into {branch}"),
+            merge_message,
             &tree,
             &[&local_commit, &incoming_commit],
         )
@@ -553,7 +574,12 @@ fn integrate(
     if let Err(refused) = checkout_safely(repo, tree.as_object()) {
         let what = match refused {
             CheckoutRefused::Conflicts(files) => name_files(&files),
-            CheckoutRefused::Failed(_) => "a file on this computer".to_string(),
+            CheckoutRefused::Failed(e) => {
+                return Ok(Integration::new(
+                    SyncOutcome::BlockedByLocalChanges,
+                    checkout_failed(label, &e),
+                ))
+            }
         };
         return Ok(Integration::new(
             SyncOutcome::BlockedByLocalChanges,
@@ -651,6 +677,7 @@ mod tests {
         assert_eq!(result.outcome, SyncOutcome::Merged);
         let head = setup.local.head().unwrap().peel_to_commit().unwrap();
         assert_eq!(head.parent_ids().collect::<Vec<_>>(), vec![mine, theirs]);
+        assert_eq!(head.message(), Some("Combine changes from origin"));
         assert_eq!(read(&setup.local, "news.md"), "news\n");
         assert_eq!(read(&setup.local, "mine.md"), "mine\n");
         assert!(result.status.files.is_empty());
@@ -668,6 +695,8 @@ mod tests {
         let result = sync(&setup.local, None, None).unwrap();
         assert_eq!(result.outcome, SyncOutcome::Conflict);
         assert!(result.message.contains("README.md"), "{}", result.message);
+        // The frontend swaps the path for a quoted title, which brings its own stop
+        assert!(!result.message.contains("README.md."), "{}", result.message);
         assert_eq!(head_id(&setup.local), mine);
         assert_eq!(read(&setup.local, "README.md"), "mine\n");
         assert_eq!(setup.local.state(), git2::RepositoryState::Clean);
@@ -756,6 +785,7 @@ mod tests {
         assert!(!result.pushed);
         assert_eq!(result.outcome, SyncOutcome::Conflict);
         assert!(result.message.contains("README.md"), "{}", result.message);
+        assert!(!result.message.contains("README.md."), "{}", result.message);
         let head = setup.local.head().unwrap().peel_to_commit().unwrap();
         assert_eq!(head.message(), Some("My edit"));
         assert_eq!(read(&setup.local, "README.md"), "mine\n");
@@ -806,6 +836,7 @@ mod tests {
         assert_eq!(result.status.branch.as_deref(), Some("staging"));
         let head = setup.local.head().unwrap().peel_to_commit().unwrap();
         assert_eq!(head.parent_ids().collect::<Vec<_>>(), vec![draft, theirs]);
+        assert_eq!(head.message(), Some("Bring in changes from main"));
         assert_eq!(read(&setup.local, "merged.md"), "merged\n");
         assert_eq!(read(&setup.local, "draft.md"), "draft\n");
     }
@@ -889,6 +920,7 @@ mod tests {
         assert!(result.message.contains("README.md"), "{}", result.message);
         assert!(result.message.contains("main"), "{}", result.message);
         assert!(!result.message.contains("Publish"), "{}", result.message);
+        assert!(!result.message.contains("README.md."), "{}", result.message);
         assert_eq!(head_id(&setup.local), before);
         assert_eq!(read(&setup.local, "README.md"), "staging\n");
     }
@@ -975,6 +1007,31 @@ mod tests {
         assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 1);
         push(&setup.local, "main");
         assert_eq!(commits_ahead_of_default(&setup.local).unwrap(), 0);
+    }
+
+    #[test]
+    fn merge_messages_name_where_the_changes_came_from() {
+        assert_eq!(
+            combine_message("GitHub", "origin/main"),
+            "Combine changes from GitHub"
+        );
+        assert_eq!(
+            combine_message("the remote", "origin/main"),
+            "Combine changes from origin"
+        );
+        assert_eq!(
+            combine_message("the remote", "upstream/main"),
+            "Combine changes from upstream"
+        );
+    }
+
+    #[test]
+    fn a_failed_checkout_says_what_went_wrong_without_pointing_at_publish() {
+        let e = git2::Error::from_str("failed to stat 'src/x.md'");
+        let message = checkout_failed("GitHub", &e);
+        assert!(!message.contains("Publish"), "{message}");
+        assert!(message.contains("failed to stat 'src/x.md'"), "{message}");
+        assert!(message.contains("GitHub"), "{message}");
     }
 
     #[test]
