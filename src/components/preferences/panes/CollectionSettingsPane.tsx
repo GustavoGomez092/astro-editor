@@ -173,6 +173,18 @@ export const CollectionSettingsPane: React.FC = () => {
     void updateCollectionSettings(collectionName, newSettings.settings)
   }
 
+  // Update a collection's body text setting
+  const handleBodyTextChange = (
+    collectionName: string,
+    value: 'show' | 'hide' | undefined
+  ) => {
+    const existing = getCollectionOverride(collectionName)
+    void updateCollectionSettings(collectionName, {
+      ...existing?.settings,
+      bodyText: value,
+    })
+  }
+
   // Update a collection's URL pattern
   const handleUrlPatternChange = (collectionName: string, value: string) => {
     const existing = getCollectionOverride(collectionName)
@@ -303,6 +315,19 @@ export const CollectionSettingsPane: React.FC = () => {
       </div>
     )
   }
+
+  const bodyTextItems = [
+    {
+      value: 'detect',
+      label: (
+        <span className="text-muted-foreground">
+          Detect: hide the editor when no entry has any
+        </span>
+      ),
+    },
+    { value: 'show', label: 'Entries have body text' },
+    { value: 'hide', label: 'No body text: hide the editor' },
+  ]
 
   const fileTypeItems = [
     {
@@ -517,6 +542,47 @@ export const CollectionSettingsPane: React.FC = () => {
                           <FieldDescription>
                             File type used when creating new files in this
                             collection
+                          </FieldDescription>
+                        </FieldContent>
+                      </Field>
+
+                      <Field>
+                        <FieldLabel id={fieldId('body-text')}>
+                          Body Text
+                        </FieldLabel>
+                        <FieldContent>
+                          <Select
+                            items={bodyTextItems}
+                            value={
+                              collectionOverride?.settings?.bodyText || 'detect'
+                            }
+                            onValueChange={value => {
+                              if (!value) return
+                              handleBodyTextChange(
+                                collection.name,
+                                value === 'detect'
+                                  ? undefined
+                                  : (value as 'show' | 'hide')
+                              )
+                            }}
+                          >
+                            <SelectTrigger
+                              aria-labelledby={fieldId('body-text')}
+                            >
+                              <SelectValue />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {bodyTextItems.map(item => (
+                                <SelectItem key={item.value} value={item.value}>
+                                  {item.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FieldDescription>
+                            Collections that are only frontmatter (settings,
+                            testimonials) don&apos;t need the editor. An entry
+                            that has body text always shows it
                           </FieldDescription>
                         </FieldContent>
                       </Field>

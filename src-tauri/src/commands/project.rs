@@ -653,6 +653,73 @@ pub async fn count_collection_files_recursive(collection_path: String) -> Result
     count_files_recursive(&path)
 }
 
+/// Whether a file has text after its frontmatter and MDX imports. A file that
+/// doesn't parse counts as having some, so it never hides the editor
+fn has_body_text(content: &str) -> bool {
+    crate::commands::files::parse_frontmatter_internal(content)
+        .map(|parsed| !parsed.content.trim().is_empty())
+        .unwrap_or(true)
+}
+
+/// Whether any entry in a collection has body text. Collections made only of
+/// frontmatter (settings, testimonials, gallery items) hide the body editor.
+/// Skips the same files as the other scans (hidden, `_`-prefixed, symlinks,
+/// anything but .md and .mdx) and stops at the first entry with a body
+#[tauri::command]
+#[specta::specta]
+pub async fn collection_has_body_text(collection_path: String) -> Result<bool, String> {
+    let path = PathBuf::from(&collection_path);
+
+    if !path.exists() {
+        return Ok(false);
+    }
+
+    if !path.is_dir() {
+        return Err(format!("Path is not a directory: {}", path.display()));
+    }
+
+    fn any_body_text(dir_path: &Path) -> Result<bool, String> {
+        for entry in
+            std::fs::read_dir(dir_path).map_err(|e| format!("Failed to read directory: {e}"))?
+        {
+            let entry = entry.map_err(|e| format!("Failed to read directory entry: {e}"))?;
+            let path = entry.path();
+
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            if file_name.starts_with('.') || file_name.starts_with('_') {
+                continue;
+            }
+
+            let metadata = entry
+                .metadata()
+                .map_err(|e| format!("Failed to read metadata: {e}"))?;
+            if metadata.file_type().is_symlink() {
+                continue;
+            }
+
+            if path.is_dir() {
+                if any_body_text(&path)? {
+                    return Ok(true);
+                }
+            } else if path
+                .extension()
+                .and_then(|ext| ext.to_str())
+                .is_some_and(|ext| matches!(ext, "md" | "mdx"))
+            {
+                let content = std::fs::read_to_string(&path)
+                    .map_err(|e| format!("Failed to read file: {e}"))?;
+                if has_body_text(&content) {
+                    return Ok(true);
+                }
+            }
+        }
+
+        Ok(false)
+    }
+
+    any_body_text(&path)
+}
+
 /// Scan all markdown/mdx files recursively in a collection directory
 #[tauri::command]
 #[specta::specta]
@@ -807,6 +874,70 @@ pub async fn resolve_file_entry(
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    // --- collection_has_body_text ---
+
+    fn write_entry(dir: &Path, name: &str, content: &str) {
+        std::fs::create_dir_all(dir).unwrap();
+        std::fs::write(dir.join(name), content).unwrap();
+    }
+
+    #[test]
+    fn body_text_is_text_after_the_frontmatter_and_imports() {
+        assert!(!has_body_text("---\ntitle: A\n---\n"));
+        assert!(!has_body_text("---\ntitle: A\n---\n\n  \n"));
+        assert!(!has_body_text(
+            "---\ntitle: A\n---\n\nimport Card from '../Card.astro'\n"
+        ));
+        assert!(has_body_text("---\ntitle: A\n---\n\nHello.\n"));
+        assert!(has_body_text("Just text, no frontmatter.\n"));
+    }
+
+    // A file that doesn't parse might have a body, so it never hides the editor
+    #[test]
+    fn a_file_that_does_not_parse_counts_as_having_body_text() {
+        let broken = "---\ntitle: [unclosed\n---\n";
+        assert!(crate::commands::files::parse_frontmatter_internal(broken).is_err());
+        assert!(has_body_text(broken));
+    }
+
+    #[tokio::test]
+    async fn collection_without_body_text() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(temp.path(), "a.md", "---\ntitle: A\n---\n");
+        write_entry(
+            &temp.path().join("nested"),
+            "b.mdx",
+            "---\ntitle: B\n---\n\n",
+        );
+        // Ignored like everywhere else: not Markdown, or hidden with _ or .
+        write_entry(temp.path(), "notes.txt", "Some text");
+        write_entry(temp.path(), "_draft.md", "---\ntitle: D\n---\nBody\n");
+
+        let result = collection_has_body_text(temp.path().to_string_lossy().to_string()).await;
+        assert_eq!(result, Ok(false));
+    }
+
+    #[tokio::test]
+    async fn collection_with_body_text_in_one_entry() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(temp.path(), "a.md", "---\ntitle: A\n---\n");
+        write_entry(
+            &temp.path().join("2024"),
+            "b.md",
+            "---\ntitle: B\n---\nA body.\n",
+        );
+
+        let result = collection_has_body_text(temp.path().to_string_lossy().to_string()).await;
+        assert_eq!(result, Ok(true));
+    }
+
+    #[tokio::test]
+    async fn missing_collection_has_no_body_text() {
+        let temp = tempfile::tempdir().unwrap();
+        let missing = temp.path().join("missing").to_string_lossy().to_string();
+        assert_eq!(collection_has_body_text(missing).await, Ok(false));
+    }
 
     #[test]
     #[cfg(not(target_os = "windows"))]

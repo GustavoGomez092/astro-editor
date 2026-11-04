@@ -175,6 +175,7 @@ export function hasCollectionSettings(
     settings.defaultFileType !== undefined ||
     settings.urlPattern !== undefined ||
     settings.useAbsoluteAssetPaths !== undefined ||
+    settings.bodyText !== undefined ||
     settings.sort !== undefined
   )
 }

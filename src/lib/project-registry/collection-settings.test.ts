@@ -2,483 +2,508 @@
  * Tests for collection-scoped settings with three-tier fallback
  */
 
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect } from "vitest";
 import {
   canImportImages,
   getCollectionSettings,
   getCollectionSort,
   hasCollectionSettings,
   withCollectionSort,
-} from './collection-settings'
-import { ProjectSettings } from './types'
-import { ASTRO_PATHS } from '../constants'
+} from "./collection-settings";
+import { ProjectSettings } from "./types";
+import { ASTRO_PATHS } from "../constants";
 
-describe('getCollectionSettings', () => {
-  describe('three-tier fallback for path overrides', () => {
-    it('returns collection-specific path when set', () => {
+describe("getCollectionSettings", () => {
+  describe("three-tier fallback for path overrides", () => {
+    it("returns collection-specific path when set", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {
-          contentDirectory: 'project/content',
-          assetsDirectory: 'project/assets',
+          contentDirectory: "project/content",
+          assetsDirectory: "project/assets",
         },
         frontmatterMappings: {},
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               pathOverrides: {
-                contentDirectory: 'content/blog',
-                assetsDirectory: 'public/blog-images',
+                contentDirectory: "content/blog",
+                assetsDirectory: "public/blog-images",
               },
             },
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
-      expect(result.pathOverrides.contentDirectory).toBe('content/blog')
-      expect(result.pathOverrides.assetsDirectory).toBe('public/blog-images')
-    })
+      expect(result.pathOverrides.contentDirectory).toBe("content/blog");
+      expect(result.pathOverrides.assetsDirectory).toBe("public/blog-images");
+    });
 
-    it('falls back to project-level path when collection path not set', () => {
+    it("falls back to project-level path when collection path not set", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {
-          contentDirectory: 'project/content',
-          assetsDirectory: 'project/assets',
+          contentDirectory: "project/content",
+          assetsDirectory: "project/assets",
         },
         frontmatterMappings: {},
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               // No path overrides for this collection
             },
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
-      expect(result.pathOverrides.contentDirectory).toBe('project/content')
-      expect(result.pathOverrides.assetsDirectory).toBe('project/assets')
-    })
+      expect(result.pathOverrides.contentDirectory).toBe("project/content");
+      expect(result.pathOverrides.assetsDirectory).toBe("project/assets");
+    });
 
-    it('falls back to defaults when neither collection nor project paths set', () => {
+    it("falls back to defaults when neither collection nor project paths set", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {},
         frontmatterMappings: {},
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {},
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
       expect(result.pathOverrides.contentDirectory).toBe(
-        ASTRO_PATHS.CONTENT_DIR
-      )
-      expect(result.pathOverrides.assetsDirectory).toBe(ASTRO_PATHS.ASSETS_DIR)
-    })
+        ASTRO_PATHS.CONTENT_DIR,
+      );
+      expect(result.pathOverrides.assetsDirectory).toBe(ASTRO_PATHS.ASSETS_DIR);
+    });
 
-    it('handles mixed overrides (some collection, some project, some default)', () => {
+    it("handles mixed overrides (some collection, some project, some default)", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {
-          contentDirectory: 'project/content',
+          contentDirectory: "project/content",
           // No assetsDirectory override at project level
         },
         frontmatterMappings: {},
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               pathOverrides: {
                 // Only override assets, not content
-                assetsDirectory: 'public/blog-images',
+                assetsDirectory: "public/blog-images",
               },
             },
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
       // Content: project override
-      expect(result.pathOverrides.contentDirectory).toBe('project/content')
+      expect(result.pathOverrides.contentDirectory).toBe("project/content");
       // Assets: collection override
-      expect(result.pathOverrides.assetsDirectory).toBe('public/blog-images')
+      expect(result.pathOverrides.assetsDirectory).toBe("public/blog-images");
       // MDX: default (no overrides at any level)
       expect(result.pathOverrides.mdxComponentsDirectory).toBe(
-        ASTRO_PATHS.MDX_COMPONENTS_DIR
-      )
-    })
-  })
+        ASTRO_PATHS.MDX_COMPONENTS_DIR,
+      );
+    });
+  });
 
-  describe('three-tier fallback for frontmatter mappings', () => {
-    it('returns collection-specific mapping when set', () => {
+  describe("three-tier fallback for frontmatter mappings", () => {
+    it("returns collection-specific mapping when set", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {},
         frontmatterMappings: {
-          publishedDate: 'date',
-          title: 'title',
+          publishedDate: "date",
+          title: "title",
         },
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               frontmatterMappings: {
-                publishedDate: 'publishDate',
-                title: 'heading',
+                publishedDate: "publishDate",
+                title: "heading",
               },
             },
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
-      expect(result.frontmatterMappings.publishedDate).toBe('publishDate')
-      expect(result.frontmatterMappings.title).toBe('heading')
-    })
+      expect(result.frontmatterMappings.publishedDate).toBe("publishDate");
+      expect(result.frontmatterMappings.title).toBe("heading");
+    });
 
-    it('falls back to project-level mapping when collection mapping not set', () => {
+    it("falls back to project-level mapping when collection mapping not set", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {},
         frontmatterMappings: {
-          publishedDate: 'customDate',
-          title: 'customTitle',
+          publishedDate: "customDate",
+          title: "customTitle",
         },
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               // No frontmatter mappings for this collection
             },
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
-      expect(result.frontmatterMappings.publishedDate).toBe('customDate')
-      expect(result.frontmatterMappings.title).toBe('customTitle')
-    })
+      expect(result.frontmatterMappings.publishedDate).toBe("customDate");
+      expect(result.frontmatterMappings.title).toBe("customTitle");
+    });
 
-    it('falls back to defaults when neither collection nor project mappings set', () => {
+    it("falls back to defaults when neither collection nor project mappings set", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {},
         frontmatterMappings: {},
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {},
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
       expect(result.frontmatterMappings.publishedDate).toEqual([
-        'pubDate',
-        'date',
-        'publishedDate',
-      ])
-      expect(result.frontmatterMappings.title).toBe('title')
-      expect(result.frontmatterMappings.description).toBe('description')
-      expect(result.frontmatterMappings.draft).toBe('draft')
-    })
+        "pubDate",
+        "date",
+        "publishedDate",
+      ]);
+      expect(result.frontmatterMappings.title).toBe("title");
+      expect(result.frontmatterMappings.description).toBe("description");
+      expect(result.frontmatterMappings.draft).toBe("draft");
+    });
 
-    it('handles array-type publishedDate mapping from collection', () => {
+    it("handles array-type publishedDate mapping from collection", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {},
         frontmatterMappings: {},
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               frontmatterMappings: {
-                publishedDate: ['publishDate', 'postDate'],
+                publishedDate: ["publishDate", "postDate"],
               },
             },
           },
         ],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
       expect(result.frontmatterMappings.publishedDate).toEqual([
-        'publishDate',
-        'postDate',
-      ])
-    })
-  })
+        "publishDate",
+        "postDate",
+      ]);
+    });
+  });
 
-  describe('collection not found', () => {
-    it('returns project-level settings when collection not found', () => {
+  describe("collection not found", () => {
+    it("returns project-level settings when collection not found", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {
-          contentDirectory: 'project/content',
+          contentDirectory: "project/content",
         },
         frontmatterMappings: {
-          title: 'customTitle',
+          title: "customTitle",
         },
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               pathOverrides: {
-                contentDirectory: 'content/blog',
+                contentDirectory: "content/blog",
               },
             },
           },
         ],
-      }
+      };
 
       // Query for a collection that doesn't exist
-      const result = getCollectionSettings(projectSettings, 'docs')
+      const result = getCollectionSettings(projectSettings, "docs");
 
       // Should get project-level overrides, not the blog collection's
-      expect(result.pathOverrides.contentDirectory).toBe('project/content')
-      expect(result.frontmatterMappings.title).toBe('customTitle')
-    })
-  })
+      expect(result.pathOverrides.contentDirectory).toBe("project/content");
+      expect(result.frontmatterMappings.title).toBe("customTitle");
+    });
+  });
 
-  describe('no collections array', () => {
-    it('returns project-level settings when collections array is undefined', () => {
+  describe("no collections array", () => {
+    it("returns project-level settings when collections array is undefined", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {
-          contentDirectory: 'project/content',
+          contentDirectory: "project/content",
         },
         frontmatterMappings: {
-          title: 'customTitle',
+          title: "customTitle",
         },
         // No collections array
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
-      expect(result.pathOverrides.contentDirectory).toBe('project/content')
-      expect(result.frontmatterMappings.title).toBe('customTitle')
-    })
+      expect(result.pathOverrides.contentDirectory).toBe("project/content");
+      expect(result.frontmatterMappings.title).toBe("customTitle");
+    });
 
-    it('returns project-level settings when collections array is empty', () => {
+    it("returns project-level settings when collections array is empty", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {
-          contentDirectory: 'project/content',
+          contentDirectory: "project/content",
         },
         frontmatterMappings: {
-          title: 'customTitle',
+          title: "customTitle",
         },
         collections: [],
-      }
+      };
 
-      const result = getCollectionSettings(projectSettings, 'blog')
+      const result = getCollectionSettings(projectSettings, "blog");
 
-      expect(result.pathOverrides.contentDirectory).toBe('project/content')
-      expect(result.frontmatterMappings.title).toBe('customTitle')
-    })
-  })
+      expect(result.pathOverrides.contentDirectory).toBe("project/content");
+      expect(result.frontmatterMappings.title).toBe("customTitle");
+    });
+  });
 
-  describe('complete integration scenario', () => {
-    it('handles real-world configuration with multiple collections', () => {
+  describe("complete integration scenario", () => {
+    it("handles real-world configuration with multiple collections", () => {
       const projectSettings: ProjectSettings = {
         pathOverrides: {
-          contentDirectory: 'src/content',
-          assetsDirectory: 'src/assets',
+          contentDirectory: "src/content",
+          assetsDirectory: "src/assets",
         },
         frontmatterMappings: {
-          publishedDate: 'date',
-          title: 'title',
-          description: 'description',
-          draft: 'draft',
+          publishedDate: "date",
+          title: "title",
+          description: "description",
+          draft: "draft",
         },
         collections: [
           {
-            name: 'blog',
+            name: "blog",
             settings: {
               pathOverrides: {
-                contentDirectory: 'content/blog-posts',
-                assetsDirectory: 'public/blog-images',
+                contentDirectory: "content/blog-posts",
+                assetsDirectory: "public/blog-images",
               },
               frontmatterMappings: {
-                publishedDate: 'publishDate',
-                title: 'heading',
+                publishedDate: "publishDate",
+                title: "heading",
               },
             },
           },
           {
-            name: 'docs',
+            name: "docs",
             settings: {
               // Docs only overrides the content directory
               pathOverrides: {
-                contentDirectory: 'content/documentation',
+                contentDirectory: "content/documentation",
               },
             },
           },
         ],
-      }
+      };
 
       // Blog collection: Full overrides
-      const blogSettings = getCollectionSettings(projectSettings, 'blog')
+      const blogSettings = getCollectionSettings(projectSettings, "blog");
       expect(blogSettings.pathOverrides.contentDirectory).toBe(
-        'content/blog-posts'
-      )
+        "content/blog-posts",
+      );
       expect(blogSettings.pathOverrides.assetsDirectory).toBe(
-        'public/blog-images'
-      )
-      expect(blogSettings.frontmatterMappings.publishedDate).toBe('publishDate')
-      expect(blogSettings.frontmatterMappings.title).toBe('heading')
+        "public/blog-images",
+      );
+      expect(blogSettings.frontmatterMappings.publishedDate).toBe(
+        "publishDate",
+      );
+      expect(blogSettings.frontmatterMappings.title).toBe("heading");
 
       // Docs collection: Partial override (content dir only)
-      const docsSettings = getCollectionSettings(projectSettings, 'docs')
+      const docsSettings = getCollectionSettings(projectSettings, "docs");
       expect(docsSettings.pathOverrides.contentDirectory).toBe(
-        'content/documentation'
-      )
-      expect(docsSettings.pathOverrides.assetsDirectory).toBe('src/assets') // Project level
-      expect(docsSettings.frontmatterMappings.title).toBe('title') // Project level
+        "content/documentation",
+      );
+      expect(docsSettings.pathOverrides.assetsDirectory).toBe("src/assets"); // Project level
+      expect(docsSettings.frontmatterMappings.title).toBe("title"); // Project level
 
       // Unconfigured collection: Project defaults
-      const newsSettings = getCollectionSettings(projectSettings, 'news')
-      expect(newsSettings.pathOverrides.contentDirectory).toBe('src/content')
-      expect(newsSettings.pathOverrides.assetsDirectory).toBe('src/assets')
-      expect(newsSettings.frontmatterMappings.publishedDate).toBe('date')
-    })
-  })
-})
+      const newsSettings = getCollectionSettings(projectSettings, "news");
+      expect(newsSettings.pathOverrides.contentDirectory).toBe("src/content");
+      expect(newsSettings.pathOverrides.assetsDirectory).toBe("src/assets");
+      expect(newsSettings.frontmatterMappings.publishedDate).toBe("date");
+    });
+  });
+});
 
-describe('canImportImages', () => {
+describe("canImportImages", () => {
   function settings(overrides: Partial<ProjectSettings>): ProjectSettings {
     return {
       pathOverrides: {},
       frontmatterMappings: {},
       addComponentImports: true,
       ...overrides,
-    }
+    };
   }
 
-  it('imports images when the project adds imports and they go outside public/', () => {
-    expect(canImportImages(settings({}), 'notes')).toBe(true)
+  it("imports images when the project adds imports and they go outside public/", () => {
+    expect(canImportImages(settings({}), "notes")).toBe(true);
     expect(
       canImportImages(
-        settings({ pathOverrides: { assetsDirectory: './content/images/' } }),
-        'notes'
-      )
-    ).toBe(true)
-  })
+        settings({ pathOverrides: { assetsDirectory: "./content/images/" } }),
+        "notes",
+      ),
+    ).toBe(true);
+  });
 
-  it('falls back to a typed name when the setting is off or images go in public/', () => {
+  it("falls back to a typed name when the setting is off or images go in public/", () => {
     expect(
-      canImportImages(settings({ addComponentImports: false }), 'notes')
-    ).toBe(false)
+      canImportImages(settings({ addComponentImports: false }), "notes"),
+    ).toBe(false);
     expect(
       canImportImages(
-        settings({ pathOverrides: { assetsDirectory: 'public/images' } }),
-        'notes'
-      )
-    ).toBe(false)
+        settings({ pathOverrides: { assetsDirectory: "public/images" } }),
+        "notes",
+      ),
+    ).toBe(false);
     // A collection that keeps its images in public/
     expect(
       canImportImages(
         settings({
           collections: [
             {
-              name: 'notes',
-              settings: { pathOverrides: { assetsDirectory: 'public/notes' } },
+              name: "notes",
+              settings: { pathOverrides: { assetsDirectory: "public/notes" } },
             },
           ],
         }),
-        'notes'
-      )
-    ).toBe(false)
-    expect(canImportImages(settings({}), undefined)).toBe(false)
-  })
-})
+        "notes",
+      ),
+    ).toBe(false);
+    expect(canImportImages(settings({}), undefined)).toBe(false);
+  });
+});
 
-describe('collection sort', () => {
+describe("collection sort", () => {
   const project = (
-    collections: ProjectSettings['collections']
+    collections: ProjectSettings["collections"],
   ): ProjectSettings => ({
     pathOverrides: {},
     frontmatterMappings: {},
     collections,
-  })
+  });
 
-  it('defaults to the Default sort', () => {
-    expect(getCollectionSort(project([]), 'sections')).toEqual({
-      mode: 'default',
-      direction: 'desc',
-    })
-    expect(getCollectionSort(null, 'sections').mode).toBe('default')
-  })
+  it("defaults to the Default sort", () => {
+    expect(getCollectionSort(project([]), "sections")).toEqual({
+      mode: "default",
+      direction: "desc",
+    });
+    expect(getCollectionSort(null, "sections").mode).toBe("default");
+  });
 
-  it('reads the saved sort for the collection', () => {
+  it("reads the saved sort for the collection", () => {
     const settings = project([
       {
-        name: 'sections',
-        settings: { sort: { mode: 'order', direction: 'asc' } },
+        name: "sections",
+        settings: { sort: { mode: "order", direction: "asc" } },
       },
-    ])
-    expect(getCollectionSort(settings, 'sections')).toEqual({
-      mode: 'order',
-      direction: 'asc',
-    })
-    expect(getCollectionSort(settings, 'work').mode).toBe('default')
-  })
+    ]);
+    expect(getCollectionSort(settings, "sections")).toEqual({
+      mode: "order",
+      direction: "asc",
+    });
+    expect(getCollectionSort(settings, "work").mode).toBe("default");
+  });
 
   it("saves a sort alongside the collection's other settings", () => {
     const settings = project([
-      { name: 'sections', settings: { urlPattern: '/{slug}' } },
-    ])
+      { name: "sections", settings: { urlPattern: "/{slug}" } },
+    ]);
 
     expect(
-      withCollectionSort(settings, 'sections', {
-        mode: 'order',
-        direction: 'asc',
-      })
+      withCollectionSort(settings, "sections", {
+        mode: "order",
+        direction: "asc",
+      }),
     ).toEqual([
       {
-        name: 'sections',
+        name: "sections",
         settings: {
-          urlPattern: '/{slug}',
-          sort: { mode: 'order', direction: 'asc' },
+          urlPattern: "/{slug}",
+          sort: { mode: "order", direction: "asc" },
         },
       },
-    ])
-  })
+    ]);
+  });
 
-  it('adds an entry for a collection with no settings yet', () => {
+  it("adds an entry for a collection with no settings yet", () => {
     expect(
-      withCollectionSort(project(undefined), 'work', {
-        mode: 'title',
-        direction: 'asc',
-      })
+      withCollectionSort(project(undefined), "work", {
+        mode: "title",
+        direction: "asc",
+      }),
     ).toEqual([
-      { name: 'work', settings: { sort: { mode: 'title', direction: 'asc' } } },
-    ])
-  })
+      { name: "work", settings: { sort: { mode: "title", direction: "asc" } } },
+    ]);
+  });
 
-  it('forgets the sort when it goes back to Default, and drops an empty entry', () => {
+  it("forgets the sort when it goes back to Default, and drops an empty entry", () => {
     const settings = project([
-      { name: 'work', settings: { sort: { mode: 'order', direction: 'asc' } } },
-      { name: 'sections', settings: { urlPattern: '/{slug}' } },
-    ])
+      { name: "work", settings: { sort: { mode: "order", direction: "asc" } } },
+      { name: "sections", settings: { urlPattern: "/{slug}" } },
+    ]);
 
     expect(
-      withCollectionSort(settings, 'work', {
-        mode: 'default',
-        direction: 'desc',
-      })
-    ).toEqual([{ name: 'sections', settings: { urlPattern: '/{slug}' } }])
-  })
+      withCollectionSort(settings, "work", {
+        mode: "default",
+        direction: "desc",
+      }),
+    ).toEqual([{ name: "sections", settings: { urlPattern: "/{slug}" } }]);
+  });
 
-  it('counts a saved sort as a setting worth keeping', () => {
+  it("counts a saved sort as a setting worth keeping", () => {
     expect(
-      hasCollectionSettings({ sort: { mode: 'order', direction: 'asc' } })
-    ).toBe(true)
-    expect(hasCollectionSettings({ pathOverrides: {} })).toBe(false)
-    expect(hasCollectionSettings({ urlPattern: '/{slug}' })).toBe(true)
-  })
-})
+      hasCollectionSettings({ sort: { mode: "order", direction: "asc" } }),
+    ).toBe(true);
+    expect(hasCollectionSettings({ pathOverrides: {} })).toBe(false);
+    expect(hasCollectionSettings({ urlPattern: "/{slug}" })).toBe(true);
+  });
+
+  it("keeps a Body Text setting when the sort changes", () => {
+    expect(hasCollectionSettings({ bodyText: "hide" })).toBe(true);
+    const settings: ProjectSettings = {
+      pathOverrides: {},
+      frontmatterMappings: {},
+      collections: [{ name: "settings", settings: { bodyText: "hide" } }],
+    };
+    expect(
+      withCollectionSort(settings, "settings", {
+        mode: "order",
+        direction: "asc",
+      }),
+    ).toEqual([
+      {
+        name: "settings",
+        settings: {
+          bodyText: "hide",
+          sort: { mode: "order", direction: "asc" },
+        },
+      },
+    ]);
+  });
+});

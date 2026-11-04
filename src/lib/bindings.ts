@@ -82,6 +82,13 @@ export const commands = {
 	scanDirectory: (directoryPath: string, collectionName: string, collectionRoot: string) => typedError<DirectoryScanResult, string>(__TAURI_INVOKE("scan_directory", { directoryPath, collectionName, collectionRoot })),
 	/**  Count all markdown/mdx files recursively in a collection */
 	countCollectionFilesRecursive: (collectionPath: string) => typedError<number, string>(__TAURI_INVOKE("count_collection_files_recursive", { collectionPath })),
+	/**
+	 *  Whether any entry in a collection has body text. Collections made only of
+	 *  frontmatter (settings, testimonials, gallery items) hide the body editor.
+	 *  Skips the same files as the other scans (hidden, `_`-prefixed, symlinks,
+	 *  anything but .md and .mdx) and stops at the first entry with a body
+	 */
+	collectionHasBodyText: (collectionPath: string) => typedError<boolean, string>(__TAURI_INVOKE("collection_has_body_text", { collectionPath })),
 	/**  Scan all markdown/mdx files recursively in a collection directory */
 	scanCollectionFilesRecursive: (collectionPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("scan_collection_files_recursive", { collectionPath, collectionName })),
 	startWatchingProject: (projectPath: string) => typedError<null, string>(__TAURI_INVOKE("start_watching_project", { projectPath })),

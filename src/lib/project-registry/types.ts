@@ -65,6 +65,9 @@ export interface CollectionSpecificSettings {
   useAbsoluteAssetPaths?: boolean
   // URL pattern template for content links (e.g. "/writing/{slug}")
   urlPattern?: string
+  // Whether entries have body text below the frontmatter. Unset, it's detected:
+  // the body editor is hidden when no entry has any (see lib/files/body-text.ts)
+  bodyText?: 'show' | 'hide'
   // How the sidebar sorts the collection's files, as last chosen. Left out for
   // the Default sort
   sort?: CollectionSort
