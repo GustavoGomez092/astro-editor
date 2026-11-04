@@ -87,4 +87,32 @@ describe('editorStore.openFile', () => {
     expect(state.isDirty).toBe(false)
     expect(state.isFrontmatterDirty).toBe(false)
   })
+
+  // Renaming keeps the id, so a new file can arrive with the old one
+  it("opens a different file that has the renamed open file's old id", () => {
+    useEditorStore.setState({ isDirty: false })
+    useEditorStore
+      .getState()
+      .updateCurrentFileAfterRename('/test/content/blog/renamed.md')
+
+    useEditorStore.getState().openFile(fileEntry('first'))
+
+    const state = useEditorStore.getState()
+    expect(state.currentFile?.path).toBe('/test/content/blog/first.md')
+    expect(state.editorContent).toBe('')
+  })
+
+  it("still selects the file's collection when the open file is opened again", () => {
+    const opened = vi.fn()
+    window.addEventListener('file-opened', opened)
+
+    useEditorStore.getState().openFile(fileEntry('first'))
+
+    window.removeEventListener('file-opened', opened)
+    expect(opened).toHaveBeenCalledTimes(1)
+    const event = opened.mock.calls[0]![0] as CustomEvent
+    expect(event.detail).toEqual({
+      collectionName: 'blog',
+    })
+  })
 })
