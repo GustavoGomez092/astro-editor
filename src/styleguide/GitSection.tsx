@@ -515,6 +515,7 @@ export function GitResolveSection() {
       onGitHub
       onCombine={noop}
       pending={false}
+      message={null}
     />
   )
 }
