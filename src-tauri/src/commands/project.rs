@@ -1,5 +1,7 @@
 use crate::models::{Collection, DirectoryInfo, FileEntry};
-use crate::parser::{parse_astro_config, project_folder, CollectionFolders};
+use crate::parser::{
+    parse_astro_config, place_collection, resolve_collection_folders, CollectionFolders,
+};
 use crate::schema_merger;
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -281,18 +283,15 @@ pub fn discover_collections(
     content_directory: Option<&str>,
     collection_folders: &CollectionFolders,
 ) -> Result<Vec<Collection>, String> {
+    let folders = resolve_collection_folders(project_path, collection_folders)?;
     debug!("Astro Editor [PROJECT_SCAN] Attempting to parse Astro config");
-    let mut collections = match parse_astro_config(
-        project_path,
-        content_directory,
-        collection_folders,
-    ) {
+    let collections = match parse_astro_config(project_path, content_directory, &folders) {
         Ok(collections) if !collections.is_empty() => {
             info!(
                 "Astro Editor [PROJECT_SCAN] Found {} collections from Astro config",
                 collections.len()
             );
-            collections
+            return Ok(collections);
         }
         Ok(_) => {
             debug!("Astro Editor [PROJECT_SCAN] Astro config returned empty collections, falling back to directory scan");
@@ -310,13 +309,10 @@ pub fn discover_collections(
         }
     };
 
-    for collection in &mut collections {
-        if let Some(folder) = collection_folders.get(&collection.name) {
-            collection.path = project_folder(project_path, folder);
-        }
-    }
-
-    Ok(collections)
+    Ok(collections
+        .into_iter()
+        .map(|collection| place_collection(collection, project_path, &folders))
+        .collect())
 }
 
 fn load_json_schema_for_collection(
@@ -1108,6 +1104,7 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
         std::fs::create_dir_all(temp.path().join("src/content/notes")).unwrap();
+        std::fs::create_dir_all(temp.path().join("posts")).unwrap();
 
         let collections =
             discover_collections(temp.path(), None, &folders(&[("blog", "posts")])).unwrap();
@@ -1141,10 +1138,10 @@ mod tests {
 
         let blog = collections.iter().find(|c| c.name == "blog").unwrap();
         assert_eq!(blog.path, temp.path().join("writing/posts"));
-        assert_eq!(blog.loader_base.as_deref(), Some("writing/posts"));
+        assert_eq!(blog.loader_base.as_deref(), Some("./writing/posts"));
         let notes = collections.iter().find(|c| c.name == "notes").unwrap();
         assert_eq!(notes.path, temp.path().join("src/notes"));
-        assert_eq!(notes.loader_base.as_deref(), Some("src/notes"));
+        assert_eq!(notes.loader_base.as_deref(), Some("src/notes/"));
     }
 
     #[test]
@@ -1159,7 +1156,187 @@ mod tests {
 
         let blog = collections.iter().find(|c| c.name == "blog").unwrap();
         assert_eq!(blog.path, temp.path().join("elsewhere"));
-        assert_eq!(blog.loader_base, None);
+        // Still says where it would be found automatically
+        assert_eq!(blog.automatic_path, Some(temp.path().join("writing/posts")));
+    }
+
+    /// A config whose `blog` collection has this glob loader
+    fn blog_with_loader(loader: &str) -> String {
+        format!(
+            "const blog = defineCollection({{ loader: glob({loader}) }});\n\
+             export const collections = {{ blog }};\n"
+        )
+    }
+
+    /// Where `blog` is found with this glob loader, if it's found at all
+    fn blog_folder(root: &Path, loader: &str) -> Option<PathBuf> {
+        write_entry(
+            &root.join("src"),
+            "content.config.ts",
+            &blog_with_loader(loader),
+        );
+        discover_collections(root, None, &CollectionFolders::new())
+            .unwrap()
+            .into_iter()
+            .find(|c| c.name == "blog")
+            .map(|c| c.path)
+    }
+
+    #[test]
+    fn a_glob_loader_base_is_only_used_when_the_usual_folder_is_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(temp.path().join("posts")).unwrap();
+
+        assert_eq!(
+            blog_folder(temp.path(), "{ base: './posts', pattern: '*.md' }"),
+            Some(temp.path().join("src/content/blog"))
+        );
+    }
+
+    #[test]
+    fn a_glob_loader_base_that_is_the_project_folder_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        for base in [".", "./", ""] {
+            let loader = format!("{{ base: '{base}', pattern: '*.md' }}");
+            assert_eq!(blog_folder(temp.path(), &loader), None, "base {base:?}");
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_outside_the_project_is_ignored() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("site");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::create_dir_all(outer.path().join("elsewhere")).unwrap();
+        let absolute = outer.path().join("elsewhere").to_string_lossy().to_string();
+
+        for base in [
+            "..",
+            "../elsewhere",
+            "src/../../elsewhere",
+            absolute.as_str(),
+        ] {
+            let loader = format!("{{ base: '{base}', pattern: '*.md' }}");
+            assert_eq!(blog_folder(&root, &loader), None, "base {base:?}");
+        }
+    }
+
+    #[test]
+    fn a_glob_loader_base_whose_pattern_names_a_folder_is_ignored() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/posts")).unwrap();
+
+        assert_eq!(
+            blog_folder(temp.path(), "{ base: './src', pattern: 'posts/**/*.md' }"),
+            None
+        );
+        assert_eq!(
+            blog_folder(
+                temp.path(),
+                "{ base: './src/posts', pattern: '**/*.{md,mdx}' }"
+            ),
+            Some(temp.path().join("src/posts"))
+        );
+    }
+
+    #[test]
+    fn collections_sharing_a_glob_loader_base_use_neither() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/data")).unwrap();
+        write_entry(
+            &temp.path().join("src"),
+            "content.config.ts",
+            "const blog = defineCollection({ loader: glob({ base: './src/data', pattern: 'blog-*.md' }) });\n\
+             const notes = defineCollection({ loader: glob({ base: './src/data', pattern: 'note-*.md' }) });\n\
+             export const collections = { blog, notes };\n",
+        );
+
+        let collections =
+            discover_collections(temp.path(), None, &CollectionFolders::new()).unwrap();
+        assert!(collections.is_empty(), "{collections:?}");
+    }
+
+    #[test]
+    fn a_collection_folder_outside_the_project_is_refused() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("site");
+        std::fs::create_dir_all(root.join("src/content/blog")).unwrap();
+        std::fs::create_dir_all(outer.path().join("elsewhere")).unwrap();
+        let absolute = outer.path().join("elsewhere").to_string_lossy().to_string();
+
+        for folder in [
+            "..",
+            "../elsewhere",
+            "posts/../../elsewhere",
+            ".",
+            "./",
+            absolute.as_str(),
+        ] {
+            let result = discover_collections(&root, None, &folders(&[("blog", folder)]));
+            let error = result.expect_err(folder);
+            assert!(error.contains("blog"), "{error}");
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_collection_folder_that_links_out_of_the_project_is_refused() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("site");
+        std::fs::create_dir_all(root.join("src/content")).unwrap();
+        std::fs::create_dir_all(outer.path().join("elsewhere")).unwrap();
+        std::os::unix::fs::symlink(outer.path().join("elsewhere"), root.join("posts")).unwrap();
+
+        assert!(discover_collections(&root, None, &folders(&[("blog", "posts")])).is_err());
+    }
+
+    #[test]
+    fn a_collection_whose_set_folder_is_missing_stays_in_its_automatic_folder() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", BLOG_CONFIG);
+        std::fs::create_dir_all(temp.path().join("src/content/blog")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "writing/blog/")]))
+                .unwrap();
+
+        assert_eq!(collections.len(), 1);
+        assert_eq!(collections[0].path, temp.path().join("src/content/blog"));
+        assert_eq!(
+            collections[0].missing_folder.as_deref(),
+            Some("writing/blog")
+        );
+        assert_eq!(collections[0].automatic_path, None);
+    }
+
+    #[test]
+    fn a_collection_in_a_set_folder_says_where_it_would_be_automatically() {
+        let temp = tempfile::tempdir().unwrap();
+        write_entry(&temp.path().join("src"), "content.config.ts", LOADER_CONFIG);
+        std::fs::create_dir_all(temp.path().join("writing/posts")).unwrap();
+        std::fs::create_dir_all(temp.path().join("elsewhere")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("blog", "elsewhere")])).unwrap();
+
+        let blog = collections.iter().find(|c| c.name == "blog").unwrap();
+        assert_eq!(blog.path, temp.path().join("elsewhere"));
+        assert_eq!(blog.automatic_path, Some(temp.path().join("writing/posts")));
+        assert_eq!(blog.loader_base.as_deref(), Some("./writing/posts"));
+        assert_eq!(blog.missing_folder, None);
+    }
+
+    #[test]
+    fn a_set_folder_that_is_missing_keeps_a_folder_scanned_collection() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(temp.path().join("src/content/notes")).unwrap();
+
+        let collections =
+            discover_collections(temp.path(), None, &folders(&[("notes", "gone")])).unwrap();
+
+        assert_eq!(collections[0].path, temp.path().join("src/content/notes"));
+        assert_eq!(collections[0].missing_folder.as_deref(), Some("gone"));
     }
 
     #[test]

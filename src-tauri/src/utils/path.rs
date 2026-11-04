@@ -22,6 +22,16 @@ where
     normalize_path_for_serialization(path).serialize(serializer)
 }
 
+/// `serialize_path` for an optional path
+pub fn serialize_optional_path<S>(path: &Option<PathBuf>, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    path.as_deref()
+        .map(normalize_path_for_serialization)
+        .serialize(serializer)
+}
+
 /// Validates that a file path is within the project boundaries
 ///
 /// This function prevents path traversal attacks by ensuring all file operations

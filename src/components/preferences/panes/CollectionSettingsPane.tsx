@@ -38,6 +38,11 @@ import {
 } from '../../../lib/project-registry/explain-settings'
 import type { CollectionSort } from '../../../lib/project-registry/types'
 import { useProjectStore } from '../../../store/projectStore'
+import {
+  checkCollectionFolder,
+  getEffectiveContentDirectory,
+} from '../../../lib/project-registry/path-resolution'
+import { toast } from '../../../lib/toast'
 import { PreferencesTextInput } from '../PreferencesTextInput'
 import { DocsLink } from '../DocsLink'
 import { DOCS_URLS } from '../../../lib/docs-urls'
@@ -143,6 +148,18 @@ export const CollectionSettingsPane: React.FC = () => {
     key: 'contentDirectory' | 'assetsDirectory',
     value: string
   ) => {
+    const problem =
+      value.trim() &&
+      checkCollectionFolder(
+        value,
+        key === 'contentDirectory'
+          ? getEffectiveContentDirectory(currentProjectSettings)
+          : null
+      )
+    if (problem) {
+      toast.error("That folder can't be used", { description: problem })
+      return
+    }
     const existing = getCollectionOverride(collectionName)
     const newSettings: CollectionSettings = {
       name: collectionName,

@@ -83,19 +83,72 @@ struct HelperMatch {
 /// project root. They replace `<content directory>/<name>`
 pub type CollectionFolders = HashMap<String, String>;
 
+/// Collection folders the writer set, checked, by collection name
+pub type ResolvedFolders = HashMap<String, PathBuf>;
+
 /// A folder given relative to the project root (`./src/blog/`, `src/blog`)
 pub fn project_folder(project_path: &Path, relative: &str) -> PathBuf {
-    let trimmed = relative
-        .trim()
-        .trim_start_matches("./")
-        .trim_end_matches('/');
-    project_path.join(trimmed)
+    project_path.join(tidy_folder(relative))
+}
+
+fn tidy_folder(relative: &str) -> &str {
+    let mut folder = relative.trim();
+    while let Some(rest) = folder.strip_prefix("./") {
+        folder = rest;
+    }
+    folder.trim_end_matches(['/', '\\'])
+}
+
+/// A folder inside the project, given relative to its root: never the root
+/// itself, an absolute path, a `..` that climbs out, or (once it exists) a
+/// link that leads out. The error says which, for the writer
+pub fn checked_project_folder(project_path: &Path, relative: &str) -> Result<PathBuf, String> {
+    let folder = tidy_folder(relative);
+    if folder.is_empty() || folder == "." {
+        return Err(format!("\"{relative}\" is the project folder itself"));
+    }
+    let outside = || format!("\"{relative}\" isn't inside the project folder");
+    let path = Path::new(folder);
+    let drive_letter = folder.len() > 1 && folder.as_bytes()[1] == b':';
+    if path.is_absolute() || path.has_root() || folder.starts_with('\\') || drive_letter {
+        return Err(outside());
+    }
+    if path
+        .components()
+        .any(|c| matches!(c, std::path::Component::ParentDir))
+    {
+        return Err(outside());
+    }
+
+    let joined = project_path.join(folder);
+    if let (Ok(real), Ok(root)) = (joined.canonicalize(), project_path.canonicalize()) {
+        if !real.starts_with(&root) || real == root {
+            return Err(outside());
+        }
+    }
+    Ok(joined)
+}
+
+/// Check the folders the writer set; the first one that isn't inside the
+/// project is an error naming its collection
+pub fn resolve_collection_folders(
+    project_path: &Path,
+    folders: &CollectionFolders,
+) -> Result<ResolvedFolders, String> {
+    folders
+        .iter()
+        .map(|(name, folder)| {
+            checked_project_folder(project_path, folder)
+                .map(|path| (name.clone(), path))
+                .map_err(|e| format!("The folder set for the {name} collection can't be used: {e}"))
+        })
+        .collect()
 }
 
 pub fn parse_astro_config(
     project_path: &Path,
     content_directory_override: Option<&str>,
-    collection_folders: &CollectionFolders,
+    collection_folders: &ResolvedFolders,
 ) -> Result<Vec<Collection>, String> {
     // Try both possible config file locations
     let config_paths = [
@@ -130,7 +183,7 @@ fn parse_collections_from_content(
         content,
         project_path,
         content_directory_override,
-        &CollectionFolders::new(),
+        &ResolvedFolders::new(),
     )
 }
 
@@ -138,7 +191,7 @@ fn parse_collections_with_folders(
     content: &str,
     project_path: &Path,
     content_directory_override: Option<&str>,
-    collection_folders: &CollectionFolders,
+    collection_folders: &ResolvedFolders,
 ) -> Result<Vec<Collection>, String> {
     let mut collections = Vec::new();
 
@@ -159,11 +212,7 @@ fn parse_collections_with_folders(
             &content_dir,
             &clean_content, // Pass full content for schema extraction
             project_path,
-            |name| {
-                collection_folders
-                    .get(name)
-                    .map(|folder| project_folder(project_path, folder))
-            },
+            collection_folders,
         )?);
     }
 
@@ -388,11 +437,13 @@ fn parse_collection_definitions(
     content_dir: &Path,
     full_content: &str,
     project_path: &Path,
-    folder_override: impl Fn(&str) -> Option<PathBuf>,
+    collection_folders: &ResolvedFolders,
 ) -> Result<Vec<Collection>, String> {
-    let mut collections = Vec::new();
     let file_loader_call = Regex::new(&format!("^{FILE_LOADER_CALL}")).unwrap();
 
+    // Each directory-based collection, with its usual folder and the folder
+    // its glob loader names, if any
+    let mut candidates = Vec::new();
     for (collection_name, binding) in collection_entries(collections_block) {
         let (file_based, schema, call) = match binding {
             CollectionBinding::Variable(variable) => (
@@ -412,29 +463,76 @@ fn parse_collection_definitions(
             continue;
         }
 
-        // Only include directory-based collections. Their folder is the one the
-        // writer set, or the glob loader's base when it's there, or the one
-        // named after the collection in the content directory
-        let loader_base = call
-            .and_then(glob_loader_base)
-            .filter(|base| project_folder(project_path, base).is_dir());
-        let (collection_path, loader_base) = match folder_override(&collection_name) {
-            Some(folder) => (folder, None),
-            None => match loader_base {
-                Some(base) => (project_folder(project_path, &base), Some(base)),
-                None => (content_dir.join(&collection_name), None),
-            },
-        };
+        let base = call.and_then(glob_loader_base).and_then(|base| {
+            checked_project_folder(project_path, &base)
+                .ok()
+                .filter(|path| path.is_dir())
+                .map(|path| (base, path))
+        });
+        let usual = content_dir.join(&collection_name);
+        candidates.push((collection_name, schema, usual, base));
+    }
 
-        if collection_path.exists() && collection_path.is_dir() {
-            let mut collection = Collection::new(collection_name, collection_path);
-            collection.schema = schema;
+    // A loader's base is a fallback for when the usual folder isn't there, and
+    // never one that another collection uses too
+    let mut taken: Vec<&Path> = candidates
+        .iter()
+        .filter(|(_, _, usual, _)| usual.is_dir())
+        .map(|(_, _, usual, _)| usual.as_path())
+        .collect();
+    taken.extend(collection_folders.values().map(PathBuf::as_path));
+    let needs_base = |usual: &Path| !usual.is_dir();
+    let bases: Vec<&Path> = candidates
+        .iter()
+        .filter(|(_, _, usual, _)| needs_base(usual))
+        .filter_map(|(_, _, _, base)| base.as_ref().map(|(_, path)| path.as_path()))
+        .collect();
+    let base_is_free = |path: &Path| {
+        !taken.contains(&path) && bases.iter().filter(|other| **other == path).count() == 1
+    };
+
+    let mut collections = Vec::new();
+    for (collection_name, schema, usual, base) in &candidates {
+        // The folder found automatically: the usual one, or the loader's base
+        let (automatic, loader_base) = match base {
+            Some((base, path)) if needs_base(usual) && base_is_free(path) => {
+                (path.clone(), Some(base.clone()))
+            }
+            _ => (usual.clone(), None),
+        };
+        let mut collection = place_collection(
+            Collection::new(collection_name.clone(), automatic),
+            project_path,
+            collection_folders,
+        );
+        if collection.path.is_dir() {
+            collection.schema = schema.clone();
             collection.loader_base = loader_base;
             collections.push(collection);
         }
     }
 
     Ok(collections)
+}
+
+/// Move a collection found at its automatic folder to the folder the writer
+/// set, when there's one and it's there. When it isn't there, the collection
+/// stays where it was found and says which folder was missing
+pub fn place_collection(
+    mut collection: Collection,
+    project_path: &Path,
+    collection_folders: &ResolvedFolders,
+) -> Collection {
+    if let Some(folder) = collection_folders.get(&collection.name) {
+        if folder.is_dir() {
+            let automatic = std::mem::replace(&mut collection.path, folder.clone());
+            collection.automatic_path = Some(automatic);
+        } else {
+            let relative = folder.strip_prefix(project_path).unwrap_or(folder);
+            collection.missing_folder = Some(relative.to_string_lossy().replace('\\', "/"));
+        }
+    }
+    collection
 }
 
 /// The text of the `defineCollection(...)` call a variable holds
@@ -450,22 +548,36 @@ fn define_collection_call<'a>(content: &'a str, variable: &str) -> Option<&'a st
 }
 
 /// The `base` folder of a collection's `glob()` loader when it's written as
-/// a plain string, as given relative to the project root (`writing/posts`)
+/// a plain string, as given (`./writing/posts`). None when its `pattern`
+/// isn't a plain string or names a folder (`posts/*.md`), since then the
+/// entries aren't simply the files under the base
 fn glob_loader_base(call: &str) -> Option<String> {
     let glob_start = Regex::new(r"\bglob\s*\(").unwrap().find(call)?;
     let end = find_matching_closing_brace(call, glob_start.end() - 1, '(', ')').ok()?;
     let options = &call[glob_start.end()..end];
-    let base = Regex::new(r#"\bbase\s*:\s*(?:'([^']*)'|"([^"]*)"|`([^`$]*)`)"#).unwrap();
-    let captures = base.captures(options)?;
-    let value = captures
-        .get(1)
-        .or_else(|| captures.get(2))
-        .or_else(|| captures.get(3))?
-        .as_str()
-        .trim()
-        .trim_start_matches("./")
-        .trim_end_matches('/');
-    (!value.is_empty()).then(|| value.to_string())
+    let string_option = |key: &str| {
+        let re = Regex::new(&format!(
+            r#"\b{key}\s*:\s*(?:'([^']*)'|"([^"]*)"|`([^`$]*)`)"#
+        ))
+        .unwrap();
+        let captures = re.captures(options)?;
+        captures
+            .get(1)
+            .or_else(|| captures.get(2))
+            .or_else(|| captures.get(3))
+            .map(|m| m.as_str().to_string())
+    };
+
+    let pattern = string_option("pattern")?;
+    let names_a_folder = pattern.rsplit_once('/').is_some_and(|(folders, _)| {
+        folders
+            .split('/')
+            .any(|part| !part.is_empty() && !part.contains(['*', '?', '[', '{', '!']))
+    });
+    if names_a_folder {
+        return None;
+    }
+    string_option("base")
 }
 
 fn extract_basic_schema(content: &str, collection_name: &str) -> Option<String> {

@@ -72,6 +72,35 @@ describe('entriesNeedingAttention', () => {
     ])
   })
 
+  it('checks an entry against the innermost collection holding it', async () => {
+    // A collection whose folder holds the testimonials folder, listed first
+    const outer = {
+      name: 'pages',
+      path: '/site/src/content',
+      complete_schema: JSON.stringify({
+        collectionName: 'pages',
+        fields: [
+          {
+            name: 'title',
+            label: 'Title',
+            fieldType: 'string',
+            required: true,
+          },
+        ],
+      }),
+    } as Collection
+    const client = cache([entry('jordan', { title: 'Jordan', email: 'nope' })])
+    client.setQueryData(queryKeys.collections(SITE), [outer, COLLECTION])
+    client.setQueryData(queryKeys.collectionFiles(SITE, 'pages'), [])
+
+    const found = await entriesNeedingAttention(client, SITE, [
+      changed('jordan'),
+    ])
+    expect(found).toEqual([
+      expect.objectContaining({ title: 'Jordan', fields: ['email', 'quote'] }),
+    ])
+  })
+
   it('checks the open file as it is in the editor', async () => {
     const jordan = entry('jordan', { title: 'Jordan Ellis' })
     const client = cache([jordan])

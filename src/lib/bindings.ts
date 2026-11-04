@@ -278,6 +278,16 @@ export type Collection = {
 	 *  root, when the collection's folder came from it
 	 */
 	loader_base?: string | null,
+	/**
+	 *  The folder the collection would be in automatically, when the writer
+	 *  set another one that's in use
+	 */
+	automatic_path?: string | null,
+	/**
+	 *  The folder the writer set, relative to the project root, when it isn't
+	 *  there, so the collection is in its automatic folder instead
+	 */
+	missing_folder?: string | null,
 	complete_schema?: string | null,
 };
 

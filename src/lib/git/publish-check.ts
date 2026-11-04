@@ -46,7 +46,11 @@ export async function entriesNeedingAttention(
   for (const file of files) {
     if (file.change === 'deleted' || !/\.mdx?$/i.test(file.path)) continue
     const absolute = `${root}/${file.path}`
-    const collection = collections.find(c => absolute.startsWith(`${c.path}/`))
+    // The innermost collection holding the file, when one's folder is inside
+    // another's
+    const collection = collections
+      .filter(c => absolute.startsWith(`${c.path}/`))
+      .sort((a, b) => b.path.length - a.path.length)[0]
     const fields = collection?.complete_schema
       ? deserializeCompleteSchema(collection.complete_schema)?.fields
       : undefined
