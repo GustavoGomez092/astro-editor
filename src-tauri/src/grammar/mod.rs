@@ -120,9 +120,14 @@ impl Checker {
 
     pub fn check(&mut self, text: &str, file_type: GrammarFileType) -> Vec<GrammarIssue> {
         let chars: Vec<char> = text.chars().collect();
-        let (source, masked) = match file_type {
-            GrammarFileType::Md => (chars.clone(), Vec::new()),
-            GrammarFileType::Mdx => mask_mdx(&chars),
+        // For MDX, `origin` maps each char Harper sees back to the text's
+        let (source, masked, origin) = match file_type {
+            GrammarFileType::Md => (chars.clone(), Vec::new(), None),
+            GrammarFileType::Mdx => {
+                let (blanked, masked) = mask_mdx(&chars);
+                let (source, origin) = strip_indentation(&blanked);
+                (source, masked, Some(origin))
+            }
         };
         let source: String = source.iter().collect();
         let document = Document::new_markdown_default(&source, &*self.dictionary);
@@ -132,6 +137,16 @@ impl Checker {
             .organized_lints(&document)
             .into_iter()
             .flat_map(|(rule, lints)| lints.into_iter().map(move |lint| (rule.clone(), lint)))
+            .map(|(rule, mut lint)| {
+                if let Some(origin) = &origin {
+                    if lint.span.end > lint.span.start && lint.span.end < origin.len() {
+                        let end = origin[lint.span.end - 1] + 1;
+                        lint.span.start = origin[lint.span.start];
+                        lint.span.end = end;
+                    }
+                }
+                (rule, lint)
+            })
             .filter(|(_, lint)| {
                 let (start, end) = (lint.span.start, lint.span.end);
                 end > start
@@ -289,6 +304,26 @@ fn mask_mdx(chars: &[char]) -> (Vec<char>, Vec<(usize, usize)>) {
     }
 
     (out, masked)
+}
+
+/// Removes the spaces and tabs at the start of every line. MDX has no indented
+/// code blocks, but Harper's Markdown parser does, so text indented inside a
+/// component (Starlight's `<TabItem>`, say) would be skipped as code. Returns
+/// the text and, for each of its chars plus the end, the index in `chars`
+fn strip_indentation(chars: &[char]) -> (Vec<char>, Vec<usize>) {
+    let mut out = Vec::with_capacity(chars.len());
+    let mut origin = Vec::with_capacity(chars.len() + 1);
+    let mut at_line_start = true;
+    for (i, &c) in chars.iter().enumerate() {
+        if at_line_start && (c == ' ' || c == '\t') {
+            continue;
+        }
+        at_line_start = c == '\n';
+        out.push(c);
+        origin.push(i);
+    }
+    origin.push(chars.len());
+    (out, origin)
 }
 
 /// Index of the `\n` ending the line that starts at `start`, or the text's end
@@ -483,6 +518,17 @@ mod tests {
             issues.iter().any(|i| i.problem == "teh"),
             "text inside a component wasn't checked: {issues:?}"
         );
+    }
+
+    #[test]
+    fn mdx_checks_indented_text_inside_components() {
+        let text = "import { Tabs, TabItem } from '@astrojs/starlight/components';\n\n<Tabs>\n  <TabItem label=\"Stars\">\n    Sirius, Vega and teh rest of the sky.\n  </TabItem>\n  <TabItem label=\"Moons\">\n    Io, Europa, Ganymede and Callisto are teh big ones.\n  </TabItem>\n</Tabs>\n";
+        let issues = check(text, GrammarFileType::Mdx);
+        let tehs: Vec<_> = issues.iter().filter(|i| i.problem == "teh").collect();
+        assert_eq!(tehs.len(), 2, "{issues:?}");
+        for issue in tehs {
+            assert_eq!(utf16_slice(text, issue.from, issue.to), "teh");
+        }
     }
 
     #[test]
