@@ -2,6 +2,7 @@ import type { QueryClient } from '@tanstack/react-query'
 import { commands, type GitStatus, type SyncOutcome } from '@/lib/bindings'
 import { saveUnsavedEdits } from '@/lib/quit'
 import { queryKeys } from '@/lib/query-keys'
+import { toast } from '@/lib/toast'
 import { useEditorStore } from '@/store/editorStore'
 import { useProjectStore } from '@/store/projectStore'
 
@@ -17,12 +18,20 @@ export const SAVE_FAILED = "Couldn't save your edits, so nothing was changed."
 /**
  * Saves the open file before git touches the working tree. Unsaved edits
  * would otherwise be saved after a checkout or sync and silently undo the
- * incoming changes. Throws, so the git command never runs, if the save fails.
+ * incoming changes. Throws, so the git command never runs, if the save fails;
+ * the git mutation then shows nothing more (`gitErrorToast`).
  */
 export async function saveBeforeGitChange(): Promise<void> {
   // Before anything awaits, so before React makes the areas inert
   rememberFocus()
-  if (!(await saveUnsavedEdits())) throw new Error(SAVE_FAILED)
+  const failuresBefore = useEditorStore.getState().saveFailures
+  if (await saveUnsavedEdits()) return
+  // A failed save has said why; one that didn't (no save registered, or the
+  // file still dirty afterwards) gets this message instead
+  if (useEditorStore.getState().saveFailures === failuresBefore) {
+    toast.error(SAVE_FAILED)
+  }
+  throw new Error(SAVE_FAILED)
 }
 
 /** Marks the areas that take no edits while git works (editor, frontmatter). */

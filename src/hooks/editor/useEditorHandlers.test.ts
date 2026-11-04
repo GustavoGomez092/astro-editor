@@ -49,6 +49,8 @@ interface MockEditorState {
   setAutoSaveCallback: Mock
   shownFieldErrors: Record<string, true>
   showFieldErrors: Mock
+  saveFailures: number
+  noteSaveFailed: Mock
 }
 
 describe('useEditorHandlers', () => {
@@ -79,6 +81,8 @@ describe('useEditorHandlers', () => {
       setAutoSaveCallback: vi.fn(),
       shownFieldErrors: {},
       showFieldErrors: vi.fn(),
+      saveFailures: 0,
+      noteSaveFailed: vi.fn(),
       isFrontmatterDirty: false,
     }
 

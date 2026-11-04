@@ -69,6 +69,8 @@ export interface ChangesViewProps {
   titles?: Map<string, string>
   message: string
   onMessageChange: (message: string) => void
+  /** The open file has edits not saved yet; Publish saves them first */
+  unsavedEdits?: boolean
   onPublish: () => void
   publishing: boolean
 }
@@ -143,12 +145,13 @@ function RepoChanges({
   titles,
   message,
   onMessageChange,
+  unsavedEdits,
   onPublish,
   publishing,
 }: ChangesViewProps & { status: GitStatus }) {
   const fileCount = status.files.length
   const guard = { status, busy, heldBack }
-  const publishReason = publishBlocker({ ...guard, message })
+  const publishReason = publishBlocker({ ...guard, message, unsavedEdits })
   const syncReason = syncBlocker(guard)
   const bringInReason = bringInBlocker(guard)
 

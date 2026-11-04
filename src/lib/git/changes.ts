@@ -193,13 +193,17 @@ function common(
   return null
 }
 
-/** Why Publish can't run right now, or null when it can. */
+/**
+ * Why Publish can't run right now, or null when it can. With unsaved edits in
+ * the editor there's always something to publish: Publish saves them first.
+ */
 export function publishBlocker(
-  input: GuardInput & { message: string }
+  input: GuardInput & { message: string; unsavedEdits?: boolean }
 ): string | null {
   const reason = common(input, 'publish')
   if (reason) return reason
   const status = input.status!
+  if (input.unsavedEdits && status.files.length === 0) return null
   if (status.files.length === 0 && status.ahead === 0 && status.upstream) {
     return 'Nothing new to publish.'
   }

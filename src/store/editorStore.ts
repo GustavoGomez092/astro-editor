@@ -27,6 +27,9 @@ interface EditorState {
   // Frontmatter fields whose validation message is shown: those the writer
   // has left, and those that needed attention at the last save
   shownFieldErrors: Record<string, true>
+  // Saves that failed and said why (a toast with the reason and recovery),
+  // so a caller can tell a reported failure from a silent one
+  saveFailures: number
 
   // Actions
   openFile: (file: FileEntry) => void
@@ -46,6 +49,7 @@ interface EditorState {
   ) => void
   updateCurrentFileAfterRename: (newPath: string) => void
   showFieldErrors: (names: string[]) => void
+  noteSaveFailed: () => void
 }
 
 // Selects the opened file's collection in the sidebar. A custom event, so the
@@ -71,6 +75,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   lastSaveTimestamp: null,
   autoSaveCallback: null,
   shownFieldErrors: {},
+  saveFailures: 0,
 
   // Actions
   openFile: (file: FileEntry) => {
@@ -259,5 +264,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const shown = { ...shownFieldErrors }
     for (const name of names) shown[name] = true
     set({ shownFieldErrors: shown })
+  },
+
+  noteSaveFailed: () => {
+    set(state => ({ saveFailures: state.saveFailures + 1 }))
   },
 }))

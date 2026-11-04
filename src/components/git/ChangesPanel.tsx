@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { GitPullRequest } from 'lucide-react'
 import type { GitStatus, PullRequest, SyncOutcome } from '@/lib/bindings'
 import {
@@ -11,12 +12,18 @@ import {
   type GitAction,
 } from '@/lib/git/changes'
 import { pathsIn, presentGitMessage } from '@/lib/git/messages'
+import {
+  entriesNeedingAttention,
+  publishCheckMessage,
+  type EntryNeedingAttention,
+} from '@/lib/git/publish-check'
 import { needsAttention } from '@/lib/git/repo-change'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
 import { toast } from '@/lib/toast'
 import { useProjectStore } from '../../store/projectStore'
 import { useGitStore } from '../../store/gitStore'
 import { useUIStore } from '../../store/uiStore'
+import { useEditorStore } from '../../store/editorStore'
 import { useGitBusy } from '../../hooks/useGitBusy'
 import { useGitStatusQuery } from '../../hooks/queries/useGitStatusQuery'
 import { useGitHubAuthQuery } from '../../hooks/queries/useGitHubAuthQuery'
@@ -32,6 +39,16 @@ import { useCreatePullRequestMutation } from '../../hooks/mutations/useCreatePul
 import { useMergePullRequestMutation } from '../../hooks/mutations/useMergePullRequestMutation'
 import { useMergeDefaultBranchMutation } from '../../hooks/mutations/useMergeDefaultBranchMutation'
 import { Button } from '../ui/button'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '../ui/alert-dialog'
 import { BranchMenu, NewBranchDialog } from './BranchMenu'
 import { ChangesView } from './ChangesView'
 import { OpenPullRequestDialog } from './OpenPullRequestDialog'
@@ -47,6 +64,28 @@ interface StoredNotice {
   branch: string | null
   /** The repository just after it: while this holds, retrying is pointless */
   signature: string
+}
+
+/**
+ * Opens the first entry the publish check found, with its fields' messages
+ * showing and the frontmatter panel open.
+ */
+function reviewEntry(problems: EntryNeedingAttention[]) {
+  const first = problems.find(problem => problem.entry)
+  if (!first?.entry) return
+  const editor = useEditorStore.getState()
+  editor.openFile(first.entry)
+  // After openFile, which clears the shown messages
+  useEditorStore.getState().showFieldErrors(first.fields)
+  useUIStore.getState().setFrontmatterPanelVisible(true)
+}
+
+/** The open file's path in the repository, when it has unsaved edits. */
+function unsavedFilePath(projectPath: string): string | null {
+  const { currentFile, isDirty } = useEditorStore.getState()
+  const root = `${projectPath.replace(/\/+$/, '')}/`
+  if (!isDirty || !currentFile?.path.startsWith(root)) return null
+  return currentFile.path.slice(root.length)
 }
 
 /** Shows the Changes tab, opening the sidebar if it's closed. */
@@ -113,16 +152,20 @@ export function ChangesPanel() {
     presentGitMessage(message, { onGitHub, titleFor: lookup.titleFor })
 
   const [draft, setDraft] = useState<string | null>(null)
-  const message =
-    draft ??
+  const messageFor = (changed: GitStatus['files']) =>
     publishMessage(
-      files.map(file => ({
+      changed.map(file => ({
         change: file.change,
         path: file.path,
         entry: lookup.isEntry(file.path),
         title: lookup.titleFor(file.path),
       }))
     )
+  const message = draft ?? messageFor(files)
+  const unsavedEdits = useEditorStore(state => state.isDirty)
+  const queryClient = useQueryClient()
+  // Changed entries with fields that need attention, while Publish asks
+  const [checked, setChecked] = useState<EntryNeedingAttention[] | null>(null)
 
   const [openingPullRequest, setOpeningPullRequest] = useState(false)
   const selectedDiffPath = useGitStore(state => state.selectedDiffPath)
@@ -183,23 +226,18 @@ export function ChangesPanel() {
       .catch(() => {})
   }
 
-  const handlePublish = () => {
+  /** Publishes, with the message written from the status read after saving. */
+  const runPublish = () => {
     if (!projectPath) return
-    if (needsSignIn && isRepo) {
-      void startGitHubSignIn()
-      return
-    }
-    const reason = publishBlocker({ ...guard, message })
-    if (reason) {
-      toast.info(reason)
-      return
-    }
     void publish
       .mutateAsync({
         projectPath,
-        // With no changed files there's nothing to commit, only earlier
-        // commits to push, but the engine still asks for a message
-        message: files.length > 0 ? message.trim() : 'Publish',
+        message: fresh => {
+          if (draft !== null && draft.trim()) return draft.trim()
+          // With no changed files there's nothing to commit, only earlier
+          // commits to push, but the engine still asks for a message
+          return messageFor(fresh.files) || 'Publish'
+        },
       })
       .then(result => {
         setDraft(null)
@@ -210,6 +248,35 @@ export function ChangesPanel() {
         }
       })
       .catch(() => {})
+  }
+
+  const handlePublish = () => {
+    if (!projectPath) return
+    if (needsSignIn && isRepo) {
+      void startGitHubSignIn()
+      return
+    }
+    const unsaved = unsavedFilePath(projectPath)
+    const reason = publishBlocker({
+      ...guard,
+      message,
+      unsavedEdits: unsaved !== null,
+    })
+    if (reason) {
+      toast.info(reason)
+      return
+    }
+    // Fields the build may reject: ask, but never refuse
+    const toCheck = [...files]
+    if (unsaved && !files.some(file => file.path === unsaved)) {
+      toCheck.push({ path: unsaved, oldPath: null, change: 'modified' })
+    }
+    void entriesNeedingAttention(queryClient, projectPath, toCheck)
+      .then(problems => {
+        if (problems.length > 0) setChecked(problems)
+        else runPublish()
+      })
+      .catch(() => runPublish())
   }
 
   const handleBringIn = () => {
@@ -363,9 +430,44 @@ export function ChangesPanel() {
         titles={titles}
         message={message}
         onMessageChange={setDraft}
+        unsavedEdits={unsavedEdits}
         onPublish={handlePublish}
         publishing={publish.isPending}
       />
+      <AlertDialog
+        open={checked !== null}
+        onOpenChange={open => {
+          if (!open) setChecked(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {checked ? publishCheckMessage(checked) : ''}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              The site may not build until they're fixed.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel
+              onClick={() => {
+                if (checked) reviewEntry(checked)
+              }}
+            >
+              Review
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                setChecked(null)
+                runPublish()
+              }}
+            >
+              Publish anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <NewBranchDialog
         open={newBranchOpen}
         onOpenChange={open => useGitStore.getState().setNewBranchOpen(open)}

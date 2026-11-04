@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { commands } from '@/lib/bindings'
+import { commands, type GitStatus } from '@/lib/bindings'
 import { refreshGit } from '@/lib/git/cache'
 import { publishedMessage } from '@/lib/git/messages'
 import {
@@ -16,12 +16,20 @@ import { toast } from '@/lib/toast'
 
 interface PublishPayload {
   projectPath: string
-  message: string
+  /**
+   * The commit message, or a function that writes it from the status read
+   * just after saving, so an entry that was only just saved is included
+   */
+  message: string | ((status: GitStatus) => string)
 }
 
 const publish = async ({ projectPath, message }: PublishPayload) => {
   await saveBeforeGitChange()
-  return unwrap(commands.gitPublish(projectPath, message))
+  const text =
+    typeof message === 'function'
+      ? message(await unwrap(commands.gitStatus(projectPath)))
+      : message
+  return unwrap(commands.gitPublish(projectPath, text))
 }
 
 /**

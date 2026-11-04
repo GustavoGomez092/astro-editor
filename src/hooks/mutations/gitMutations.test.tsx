@@ -23,6 +23,7 @@ import { useMergeDefaultBranchMutation } from './useMergeDefaultBranchMutation'
 vi.mock('@/lib/bindings', () => ({
   commands: {
     gitPublish: vi.fn(),
+    gitStatus: vi.fn(),
     gitSync: vi.fn(),
     gitCheckout: vi.fn(),
     gitFetch: vi.fn(),
@@ -378,6 +379,43 @@ describe('git mutations', () => {
       }
     })
 
+    it('publish reads the status after saving, so the saved entry is in the message', async () => {
+      const order: string[] = []
+      dirtyEditor(order)
+      const saved: GitStatus = {
+        ...STATUS,
+        files: [
+          {
+            path: 'src/content/pages/about.md',
+            oldPath: null,
+            change: 'modified',
+          },
+        ],
+      }
+      vi.mocked(commands.gitStatus).mockImplementation(() => {
+        order.push('status')
+        return Promise.resolve(ok(saved))
+      })
+      vi.mocked(commands.gitPublish).mockResolvedValue(
+        ok({
+          commitId: 'abc',
+          pushed: true,
+          outcome: 'upToDate',
+          message: 'Published to staging.',
+          status: STATUS,
+        })
+      )
+      const { result } = setup(useGitPublishMutation)
+      await act(() =>
+        result.current.mutateAsync({
+          projectPath: P,
+          message: status => `Update ${status.files.length} entry`,
+        })
+      )
+      expect(order).toEqual(['save', 'status'])
+      expect(commands.gitPublish).toHaveBeenCalledWith(P, 'Update 1 entry')
+    })
+
     it('reloads the open file and the file lists after a checkout', async () => {
       useEditorStore.setState({ currentFile: OPEN_FILE, isDirty: false })
       vi.mocked(commands.gitCheckout).mockResolvedValue(ok(STATUS))
@@ -518,9 +556,28 @@ describe('git mutations', () => {
       expect(useEditorStore.getState().isDirty).toBe(true)
     })
 
+    it('says so when the save fails without saying why', async () => {
+      const order: string[] = []
+      dirtyEditor(order, false)
+      const { result } = setup(useGitSyncMutation)
+      await act(() =>
+        result.current.mutateAsync({ projectPath: P }).catch(() => {})
+      )
+      expect(mockToast.error).toHaveBeenCalledTimes(1)
+      expect(mockToast.error).toHaveBeenCalledWith(SAVE_FAILED)
+      expect(commands.gitSync).not.toHaveBeenCalled()
+    })
+
     it('shows one message when the save fails, not two', async () => {
       const order: string[] = []
       dirtyEditor(order, false)
+      // The save reports its own failure, as saveCurrentFile does
+      useEditorStore.setState({
+        saveFile: vi.fn(() => {
+          useEditorStore.getState().noteSaveFailed()
+          return Promise.resolve()
+        }),
+      })
       const { result } = setup(useGitSyncMutation)
       await act(() =>
         result.current.mutateAsync({ projectPath: P }).catch(() => {})

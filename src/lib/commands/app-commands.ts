@@ -27,6 +27,7 @@ import { DOCS_URLS } from '../docs-urls'
 import { collectionDisplayName } from '../collection-name'
 import { useContentLinkerStore } from '@/store/contentLinkerStore'
 import { publishingCommands } from './publishing-commands'
+import { isGitBusy } from '../git/busy'
 
 /**
  * File-related commands
@@ -93,6 +94,8 @@ export const navigationCommands: AppCommand[] = [
     icon: Link,
     group: 'navigation',
     execute: () => {
+      // It can insert a link into the open file, which git is rewriting
+      if (isGitBusy()) return
       useContentLinkerStore.getState().open(null)
     },
     isAvailable: (context: CommandContext) => {

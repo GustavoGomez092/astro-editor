@@ -254,6 +254,7 @@ async function saveCurrentFile(
     toast.error('Save failed', {
       description: `Could not save file: ${reason}.${recovered ? ' Recovery data has been saved.' : ''}`,
     })
+    useEditorStore.getState().noteSaveFailed()
 
     // Save crash report
     await saveCrashReport(error as Error, {

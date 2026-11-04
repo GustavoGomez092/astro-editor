@@ -240,6 +240,17 @@ describe('action guards', () => {
     expect(publishBlocker({ ...ready, heldBack: 'publish' })).toBe(REPEAT)
   })
 
+  it('lets Publish run with unsaved edits, which it saves first', () => {
+    expect(
+      publishBlocker({
+        ...ready,
+        status: STATUS,
+        message: '',
+        unsavedEdits: true,
+      })
+    ).toBeNull()
+  })
+
   it('holds back only the action that hit the conflict', () => {
     const input = { status: STATUS, busy: false, heldBack: 'bringIn' as const }
     expect(syncBlocker(input)).toBeNull()

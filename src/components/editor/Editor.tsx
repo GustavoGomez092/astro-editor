@@ -11,6 +11,7 @@ import { useProjectStore } from '../../store/projectStore'
 import { useEditorSetup, useEditorHandlers } from '../../hooks/editor'
 import { useImageHover } from '../../hooks/editor/useImageHover'
 import { handleTauriFileDrop } from '../../lib/editor/dragdrop'
+import { isGitBusy } from '../../lib/git/busy'
 import { setCurrentEditorView } from '../../lib/editor/editor-view-ref'
 import { ImagePreview } from './ImagePreview'
 import { altKeyEffect } from '../../lib/editor/urls'
@@ -50,6 +51,9 @@ const EditorViewComponent: React.FC = () => {
   const { handleChange, handleFocus, handleBlur } = useEditorHandlers()
 
   const componentBuilderHandler = useCallback((view: EditorView) => {
+    // Handled (by doing nothing) while git rewrites the file, so the shortcut
+    // doesn't toggle a comment either
+    if (isGitBusy()) return true
     // Only open component builder for .mdx files
     const { currentFile } = useEditorStore.getState()
     if (currentFile?.path.endsWith('.mdx')) {
@@ -60,6 +64,7 @@ const EditorViewComponent: React.FC = () => {
   }, [])
 
   const contentLinkerHandler = useCallback((view: EditorView) => {
+    if (isGitBusy()) return true
     useContentLinkerStore.getState().open(view)
     return true
   }, [])

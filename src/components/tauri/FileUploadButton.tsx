@@ -6,6 +6,7 @@ import { Button } from '../ui/button'
 import type { VariantProps } from 'class-variance-authority'
 import { buttonVariants } from '../ui/button'
 import { isDropWithinElement } from '../../lib/editor/dragdrop'
+import { isGitBusy } from '../../lib/git/busy'
 
 // GLOBAL deduplication tracker for drag-drop events
 // This prevents Tauri's duplicate event firing from affecting ANY FileUploadButton
@@ -170,8 +171,9 @@ export const FileUploadButton: React.FC<FileUploadButtonProps> = ({
             globalDragDropTracker.lastFile = filePath
             globalDragDropTracker.lastTime = now
 
-            // Prevent concurrent operations on THIS button
-            if (disabledRef.current || isProcessingRef.current) {
+            // Prevent concurrent operations on THIS button, and drops
+            // while git rewrites the files (the form is inert then)
+            if (disabledRef.current || isProcessingRef.current || isGitBusy()) {
               return
             }
 

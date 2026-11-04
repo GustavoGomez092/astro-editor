@@ -210,4 +210,95 @@ describe('ChangesPanel', () => {
       await screen.findByText('How we rebuilt the studio website from…')
     ).toBeInTheDocument()
   })
+
+  describe('checking fields before publishing', () => {
+    const SCHEMA = JSON.stringify({
+      collectionName: 'pages',
+      fields: [
+        { name: 'title', label: 'Title', fieldType: 'string', required: true },
+        { name: 'email', label: 'Email', fieldType: 'email', required: true },
+        { name: 'quote', label: 'Quote', fieldType: 'string', required: true },
+      ],
+    })
+
+    beforeEach(() => {
+      vi.mocked(commands.scanProject).mockResolvedValue(
+        ok([
+          {
+            name: 'pages',
+            path: '/site/src/content/pages',
+            complete_schema: SCHEMA,
+          },
+        ] as never)
+      )
+      vi.mocked(commands.scanCollectionFilesRecursive).mockResolvedValue(
+        ok([
+          {
+            id: 'pages/about',
+            path: `${SITE}/${ABOUT}`,
+            name: 'about',
+            extension: 'md',
+            collection: 'pages',
+            last_modified: null,
+            frontmatter: { title: 'Jordan Ellis', email: 'nope' },
+          },
+        ])
+      )
+      const changed = {
+        ...CLEAN,
+        files: [{ path: ABOUT, oldPath: null, change: 'modified' as const }],
+      }
+      withStatus(changed)
+      vi.mocked(commands.gitPublish).mockResolvedValue(
+        ok({
+          commitId: 'abc',
+          pushed: true,
+          outcome: 'upToDate',
+          message: 'Published to main.',
+          status: CLEAN,
+        })
+      )
+    })
+
+    async function publishWithProblems() {
+      renderWithProviders(<ChangesPanel />)
+      await vi.waitFor(() =>
+        expect(screen.getByLabelText('Describe your changes')).toHaveValue(
+          'Update Jordan Ellis'
+        )
+      )
+      await userEvent.click(screen.getByRole('button', { name: /^Publish$/ }))
+      return screen.findByRole('alertdialog')
+    }
+
+    it('asks before publishing an entry whose fields need attention', async () => {
+      const dialog = await publishWithProblems()
+      expect(dialog).toHaveTextContent(
+        '2 fields in “Jordan Ellis” need attention. Publish anyway?'
+      )
+      expect(commands.gitPublish).not.toHaveBeenCalled()
+      await userEvent.click(
+        screen.getByRole('button', { name: 'Publish anyway' })
+      )
+      await vi.waitFor(() =>
+        expect(commands.gitPublish).toHaveBeenCalledWith(
+          SITE,
+          'Update Jordan Ellis'
+        )
+      )
+    })
+
+    it('Review opens the entry with its fields marked, and publishes nothing', async () => {
+      await publishWithProblems()
+      await userEvent.click(screen.getByRole('button', { name: 'Review' }))
+      expect(useEditorStore.getState().currentFile?.path).toBe(
+        `${SITE}/${ABOUT}`
+      )
+      expect(useEditorStore.getState().shownFieldErrors).toEqual({
+        email: true,
+        quote: true,
+      })
+      expect(commands.gitPublish).not.toHaveBeenCalled()
+    })
+  })
 })

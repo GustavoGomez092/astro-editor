@@ -2,6 +2,7 @@ import { EditorView } from '@codemirror/view'
 import { error as logError } from '@tauri-apps/plugin-log'
 import { useEditorStore } from '../../../store/editorStore'
 import { useProjectStore } from '../../../store/projectStore'
+import { isGitBusy } from '../../git/busy'
 import { processDroppedFiles } from './fileProcessing'
 import { validateDropContext, buildFallbackMarkdownForPaths } from './edgeCases'
 import { FileDropPayload, DropResult } from './types'
@@ -72,6 +73,11 @@ export const handleTauriFileDrop = async (
 ): Promise<DropResult> => {
   if (!editorView) {
     return { success: false, insertText: '', error: 'No editor view available' }
+  }
+
+  // The file is being rewritten by git: a drop now would be saved over it
+  if (isGitBusy()) {
+    return { success: false, insertText: '', error: 'A git change is running' }
   }
 
   // Parse file paths and position from payload
