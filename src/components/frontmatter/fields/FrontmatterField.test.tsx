@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { screen, fireEvent, act } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { FrontmatterField } from './FrontmatterField'
 import { useEditorStore } from '../../../store/editorStore'
 import { useProjectStore } from '../../../store/projectStore'
@@ -251,6 +252,67 @@ describe('FrontmatterField Orchestrator', () => {
 
       // Should render as TextareaField despite being String type in schema
       expect(screen.getByRole('textbox')).toBeInTheDocument()
+    })
+  })
+
+  describe('Multi-line text fields', () => {
+    const introField: SchemaField = {
+      name: 'intro',
+      label: 'Intro',
+      type: FieldType.String,
+      required: false,
+      multiline: true,
+    }
+
+    it('renders a text box for a string field marked multiline', () => {
+      renderWithProviders(
+        <FrontmatterField name="intro" label="Intro" field={introField} />
+      )
+
+      expect(screen.getByRole('textbox').tagName).toBe('TEXTAREA')
+    })
+
+    it('renders a one-line input for a string field without the flag', () => {
+      renderWithProviders(
+        <FrontmatterField
+          name="intro"
+          label="Intro"
+          field={{ ...introField, multiline: false }}
+        />
+      )
+
+      expect(screen.getByRole('textbox').tagName).toBe('INPUT')
+    })
+
+    it('inserts a newline on Enter and stores it in the value', async () => {
+      useEditorStore.setState({
+        frontmatter: {},
+        updateFrontmatterField: (key: string, value: unknown) =>
+          useEditorStore.setState(state => ({
+            frontmatter: { ...state.frontmatter, [key]: value },
+          })),
+      })
+      const user = userEvent.setup()
+      renderWithProviders(
+        <FrontmatterField name="intro" label="Intro" field={introField} />
+      )
+
+      await user.type(screen.getByRole('textbox'), 'One.{Enter}{Enter}Two.')
+
+      expect(useEditorStore.getState().frontmatter.intro).toBe('One.\n\nTwo.')
+    })
+
+    it('shows a stored multi-line value as it is', () => {
+      useEditorStore.setState({
+        frontmatter: { intro: 'First paragraph.\n\nSecond paragraph.' },
+      })
+      renderWithProviders(
+        <FrontmatterField name="intro" label="Intro" field={introField} />
+      )
+
+      expect(screen.getByRole('textbox')).toHaveValue(
+        'First paragraph.\n\nSecond paragraph.'
+      )
     })
   })
 

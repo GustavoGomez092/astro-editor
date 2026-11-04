@@ -112,7 +112,10 @@ const FieldControl: React.FC<FrontmatterFieldProps> = ({
   // - Arrays of images use ImageArrayField; arrays of anything else but strings
   //   and numbers (dates, objects, tuples) use YamlField.
   // - Every typed check runs before the title and description mappings, so those
-  //   textareas only replace plain string fields.
+  //   textareas only replace plain string fields. The mappings keep their own
+  //   sizes even when the field is also marked multiline.
+  // - A plain string field marked `.meta({ multiline: true })` gets a growing
+  //   text box instead of a one-line input.
   // - Fields with no schema are strings, except string arrays, which are
   //   inferred from the value.
 
@@ -276,6 +279,21 @@ const FieldControl: React.FC<FrontmatterFieldProps> = ({
   }
 
   if (name === frontmatterMappings.description) {
+    return (
+      <TextareaField
+        name={name}
+        label={label}
+        minRows={3}
+        maxRows={16}
+        required={required}
+        field={field}
+      />
+    )
+  }
+
+  // Text fields marked `.meta({ multiline: true })`: Enter adds a line, and the
+  // saved YAML keeps the line breaks (a block scalar, or a quoted string)
+  if (field?.multiline) {
     return (
       <TextareaField
         name={name}

@@ -210,6 +210,10 @@
         "type": "string"
       }
     },
+    "summary": {
+      "type": "string",
+      "multiline": true
+    },
     "metadata": {
       "type": "object",
       "properties": {

@@ -38,6 +38,9 @@ pub struct SchemaField {
     // Type-specific
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enum_values: Option<Vec<String>>,
+    /// A text field edited in a multi-line box (`.meta({ multiline: true })`)
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiline: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference_collection: Option<String>, // For reference fields
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -142,6 +145,10 @@ struct JsonSchemaProperty {
     description: Option<String>,
     #[serde(default)]
     markdown_description: Option<String>,
+    /// `.meta({ multiline: true })`. Kept as a raw value so a non-boolean
+    /// can't fail the collection's parse; only `true` counts
+    #[serde(default)]
+    multiline: Option<Value>,
     #[serde(default)]
     default: Option<Value>,
     #[serde(default)]
@@ -372,6 +379,13 @@ fn parse_field(
 
     let constraints = extract_constraints(value_schema, &field_type_info.field_type);
 
+    // `.meta()` before `.nullish()` lands on the non-null branch, after it on the
+    // property itself
+    let multiline = field_type_info.field_type == "string"
+        && [field_schema, value_schema]
+            .iter()
+            .any(|schema| schema.multiline == Some(Value::Bool(true)));
+
     // Build field
     let field = SchemaField {
         name: full_path.clone(),
@@ -386,6 +400,7 @@ fn parse_field(
             .or_else(|| field_schema.markdown_description.clone()),
         default: field_schema.default.clone(),
         enum_values: field_type_info.enum_values,
+        multiline,
         reference_collection: field_type_info.reference_collection,
         array_reference_collection: field_type_info.array_reference_collection,
         is_nested: if !parent_path.is_empty() {
@@ -956,6 +971,7 @@ fn parse_zod_schema(collection_name: &str, zod_schema: &str) -> Result<SchemaDef
                 description: None,
                 default: f.default.map(Value::String),
                 enum_values: f.options,
+                multiline: false,
                 reference_collection: f.referenced_collection,
                 array_reference_collection: f.array_reference_collection,
                 is_nested: None,
@@ -2147,6 +2163,84 @@ mod tests {
         assert_eq!(kind("nullableObject.age"), ("number", None));
         assert!(field("nullableObject.name").required);
         assert!(!field("nullableObject.age").required);
+    }
+
+    // `.meta({ multiline: true })` as Astro 7 (Zod 4.6) writes it: on the
+    // property, inside the non-null branch of `.nullish()`, or beside a
+    // `type` array when the meta follows `.nullable()`
+    const MULTILINE_SCHEMA: &str = r##"{
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "properties": {
+            "intro": { "type": "string", "multiline": true },
+            "described": { "type": "string", "description": "Desc", "multiline": true },
+            "nullish": { "anyOf": [{ "type": "string", "maxLength": 500, "multiline": true }, { "type": "null" }] },
+            "nullable": { "multiline": true, "type": ["string", "null"] },
+            "plain": { "type": "string" },
+            "notMultiline": { "type": "string", "multiline": false },
+            "wrongValue": { "type": "string", "multiline": "yes" },
+            "count": { "type": "number", "multiline": true }
+        },
+        "required": ["intro"]
+    }"##;
+
+    #[test]
+    fn multiline_meta_marks_text_fields() {
+        let schema = parse_json_schema("posts", MULTILINE_SCHEMA).unwrap();
+        let multiline = |name: &str| {
+            schema
+                .fields
+                .iter()
+                .find(|f| f.name == name)
+                .unwrap()
+                .multiline
+        };
+
+        for name in ["intro", "described", "nullish", "nullable"] {
+            assert!(multiline(name), "{name} should be multiline");
+        }
+        // Only `true` counts, and only on a text field; an unexpected value
+        // doesn't fail the collection
+        for name in ["plain", "notMultiline", "wrongValue", "count"] {
+            assert!(!multiline(name), "{name} should not be multiline");
+        }
+
+        let intro = schema.fields.iter().find(|f| f.name == "intro").unwrap();
+        assert_eq!(intro.field_type, "string");
+        assert!(intro.required);
+        let nullish = schema.fields.iter().find(|f| f.name == "nullish").unwrap();
+        assert_eq!(nullish.constraints.as_ref().unwrap().max_length, Some(500));
+    }
+
+    #[test]
+    fn test_project_notes_schema_has_a_multiline_field() {
+        let json =
+            include_str!("../../test/dummy-astro-project/.astro/collections/notes.schema.json");
+        let schema = parse_json_schema("notes", json).unwrap();
+        let multiline: Vec<&str> = schema
+            .fields
+            .iter()
+            .filter(|f| f.multiline)
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(multiline, ["summary"]);
+    }
+
+    #[test]
+    fn multiline_is_only_serialized_when_set() {
+        let schema = parse_json_schema("posts", MULTILINE_SCHEMA).unwrap();
+        let json = serde_json::to_value(&schema).unwrap();
+        let field = |name: &str| {
+            json["fields"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|f| f["name"] == name)
+                .unwrap()
+                .clone()
+        };
+        assert_eq!(field("intro")["multiline"], serde_json::json!(true));
+        assert!(field("plain").get("multiline").is_none());
     }
 
     #[test]

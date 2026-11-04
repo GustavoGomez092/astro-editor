@@ -13,6 +13,7 @@ Every field in your collection [schema](/frontmatter/overview/) becomes a contro
 | Schema field | Example | In the sidebar |
 | --- | --- | --- |
 | Text | `z.string()` | A single-line text input |
+| Multi-line text | `z.string().meta({ multiline: true })` | A text box that grows as you type ([more below](#multi-line-text)) |
 | Number | `z.number()` | A number input |
 | Boolean | `z.boolean()` | A toggle switch |
 | Date | `z.date()` | A date picker |
@@ -22,6 +23,22 @@ Every field in your collection [schema](/frontmatter/overview/) becomes a contro
 | URL | `z.string().url()` | A single-line input, hinted as a URL |
 
 A few fields get richer controls and have their own sections below: [objects](#nested-fields), [images](#image-fields), and [references](#reference-fields). Lists of non-text values (dates, objects, and so on), and objects without fixed fields, fall back to a raw JSON editor.
+
+## Multi-line text
+
+A text field is a single-line input unless you mark it as multi-line. Add `.meta({ multiline: true })` to the field and it becomes a text box, three lines tall to start, that grows as you type. Pressing <Kbd mac="Return" windows="Enter" /> starts a new line, so it suits a paragraph or two, like a summary or a pull quote.
+
+```ts title="content.config.ts"
+const blog = defineCollection({
+  schema: z.object({
+    summary: z.string().meta({ multiline: true }).optional(),
+  }),
+})
+```
+
+The line breaks are saved as part of the value, usually as a YAML block (`summary: |-` followed by the indented lines). Astro reads the field back with them, so render it with something that keeps them, such as a Markdown renderer or CSS `white-space: pre-line`.
+
+`.meta()` is Zod 4's way of attaching extra information to a field, so this needs Astro 6 or later. It only changes how Astro Editor shows the field, not what Astro accepts. The [description field](/frontmatter/special-fields/#description) is always a multi-line box, with or without it.
 
 ## Descriptions, defaults & constraints
 

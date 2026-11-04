@@ -25,6 +25,8 @@ export interface SchemaField {
 
   // Type-specific
   enumValues?: string[] // For enum fields
+  /** A text field edited in a multi-line box (`.meta({ multiline: true })`) */
+  multiline?: boolean
 
   // References
   reference?: string // Referenced collection name (for single reference)
@@ -84,6 +86,7 @@ interface RawCompleteSchema {
     description?: string
     default?: unknown
     enumValues?: string[]
+    multiline?: boolean
     referenceCollection?: string
     arrayReferenceCollection?: string
     isNested?: boolean
@@ -130,6 +133,7 @@ export function deserializeCompleteSchema(
       description: field.description,
       default: field.default,
       enumValues: field.enumValues,
+      multiline: field.multiline === true,
       reference: field.referenceCollection,
       subReference: field.arrayReferenceCollection,
       referenceCollection: field.referenceCollection, // Backwards compat

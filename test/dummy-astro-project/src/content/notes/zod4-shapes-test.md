@@ -19,6 +19,10 @@ sponsor:
 gallery:
   - /src/assets/articles/styleguide-image.jpg
   - /src/assets/articles/styleguide-image.jpg
+summary: |-
+  A first paragraph, written in the sidebar.
+
+  A second paragraph after a blank line.
 ---
 
 This note's frontmatter covers the Zod 4 JSON schema shapes the parser handles specially:
@@ -30,3 +34,4 @@ This note's frontmatter covers the Zod 4 JSON schema shapes the parser handles s
 - **coordinates** (tuple), **embed** (discriminated union) and **extra** (record): edited as YAML
 - **sponsor**: a nullable object, shown as its own fields
 - **gallery**: `z.array(image())`, an image picker for each image
+- **summary**: `.meta({ multiline: true })`, a growing text box where Enter adds a line

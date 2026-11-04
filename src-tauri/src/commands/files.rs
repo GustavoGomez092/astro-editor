@@ -2424,6 +2424,46 @@ X"#;
     // These verify that save -> reload preserves trailing whitespace exactly,
     // preventing the editor scroll jump bug (full doc replacement on content mismatch).
 
+    // A multi-line text field (`.meta({ multiline: true })`) holds newlines, so
+    // its value must read back exactly as the textarea held it.
+    fn roundtrip_frontmatter_value(value: &str) -> Value {
+        let mut frontmatter = IndexMap::new();
+        frontmatter.insert("title".to_string(), Value::String("Test".to_string()));
+        frontmatter.insert("intro".to_string(), Value::String(value.to_string()));
+        let saved =
+            rebuild_markdown_with_frontmatter_and_imports_ordered(&frontmatter, "", "Body\n", None)
+                .unwrap();
+        let parsed = parse_frontmatter(&saved).unwrap();
+        assert_eq!(parsed.content, "Body\n", "body changed in:\n{saved}");
+        assert_eq!(parsed.frontmatter.get("title").unwrap(), "Test");
+        parsed.frontmatter.get("intro").unwrap().clone()
+    }
+
+    #[test]
+    fn test_roundtrip_two_paragraph_frontmatter_value() {
+        let value = "First paragraph, with a comma.\n\nSecond paragraph: with a colon.";
+        assert_eq!(roundtrip_frontmatter_value(value), value);
+    }
+
+    #[test]
+    fn test_roundtrip_awkward_multiline_frontmatter_values() {
+        let values = [
+            "Trailing newline\n",
+            "Two trailing newlines\n\n",
+            "\nLeading newline",
+            "  Indented first line\nthen not",
+            "Trailing spaces   \nnext line",
+            "A line that closes frontmatter\n---\nand more",
+            "# Not a comment\n- not a list",
+            "Tabs\tinside\nand \"quotes\" and 'apostrophes'",
+            "Line one\r\nWindows line two",
+            "Émoji 🎉\nand RTL שלום",
+        ];
+        for value in values {
+            assert_eq!(roundtrip_frontmatter_value(value), value, "{value:?}");
+        }
+    }
+
     #[test]
     fn test_roundtrip_content_no_trailing_newline() {
         let body = "Hello world.";

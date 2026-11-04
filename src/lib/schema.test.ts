@@ -366,6 +366,28 @@ describe('deserializeCompleteSchema', () => {
       expect(result.fields[0]!.parentPath).toBe('author')
       expect(result.fields[0]!.name).toBe('author.name')
     })
+
+    it('should parse the multiline flag', () => {
+      const schemaJson = JSON.stringify({
+        collectionName: 'posts',
+        fields: [
+          {
+            name: 'intro',
+            label: 'Intro',
+            fieldType: 'string',
+            required: false,
+            multiline: true,
+          },
+          { name: 'note', label: 'Note', fieldType: 'string', required: false },
+        ],
+      })
+
+      const result = deserializeCompleteSchema(schemaJson)
+
+      assertResult(result)
+      expect(result.fields[0]!.multiline).toBe(true)
+      expect(result.fields[1]!.multiline).toBe(false)
+    })
   })
 
   describe('Error Handling', () => {
@@ -596,6 +618,7 @@ describe('deserializeCompleteSchema', () => {
           pattern: '^[A-Za-z]',
         },
         enumValues: undefined,
+        multiline: false,
         reference: undefined,
         subReference: undefined,
         referenceCollection: undefined,
