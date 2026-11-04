@@ -218,6 +218,11 @@ export const commands = {
 	githubMergePullRequest: (projectPath: string, number: number) => typedError<PullRequest, string>(__TAURI_INVOKE("github_merge_pull_request", { projectPath, number })),
 	/**  Repositories the signed-in user owns or collaborates on, most recently updated first */
 	githubListRepos: () => typedError<RepoSummary[], string>(__TAURI_INVOKE("github_list_repos")),
+	/**
+	 *  Checks `text` (the body, without frontmatter) and returns its issues, with
+	 *  UTF-16 offsets. Runs on a blocking thread, so typing never waits on it
+	 */
+	checkGrammar: (text: string, fileType: GrammarFileType, dialect: GrammarDialect, dictionary: string[]) => typedError<GrammarIssue[], string>(__TAURI_INVOKE("check_grammar", { text, fileType, dialect, dictionary })),
 };
 
 /* Types */
@@ -385,6 +390,34 @@ export type GitStatus = {
 	files: ChangedFile[],
 	detached: boolean,
 };
+
+/**  The English dialects Harper supports */
+export type GrammarDialect = "american" | "british" | "canadian" | "australian" | "indian";
+
+/**
+ *  Which parser rules apply. MDX adds masking for imports, component tags and
+ *  `{expressions}`, which Harper's Markdown parser doesn't know about
+ */
+export type GrammarFileType = "md" | "mdx";
+
+/**  One problem Harper found */
+export type GrammarIssue = {
+	/**  Start, in UTF-16 code units from the start of the text */
+	from: number,
+	/**  End (exclusive), in UTF-16 code units */
+	to: number,
+	/**  Harper's rule name, such as `SpellCheck` */
+	rule: string,
+	kind: GrammarIssueKind,
+	/**  The text between `from` and `to` */
+	problem: string,
+	message: string,
+	/**  Replacement text for `from..to`, best first. An empty string removes it */
+	suggestions: string[],
+};
+
+/**  Spelling issues get their own underline; everything else is grammar */
+export type GrammarIssueKind = "spelling" | "grammar";
 
 export type GraphCommit = {
 	id: string,

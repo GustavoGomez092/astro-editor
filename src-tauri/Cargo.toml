@@ -64,6 +64,8 @@ git2 = { version = "0.20", default-features = false, features = [
   "https",
 ] }
 # The GitHub token lives in the OS credential store (the Keychain on macOS)
+# Grammar and spell checking (src/grammar). Exact version: lint output can change between releases
+harper-core = { version = "=3.0.0", default-features = false, features = ["concurrent"] }
 keyring = { version = "3", features = [
   "apple-native",
   "windows-native",
@@ -118,3 +120,14 @@ lto = true # Link-time optimizations
 opt-level = "s" # Prioritize small binary size
 panic = "abort" # Disable panic handlers
 strip = true # Remove debug symbols
+
+# Harper is about 12 times slower unoptimised, which makes grammar checking lag in
+# dev builds. Optimising just its crates keeps the app's own code quick to rebuild
+[profile.dev.package.harper-core]
+opt-level = 3
+
+[profile.dev.package.harper-brill]
+opt-level = 3
+
+[profile.dev.package.fst]
+opt-level = 3
