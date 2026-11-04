@@ -12,6 +12,8 @@ export interface CommandContext {
   collections: Collection[]
   projectPath: string | null
   globalSettings: GlobalSettings | null
+  /** The open project is a git repository (for the Publishing commands) */
+  isGitRepo?: boolean
 
   // Store actions
   createNewFile: () => void
@@ -52,6 +54,7 @@ export interface AppCommand {
     | 'ide'
     | 'settings'
     | 'highlight'
+    | 'publishing'
     | 'help'
   execute: (context: CommandContext) => void | Promise<void>
   isAvailable: (context: CommandContext) => boolean

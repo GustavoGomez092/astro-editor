@@ -23,6 +23,8 @@ import { usePreferences } from '../../../hooks/usePreferences'
 import { SettingsSection } from '../SettingsSection'
 import { DocsLink } from '../DocsLink'
 import { DOCS_URLS } from '../../../lib/docs-urls'
+import { useShowPublishingTools } from '../../../hooks/settings/useShowPublishingTools'
+import { GitHubClientIdSection } from './GitHubPane'
 
 export const DebugPane: React.FC = () => {
   const [appVersion, setAppVersion] = useState<string>('...')
@@ -30,6 +32,7 @@ export const DebugPane: React.FC = () => {
   const [resetConfirmed, setResetConfirmed] = useState(false)
   const [resetting, setResetting] = useState(false)
   const { globalSettings } = usePreferences()
+  const publishingTools = useShowPublishingTools()
 
   // Derive preferences version directly from globalSettings
   const preferencesVersion = globalSettings?.version
@@ -103,6 +106,8 @@ export const DebugPane: React.FC = () => {
           </FieldContent>
         </Field>
       </SettingsSection>
+
+      {publishingTools && <GitHubClientIdSection />}
 
       <SettingsSection title="Maintenance">
         <Field>

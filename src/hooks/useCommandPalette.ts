@@ -14,6 +14,7 @@ const GROUP_ORDER: Array<{ key: AppCommand['group']; heading: string }> = [
   { key: 'settings', heading: 'Settings' },
   { key: 'highlight', heading: 'Highlights' },
   { key: 'ide', heading: 'IDE' },
+  { key: 'publishing', heading: 'Publishing' },
   { key: 'help', heading: 'Help' },
 ]
 

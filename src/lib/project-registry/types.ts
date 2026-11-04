@@ -108,7 +108,7 @@ export interface GlobalSettings {
     }
     autoSaveDelay: number
     defaultFileType: 'md' | 'mdx'
-    // The title bar's Preview control (and the Git panel). Off by default
+    // The Git panel, Publish and Preview. Off by default
     showPublishingTools: boolean
   }
   appearance: {
@@ -117,6 +117,11 @@ export interface GlobalSettings {
       dark: string
     }
     editorBaseFontSize?: number // 1-30, default 18
+  }
+  advanced?: {
+    // OAuth app client ID for GitHub sign-in, for builds compiled without one.
+    // Read by Rust (github::auth::resolve_client_id); null uses the built-in ID
+    githubClientId?: string | null
   }
   version: number
 }

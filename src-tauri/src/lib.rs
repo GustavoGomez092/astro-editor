@@ -3,6 +3,8 @@ mod agent_bridge;
 mod bindings;
 mod commands;
 mod dev_server;
+mod git;
+mod github;
 mod mdx_components;
 mod mdx_esm;
 mod models;
@@ -124,6 +126,10 @@ pub fn run() {
 
             #[cfg(debug_assertions)]
             agent_bridge::start(app.handle());
+
+            // GitHub sign-in: the token lives in the Keychain under this app's identifier
+            github::auth::init(&app.config().identifier);
+            git::init_network_timeouts();
 
             #[cfg(target_os = "macos")]
             commands::quit::install_terminate_hook(app.handle());

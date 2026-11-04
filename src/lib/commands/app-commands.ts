@@ -26,6 +26,7 @@ import { openProjectViaDialog } from '../projects/actions'
 import { DOCS_URLS } from '../docs-urls'
 import { collectionDisplayName } from '../collection-name'
 import { useContentLinkerStore } from '@/store/contentLinkerStore'
+import { publishingCommands } from './publishing-commands'
 
 /**
  * File-related commands
@@ -407,6 +408,7 @@ export function getAllCommands(context: CommandContext): AppCommand[] {
     ...viewModeCommands,
     ...highlightCommands,
     ...ideCommands,
+    ...publishingCommands,
     ...helpCommands,
     ...collectionCommands,
   ].filter(command => command.isAvailable(context))

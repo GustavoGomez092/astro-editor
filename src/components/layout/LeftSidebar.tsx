@@ -60,8 +60,13 @@ function saveCollectionSort(
     ),
   })
 }
+import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
+import { useGitStatusQuery } from '../../hooks/queries/useGitStatusQuery'
+import { useGitStore, type GitPanelTab } from '../../store/gitStore'
+import { ChangesPanel } from '../git/ChangesPanel'
 
-export const LeftSidebar: React.FC = () => {
+/** The content files: collections, folders and entries. */
+const FilesPanel: React.FC = () => {
   // Object subscription needs shallow
   const currentFile = useEditorStore(useShallow(state => state.currentFile))
 
@@ -368,7 +373,7 @@ export const LeftSidebar: React.FC = () => {
   }, [selectedCollection, currentSubdirectory])
 
   return (
-    <div className="flex h-full flex-col border-r bg-background">
+    <div className="flex h-full flex-col">
       {/* Header */}
       <div className={cn('border-b p-3', headerBgClass)}>
         <div className="flex items-center gap-2">
@@ -670,6 +675,68 @@ export const LeftSidebar: React.FC = () => {
           </div>
         )}
       </div>
+    </div>
+  )
+}
+
+const TABS: { id: GitPanelTab; label: string }[] = [
+  { id: 'files', label: 'Files' },
+  { id: 'changes', label: 'Changes' },
+]
+
+/**
+ * The left sidebar. With the publishing tools on, it has two tabs, Files and
+ * Changes (the Git panel); both stay mounted and the hidden one is hidden
+ * with CSS, so each keeps its scroll position and state.
+ */
+export const LeftSidebar: React.FC = () => {
+  const toolsOn = useShowPublishingTools()
+  const panelTab = useGitStore(state => state.panelTab)
+  const projectPath = useProjectStore(state => state.projectPath)
+  const changedCount = useGitStatusQuery(projectPath).data?.files.length ?? 0
+  const tab = toolsOn ? panelTab : 'files'
+
+  return (
+    <div className="flex h-full flex-col border-r bg-background">
+      {toolsOn && (
+        <div
+          role="tablist"
+          aria-label="Sidebar"
+          className="flex shrink-0 gap-1 border-b p-1.5"
+        >
+          {TABS.map(({ id, label }) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              onClick={() => useGitStore.getState().setPanelTab(id)}
+              className={cn(
+                'flex flex-1 items-center justify-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium transition-colors',
+                tab === id
+                  ? 'bg-accent text-foreground'
+                  : 'text-muted-foreground hover:bg-accent/60 hover:text-foreground'
+              )}
+            >
+              {label}
+              {id === 'changes' && changedCount > 0 && (
+                <span className="min-w-4 rounded-full bg-muted-foreground/15 px-1 text-[10px] leading-4">
+                  {changedCount}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className={cn('min-h-0 flex-1', tab !== 'files' && 'hidden')}>
+        <FilesPanel />
+      </div>
+      {toolsOn && (
+        <div className={cn('min-h-0 flex-1', tab !== 'changes' && 'hidden')}>
+          {/* One per project: a draft message or notice stays with its project */}
+          <ChangesPanel key={projectPath ?? 'none'} />
+        </div>
+      )}
     </div>
   )
 }

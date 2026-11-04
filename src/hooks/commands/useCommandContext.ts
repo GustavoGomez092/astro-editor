@@ -3,6 +3,7 @@ import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { useUIStore } from '../../store/uiStore'
 import { useCollectionsQuery } from '../queries/useCollectionsQuery'
+import { useGitStatusQuery } from '../queries/useGitStatusQuery'
 import { CommandContext } from '../../lib/commands/types'
 import { queryClient } from '../../lib/query-client'
 import { queryKeys } from '../../lib/query-keys'
@@ -41,6 +42,8 @@ export function useCommandContext(): CommandContext {
     projectPath,
     currentProjectSettings
   )
+  // Off (and false) while the publishing tools are hidden
+  const isGitRepo = useGitStatusQuery(projectPath).data?.isRepo ?? false
 
   return {
     currentFile,
@@ -48,6 +51,7 @@ export function useCommandContext(): CommandContext {
     collections, // Now properly populated from TanStack Query
     projectPath,
     globalSettings,
+    isGitRepo,
     createNewFile: () => {
       // Dispatch a custom event that Layout can listen to
       window.dispatchEvent(new CustomEvent('create-new-file'))

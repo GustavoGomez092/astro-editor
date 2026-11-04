@@ -6,10 +6,15 @@ import { openProjectViaDialog } from '../../lib/projects/actions'
 import { Button } from '../ui/button'
 import { useProjectStore } from '@/store/projectStore'
 import { useBodyEditorHidden } from '../../hooks/editor/useBodyEditorHidden'
+import { GitMainView } from '../git/GitMainView'
+import { useGitEditGuard } from '../../hooks/useGitEditGuard'
+import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
+import { useGitStore } from '../../store/gitStore'
 
 // Welcome screen component for better organization
 const WelcomeScreen: React.FC = () => {
   const projectPath = useProjectStore(state => state.projectPath)
+  const publishingTools = useShowPublishingTools()
   return (
     <div className="flex h-full items-center justify-center">
       <div className="flex flex-col gap-4 text-center text-muted-foreground">
@@ -18,15 +23,27 @@ const WelcomeScreen: React.FC = () => {
           Select a project folder to get started, then choose a file to edit.
         </p>
         {projectPath == null && (
-          <Button
-            onClick={() => void openProjectViaDialog()}
-            className="self-center"
-            variant="outline"
-            size="sm"
-            title="Open Project"
-          >
-            Open Project
-          </Button>
+          <div className="flex justify-center gap-2">
+            <Button
+              onClick={() => void openProjectViaDialog()}
+              variant="outline"
+              size="sm"
+              title="Open Project"
+            >
+              Open Project
+            </Button>
+            {publishingTools && (
+              <Button
+                onClick={() =>
+                  useGitStore.getState().setOpenFromGitHubOpen(true)
+                }
+                variant="outline"
+                size="sm"
+              >
+                Open from GitHub
+              </Button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -52,11 +69,14 @@ export const MainEditor: React.FC = () => {
   const hasCurrentFile = useEditorStore(state => !!state.currentFile)
   const typewriterModeEnabled = useUIStore(state => state.typewriterModeEnabled)
   const bodyHidden = useBodyEditorHidden()
+  // No edits while git rewrites files: they'd be saved over what came in
+  const gitGuard = useGitEditGuard()
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       <div
         className={`flex-1 overflow-x-hidden overflow-y-auto bg-editor-background${typewriterModeEnabled ? ' no-scrollbar' : ''}`}
+        {...gitGuard}
       >
         {hasCurrentFile ? (
           <>
@@ -70,6 +90,7 @@ export const MainEditor: React.FC = () => {
           <WelcomeScreen />
         )}
       </div>
+      <GitMainView />
     </div>
   )
 }

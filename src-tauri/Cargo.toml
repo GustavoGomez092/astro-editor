@@ -45,7 +45,7 @@ swc_ecma_parser = "45"
 swc_ecma_visit = "29"
 indexmap = { version = "2", features = ["serde"] }
 pathdiff = "0.2"
-reqwest = { version = "0.13", features = ["json"] }
+reqwest = { version = "0.13", features = ["json", "form"] }
 uuid = { version = "1.23", features = ["v4"] }
 tauri-plugin-os = "2.3.2"
 tauri-plugin-window-state = "2"
@@ -53,6 +53,18 @@ tauri-plugin-deep-link = "2"
 tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # HTTP server for the debug-only agent bridge (src/agent_bridge)
 tiny_http = "0.12"
+# Git for the Git panel (src/git). Vendored libgit2 so it works on a Mac without the
+# Xcode command-line tools; no SSH, so nothing links OpenSSL on macOS
+git2 = { version = "0.20", default-features = false, features = [
+  "vendored-libgit2",
+  "https",
+] }
+# The GitHub token lives in the OS credential store (the Keychain on macOS)
+keyring = { version = "3", features = [
+  "apple-native",
+  "windows-native",
+  "linux-native",
+] }
 
 # Native WKWebView snapshots for the agent bridge, and the app delegate hook
 # that saves before quitting (commands/quit.rs)
@@ -90,6 +102,7 @@ libc = "0.2"
 [dev-dependencies]
 tempfile = "3.27"
 toml = "1.1.8"
+mockito = "1"
 
 # Desktop-only dependencies (excludes Android and iOS)
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]

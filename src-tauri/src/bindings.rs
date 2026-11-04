@@ -86,7 +86,34 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::dev_server::dev_server_stop,
             crate::commands::dev_server::dev_server_state,
             crate::commands::dev_server::dev_server_logs,
+            // git.rs commands
+            crate::commands::git::git_status,
+            crate::commands::git::git_file_diff,
+            crate::commands::git::git_fetch,
+            crate::commands::git::git_sync,
+            crate::commands::git::git_publish,
+            crate::commands::git::git_push,
+            crate::commands::git::git_branches,
+            crate::commands::git::git_checkout,
+            crate::commands::git::git_log_graph,
+            crate::commands::git::git_commit_details,
+            crate::commands::git::git_commit_file_diff,
+            crate::commands::git::git_merge_default_branch,
+            crate::commands::git::git_commits_behind_default,
+            crate::commands::git::git_clone,
+            // github.rs commands
+            crate::commands::github::github_auth_status,
+            crate::commands::github::github_device_start,
+            crate::commands::github::github_device_poll,
+            crate::commands::github::github_sign_out,
+            crate::commands::github::github_repo_info,
+            crate::commands::github::github_list_pull_requests,
+            crate::commands::github::github_create_pull_request,
+            crate::commands::github::github_merge_pull_request,
+            crate::commands::github::github_list_repos,
         ])
+        // Payload of the `git-clone-progress` event, which isn't a command's return type
+        .typ::<crate::git::CloneProgress>()
 }
 
 #[cfg(test)]

@@ -20,6 +20,7 @@ import {
 import { cn } from '../../../lib/utils'
 import { PreviewButton } from '../../dev-server'
 import { collectionDisplayName } from '../../../lib/collection-name'
+import { PublishButton } from '../../git/PublishButton'
 
 interface TitleBarToolbarProps {
   /** Window controls for the left side (e.g., macOS traffic lights) */
@@ -129,6 +130,7 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
 
       <div className="flex items-center gap-2" data-tauri-drag-region>
         <PreviewButton />
+        <PublishButton />
 
         {selectedCollection && (
           <Button

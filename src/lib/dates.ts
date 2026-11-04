@@ -65,3 +65,28 @@ export function formatDisplayDate(date: Date): string {
 export function todayIsoDate(): string {
   return formatIsoDate(new Date())
 }
+
+const MINUTE = 60
+const HOUR = 60 * MINUTE
+const DAY = 24 * HOUR
+const relativeFormat = new Intl.RelativeTimeFormat('en', { numeric: 'auto' })
+
+/**
+ * How long ago something happened, in words: "just now", "5 minutes ago",
+ * "yesterday", "4 days ago". After a month it's the date instead, which reads
+ * better than "7 weeks ago".
+ */
+export function formatRelativeTime(date: Date, now: Date = new Date()): string {
+  const seconds = Math.round((now.getTime() - date.getTime()) / 1000)
+  if (seconds < MINUTE) return 'just now'
+  if (seconds < HOUR) {
+    return relativeFormat.format(-Math.floor(seconds / MINUTE), 'minute')
+  }
+  if (seconds < DAY) {
+    return relativeFormat.format(-Math.floor(seconds / HOUR), 'hour')
+  }
+  if (seconds < 30 * DAY) {
+    return relativeFormat.format(-Math.floor(seconds / DAY), 'day')
+  }
+  return formatDisplayDate(date)
+}

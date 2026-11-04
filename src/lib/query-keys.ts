@@ -54,7 +54,33 @@ export const queryKeys = {
     [...queryKeys.all, projectPath, 'devServer'] as const,
   devServerLogs: (projectPath: string) =>
     [...queryKeys.devServer(projectPath), 'logs'] as const,
+  // Git: everything under one prefix, so a commit, sync or checkout refreshes
+  // status, branches, history and diffs together. Index 4 is never a path or
+  // id, so useFileChangeHandler's predicate ('files' at [4]) can't match one
+  git: (projectPath: string) => [...queryKeys.all, projectPath, 'git'] as const,
+  gitStatus: (projectPath: string) =>
+    [...queryKeys.git(projectPath), 'status'] as const,
+  gitBranches: (projectPath: string) =>
+    [...queryKeys.git(projectPath), 'branches'] as const,
+  // Commits the default branch has that the current one doesn't
+  gitBehindDefault: (projectPath: string) =>
+    [...queryKeys.git(projectPath), 'behindDefault'] as const,
+  gitLog: (projectPath: string, limit: number) =>
+    [...queryKeys.git(projectPath), 'log', limit] as const,
+  // Working tree vs HEAD for one file
+  gitFileDiff: (projectPath: string, path: string) =>
+    [...queryKeys.git(projectPath), 'diff', 'workingTree', path] as const,
+  gitCommitDetails: (projectPath: string, id: string) =>
+    [...queryKeys.git(projectPath), 'commit', 'details', id] as const,
+  gitCommitFileDiff: (projectPath: string, id: string, path: string) =>
+    [...queryKeys.git(projectPath), 'commit', 'diff', id, path] as const,
+  githubRepoInfo: (projectPath: string) =>
+    [...queryKeys.git(projectPath), 'repoInfo'] as const,
+  pullRequests: (projectPath: string) =>
+    [...queryKeys.git(projectPath), 'pullRequests'] as const,
   // Not tied to a project
   appVersion: ['appVersion'] as const,
+  githubAuth: ['githubAuth'] as const,
+  githubRepos: ['githubRepos'] as const,
   // Add more keys here as needed
 }

@@ -57,7 +57,7 @@ Breaking any of these causes bugs or wasted work. The reasons are in the archite
 - `src/lib/bindings.ts`: generated Tauri command bindings
 - `src/App.css`: colour tokens and global styles
 - `src/styleguide/`: the component styleguide (`localhost:1420/styleguide.html`), dev only
-- `src-tauri/src/`: Rust: `commands/` (one file per area), `parser.rs` and `schema_merger.rs` (schemas), `mdx_components/` (reading component props for the MDX builder), `agent_bridge/` (dev only)
+- `src-tauri/src/`: Rust: `commands/` (one file per area), `parser.rs` and `schema_merger.rs` (schemas), `mdx_components/` (reading component props for the MDX builder), `git/` and `github/` (the Git panel's engine), `agent_bridge/` (dev only)
 - `test/`: Astro projects for manual and agent testing. Work in the gitignored copy, `temp-dummy-astro-project`, which `bun run reset:testdata` recreates from `test/dummy-astro-project`
 - `scripts/`: the `app` CLI, release script and dev launcher
 
@@ -122,6 +122,8 @@ In `docs/developer/`. Read the ones for the area you're working in.
 - `releases.md`: cutting a release, hotfixes, test builds, CI, updates and signing
 - `agent-tooling.md`: the dev identity, agent bridge, styleguide and logs
 - `dev-server.md`: the optional Preview control: running, watching and stopping a project's dev server
+- `git-and-github.md`: the git and GitHub engine behind the Git panel: modules, safety rules, sign-in and the token
+- `git-panel.md`: the optional publishing tools' frontend: the Changes tab, Publish, History, GitHub sign-in, Open from GitHub
 
 ## Tasks
 

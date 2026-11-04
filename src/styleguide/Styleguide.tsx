@@ -22,6 +22,15 @@ import { FieldsSection } from './FieldsSection'
 import { ColoursSection } from './ColoursSection'
 import { ComponentBuilderSection } from './ComponentBuilderSection'
 import { DevServerSection } from './DevServerSection'
+import {
+  GitChangesMoreSection,
+  GitChangesSection,
+  GitDiffSection,
+  GitHistorySection,
+  GitOpenFromGitHubSection,
+  GitOpenPullRequestSection,
+  GitSignInSection,
+} from './GitSection'
 
 interface Section {
   id: string
@@ -52,6 +61,32 @@ const SECTIONS: Section[] = [
     id: 'dev-server',
     title: 'Preview control and server output',
     Component: DevServerSection,
+  },
+  { id: 'git-history', title: 'Git history', Component: GitHistorySection },
+  { id: 'git-diff', title: 'Git diffs', Component: GitDiffSection },
+  { id: 'git-changes', title: 'Changes tab', Component: GitChangesSection },
+  {
+    id: 'git-changes-more',
+    title: 'Changes tab: more states',
+    Component: GitChangesMoreSection,
+  },
+  {
+    id: 'git-sign-in',
+    title: 'Sign in with GitHub',
+    Component: GitSignInSection,
+    overlay: true,
+  },
+  {
+    id: 'git-open-from-github',
+    title: 'Open from GitHub',
+    Component: GitOpenFromGitHubSection,
+    overlay: true,
+  },
+  {
+    id: 'git-open-pull-request',
+    title: 'Open pull request',
+    Component: GitOpenPullRequestSection,
+    overlay: true,
   },
   { id: 'select', title: 'Select', Component: SelectSection, overlay: true },
   {

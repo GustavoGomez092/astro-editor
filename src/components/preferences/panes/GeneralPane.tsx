@@ -192,21 +192,26 @@ export const GeneralPane: React.FC = () => {
         </Field>
 
         <Field>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between gap-4">
             <div className="flex-1">
               <FieldLabel htmlFor={`${id}-publishing-tools`}>
                 Show preview and publishing tools
               </FieldLabel>
               <FieldDescription>
                 Adds a Preview button to the title bar, which runs your
-                project&apos;s dev server and opens the site in your browser.
+                project&apos;s dev server and opens the site in your browser,
+                and Publish and a Changes tab for projects kept in git, so you
+                can see what changed, publish it to GitHub and review its
+                history.
               </FieldDescription>
             </div>
             <Switch
               id={`${id}-publishing-tools`}
               checked={globalSettings?.general?.showPublishingTools ?? false}
               onCheckedChange={checked =>
-                void updateGlobal({ general: { showPublishingTools: checked } })
+                void updateGlobal({
+                  general: { showPublishingTools: checked },
+                })
               }
             />
           </div>
