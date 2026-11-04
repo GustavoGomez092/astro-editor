@@ -20,17 +20,23 @@ export const NEW_PULL_REQUEST_MS = 10 * 60 * 1000
 /**
  * When the app first saw each pull request, by project and number. The
  * pull request type carries no created or updated time, so this stands in.
+ * Only the latest list's pull requests are kept, so one that's closed and
+ * reopened later counts as new again.
  */
-const firstSeen = new Map<string, number>()
-const seenKey = (projectPath: string, number: number) =>
-  `${projectPath}#${number}`
+const firstSeen = new Map<string, Map<number, number>>()
+
+/** Forgets every pull request seen so far (for tests). */
+export function forgetSeenPullRequests(): void {
+  firstSeen.clear()
+}
 
 function noteFirstSeen(projectPath: string, pullRequests: PullRequest[]) {
   const now = Date.now()
-  for (const pr of pullRequests) {
-    const key = seenKey(projectPath, pr.number)
-    if (!firstSeen.has(key)) firstSeen.set(key, now)
-  }
+  const before = firstSeen.get(projectPath)
+  firstSeen.set(
+    projectPath,
+    new Map(pullRequests.map(pr => [pr.number, before?.get(pr.number) ?? now]))
+  )
 }
 
 /**
@@ -47,7 +53,7 @@ function checksMayChange(
       if (pr.state !== 'open') return false
       if (pr.checks === 'pending') return true
       if (pr.checks !== 'none') return false
-      const seen = firstSeen.get(seenKey(projectPath, pr.number)) ?? now
+      const seen = firstSeen.get(projectPath)?.get(pr.number) ?? now
       return now - seen < NEW_PULL_REQUEST_MS
     }) ?? false
   )

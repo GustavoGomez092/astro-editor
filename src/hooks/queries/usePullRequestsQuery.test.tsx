@@ -8,6 +8,7 @@ import { useProjectStore } from '../../store/projectStore'
 import {
   NEW_PULL_REQUEST_MS,
   PULL_REQUEST_POLL_MS,
+  forgetSeenPullRequests,
   usePullRequestsQuery,
 } from './usePullRequestsQuery'
 
@@ -53,6 +54,7 @@ describe('usePullRequestsQuery polling', () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
     vi.clearAllMocks()
+    forgetSeenPullRequests()
     focused = true
     vi.spyOn(document, 'hasFocus').mockImplementation(() => focused)
     useProjectStore.setState({
@@ -103,8 +105,6 @@ describe('usePullRequestsQuery polling', () => {
     expect(calls()).toBe(3)
   })
 
-  // The app remembers when it first saw each pull request, for good, so
-  // these use numbers no other test does
   it("checks again for a new pull request whose checks GitHub hasn't registered yet", async () => {
     const fresh = { ...PR, number: 40, checks: 'none' as const }
     vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([fresh]))
@@ -135,6 +135,42 @@ describe('usePullRequestsQuery polling', () => {
     await tick()
     await tick()
     expect(calls()).toBe(2)
+  })
+
+  it('keeps checking a pull request whose checks are still running after ten minutes', async () => {
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([PR]))
+    const { result } = render()
+    await vi.waitFor(() => expect(result.current.data).toEqual([PR]))
+
+    vi.setSystemTime(Date.now() + NEW_PULL_REQUEST_MS * 2)
+    await tick()
+    await vi.waitFor(() => expect(calls()).toBe(2))
+    await tick()
+    await vi.waitFor(() => expect(calls()).toBe(3))
+  })
+
+  it('waits for checks again on a pull request that left the list and came back', async () => {
+    const quiet = { ...PR, number: 41, checks: 'none' as const }
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([quiet]))
+    const { result, client } = render()
+    await vi.waitFor(() => expect(result.current.data).toEqual([quiet]))
+
+    // Closed, then reopened long after the app first saw it
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([]))
+    await act(() =>
+      client.invalidateQueries({ queryKey: queryKeys.git('/site') })
+    )
+    await vi.waitFor(() => expect(result.current.data).toEqual([]))
+    vi.setSystemTime(Date.now() + NEW_PULL_REQUEST_MS * 2)
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([quiet]))
+    await act(() =>
+      client.invalidateQueries({ queryKey: queryKeys.git('/site') })
+    )
+    await vi.waitFor(() => expect(result.current.data).toEqual([quiet]))
+    expect(calls()).toBe(3)
+
+    await tick()
+    await vi.waitFor(() => expect(calls()).toBe(4))
   })
 
   it('reads again as soon as the window comes back to the front', async () => {
