@@ -200,6 +200,18 @@ jobs:
           security find-identity -v -p codesigning
           echo "APPLE_SIGNING_IDENTITY=Astro Editor+ Self-Signed" >> "$GITHUB_ENV"
 
+      - name: Release notes
+        # docs/releases/<tag>.md holds what's new in a release, shown on the
+        # Releases page and in the app's update dialog. Install steps live in
+        # the README, not here, so the dialog doesn't repeat them per version.
+        run: |
+          notes="docs/releases/$RELEASE_TAG.md"
+          {
+            echo "RELEASE_NOTES<<NOTES_EOF"
+            if [ -f "$notes" ]; then cat "$notes"; else echo "### ${RELEASE_TAG#v}"; fi
+            echo "NOTES_EOF"
+          } >> "$GITHUB_ENV"
+
       - name: Build and release
         uses: tauri-apps/tauri-action@v1.0.0
         env:
@@ -215,7 +227,7 @@ jobs:
         with:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: 'Astro Editor+ ${{ env.RELEASE_TAG }}'
-          releaseBody: "Astro Editor+ ${{ env.RELEASE_TAG }}.${{ steps.signing.outputs.mode == 'self-signed' && ' On first launch, approve the app under System Settings, Privacy & Security, Open Anyway.' || '' }}"
+          releaseBody: ${{ env.RELEASE_NOTES }}
           releaseDraft: false
           prerelease: false
           uploadUpdaterJson: true
