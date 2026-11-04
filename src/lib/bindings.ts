@@ -101,6 +101,10 @@ export const commands = {
 	openPreferencesFolder: () => typedError<null, string>(__TAURI_INVOKE("open_preferences_folder")),
 	/**  Resets all preferences by deleting the app data directory and restarting the app */
 	resetAllPreferences: () => typedError<null, string>(__TAURI_INVOKE("reset_all_preferences")),
+	/**  Lists the `.json` files in the themes folder */
+	listThemeFiles: () => typedError<ThemeFileEntry[], string>(__TAURI_INVOKE("list_theme_files")),
+	/**  Opens the themes folder in the system's file manager */
+	openThemesFolder: () => typedError<null, string>(__TAURI_INVOKE("open_themes_folder")),
 	/**  Quits once unsaved edits are saved (or the writer chose to quit without them). */
 	quitApp: () => __TAURI_INVOKE<void>("quit_app"),
 	/**  Stays open: the save failed and the writer is being asked what to do. */
@@ -536,6 +540,15 @@ export type SyncResult = {
 	/**  A plain-language sentence for the writer */
 	message: string,
 	status: GitStatus,
+};
+
+/**
+ *  A `.json` file in the themes folder. `problem` is set when the file must not
+ *  be read, and says why in plain words.
+ */
+export type ThemeFileEntry = {
+	name: string,
+	problem: string | null,
 };
 
 export type Value = null | boolean | number | string | Value[] | { [key in string]: Value };

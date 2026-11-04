@@ -44,6 +44,34 @@ All colour tokens live in one `:root` block near the top of `src/App.css`:
 
 The user's heading colours from Appearance settings are set once by Layout as `--heading-color-light` and `--heading-color-dark`. `--editor-color-heading` picks between them with `light-dark()`, falling back to the editor text colour.
 
+## Colour themes
+
+A theme is a JSON file of values for these tokens, and nothing else: themes never change type, spacing or layout. The format, as the JSON Schema `src/lib/themes/theme.schema.json` describes it:
+
+```json
+{
+  "id": "my-theme",
+  "name": "My theme",
+  "author": "Me",
+  "appearance": "both",
+  "tokens": {
+    "background": { "light": "#e6e9ef", "dark": "#181825" },
+    "foreground": "#4c4f69"
+  }
+}
+```
+
+- `appearance` (`light`, `dark` or `both`) says which mode's list the theme appears in. A token is a colour for both modes, or `{ light, dark }`.
+- Token names are the `:root` names in `App.css` without the `--`. The traffic-light colours and the radius aren't themeable (the list is `parseCssTokens` in `scripts/theme-tools.ts`).
+- **The Default theme is `src/lib/themes/builtin/default.json`, generated from `App.css`.** After adding, removing or changing a token, run `bun scripts/generate-themes.ts`; it also rewrites the schema. A test fails if either file is out of date, and another if a built-in theme sets a token that doesn't exist.
+- A token a theme leaves out takes Default's value (`resolveTokens`), so a partial theme works. Unknown tokens are reported next to the file in Settings and ignored; a bad colour or missing field makes the file unusable and lists the reason there.
+- **How it's applied:** `useColourThemes` (called by Layout) builds one rule per mode (`themesToRules`): `:root:root.light` with the light theme's light values, and `:root:root.dark` with the dark theme's dark values. `applyThemeTokens` puts them in a `<style id="astro-editor-colour-theme">` as a parsed rule and sets each token with `style.setProperty`, so a value is only ever a value and can't add a rule. They sit on the same element as `color-scheme`, so the `var()` tokens (`--active`, `--server-error`) follow. Only the chosen theme **ids** are cached in localStorage (never CSS) and applied in `main.tsx` before the first paint, so a built-in theme doesn't flash Default; a custom theme appears once the themes folder is read and validated. Nothing in `App.css` changes: components still just use tokens.
+- **Theme files are untrusted input.** Values are checked twice. `looksLikeColour` (`validate.ts`) accepts only the characters a colour needs (`safe.ts`: no `; { } < > \ @ : " *`, so no comments), only colour functions (no `url()`, `image()`, `calc()`), not CSS-wide keywords or `currentcolor`, and, in the webview, `CSS.supports('color', v)`. `var()` may only be the whole value and point at another known token, never itself, never in a loop (checked after merging with Default). `isSafeValue` runs again just before each value reaches the page. A file over 256 KB, or a link that leads outside the themes folder, is refused by Rust (`scan_theme_dir`) before it is read.
+- **The writer's own heading colour** (Settings) feeds `--editor-color-heading` through `--heading-color-light/dark`. The built-in themes leave `editor-color-heading` out, so that choice keeps working; a theme that sets it overrides the picker.
+- **Custom themes** live in `themes/*.json` in the app data folder. Settings reads the folder whenever it opens, and "Show themes folder" opens it. A copy of the schema is written there as `theme.schema.json`, so an editor can check and complete a file (`"$schema": "./theme.schema.json"`). A theme can't reuse a built-in id, and the first of two files with one id wins; the other is listed as an error.
+- Choices are `appearance.lightTheme` and `appearance.darkTheme` (theme ids) in global settings. An id that has gone, or a theme for the other mode, falls back to Default.
+- **Contrast:** `scripts/themes.test.ts` checks every built-in theme (not Default) in both modes: body, muted and heading text, button text, status text on its tint and the editor's accent colours need 4.5:1 (WCAG AA); markdown marks 2:1.
+
 ## Rules
 
 - **No Tailwind palette colours** (`text-gray-700`, `bg-black/50`, `text-white`). The ast-grep rule `no-palette-colours` fails `check:all` on them.
@@ -66,5 +94,6 @@ The user's heading colours from Appearance settings are set once by Layout as `-
 1. Add it to the right group in the `:root` block in `App.css` as a `light-dark()` pair, or a single value if it's the same in both themes. Add a short comment if its use isn't obvious from the name.
 2. If components use it as a class, register it in `@theme inline`: `--color-name: var(--name)`.
 3. Add it to `GROUPS` in `src/styleguide/ColoursSection.tsx`.
+4. Run `bun scripts/generate-themes.ts` so the Default theme and the schema include it. Add it to Catppuccin and Nord if it needs a palette colour (otherwise they use Default's).
 
 To convert existing colours to oklch exactly, `@csstools/css-color-parser` is in `node_modules` (a dependency of jsdom). It parses any CSS colour and serialises to oklch. Four decimal places stay within a fraction of one 8-bit level.

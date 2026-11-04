@@ -1,0 +1,268 @@
+{
+  "$schema": "./theme.schema.json",
+  "id": "nord",
+  "name": "Nord",
+  "author": "Nord, with some colours adjusted for contrast",
+  "appearance": "both",
+  "tokens": {
+    "background": {
+      "light": "#e5e9f0",
+      "dark": "#292e39"
+    },
+    "foreground": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "card": {
+      "light": "#f6f8fb",
+      "dark": "#3b4252"
+    },
+    "card-foreground": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "popover": {
+      "light": "#f6f8fb",
+      "dark": "#3b4252"
+    },
+    "popover-foreground": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "primary": {
+      "light": "#4f6c90",
+      "dark": "#88c0d0"
+    },
+    "primary-foreground": {
+      "light": "#eceff4",
+      "dark": "#2e3440"
+    },
+    "secondary": {
+      "light": "#e5e9f0",
+      "dark": "#3b4252"
+    },
+    "secondary-foreground": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "muted": {
+      "light": "#e5e9f0",
+      "dark": "#3b4252"
+    },
+    "muted-foreground": {
+      "light": "#4c566a",
+      "dark": "#b3bccc"
+    },
+    "accent": {
+      "light": "#d8dee9",
+      "dark": "#434c5e"
+    },
+    "accent-foreground": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "destructive": "#b45b64",
+    "destructive-foreground": "#ffffff",
+    "border": {
+      "light": "#d8dee9",
+      "dark": "#434c5e"
+    },
+    "input": {
+      "light": "#d8dee9",
+      "dark": "#434c5e"
+    },
+    "ring": {
+      "light": "#5e81ac",
+      "dark": "#88c0d0"
+    },
+    "sidebar": {
+      "light": "#e5e9f0",
+      "dark": "#292e39"
+    },
+    "sidebar-foreground": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "sidebar-primary": {
+      "light": "#5e81ac",
+      "dark": "#88c0d0"
+    },
+    "sidebar-primary-foreground": {
+      "light": "#eceff4",
+      "dark": "#2e3440"
+    },
+    "sidebar-accent": {
+      "light": "#d8dee9",
+      "dark": "#434c5e"
+    },
+    "sidebar-accent-foreground": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "sidebar-border": {
+      "light": "#d8dee9",
+      "dark": "#434c5e"
+    },
+    "sidebar-ring": {
+      "light": "#5e81ac",
+      "dark": "#88c0d0"
+    },
+    "heading": {
+      "light": "#2e3440",
+      "dark": "#eceff4"
+    },
+    "icon": {
+      "light": "#4c566a",
+      "dark": "#d8dee9"
+    },
+    "image-preview": {
+      "light": "#f6f8fbfa",
+      "dark": "#3b4252fa"
+    },
+    "draft": {
+      "light": "#7f5e58",
+      "dark": "#d3a599"
+    },
+    "draft-bg": {
+      "light": "#e9e3e4",
+      "dark": "#484148"
+    },
+    "filter": {
+      "light": "#4d6585",
+      "dark": "#88c0d0"
+    },
+    "filter-bg": {
+      "light": "#dbe2eb",
+      "dark": "#3c4a57"
+    },
+    "required": {
+      "light": "#99555f",
+      "dark": "#cca5af"
+    },
+    "server-running": {
+      "light": "#778a6f",
+      "dark": "#a3be8c"
+    },
+    "git-add": {
+      "light": "#5d6b5e",
+      "dark": "#a3be8c"
+    },
+    "git-add-bg": {
+      "light": "#e2e8e5",
+      "dark": "#3e474b"
+    },
+    "git-del": {
+      "light": "#8b515b",
+      "dark": "#ca9aa4"
+    },
+    "git-del-bg": {
+      "light": "#e6dbe1",
+      "dark": "#423a46"
+    },
+    "git-lane-0": {
+      "light": "#5e81ac",
+      "dark": "#81a1c1"
+    },
+    "git-lane-1": {
+      "light": "#7b8f72",
+      "dark": "#a3be8c"
+    },
+    "git-lane-2": {
+      "light": "#b67a68",
+      "dark": "#d08770"
+    },
+    "git-lane-3": {
+      "light": "#9f809c",
+      "dark": "#b48ead"
+    },
+    "git-lane-4": {
+      "light": "#5e81ac",
+      "dark": "#88c0d0"
+    },
+    "git-lane-5": {
+      "light": "#9f809c",
+      "dark": "#b48ead"
+    },
+    "git-lane-6": {
+      "light": "#bf616a",
+      "dark": "#c47881"
+    },
+    "git-lane-7": {
+      "light": "#948668",
+      "dark": "#ebcb8b"
+    },
+    "framework-astro": {
+      "light": "#c07f6b",
+      "dark": "#d08770"
+    },
+    "framework-react": {
+      "light": "#5e81ac",
+      "dark": "#81a1c1"
+    },
+    "framework-vue": {
+      "light": "#809575",
+      "dark": "#a3be8c"
+    },
+    "framework-svelte": {
+      "light": "#bf616a",
+      "dark": "#c47881"
+    },
+    "editor-color-background": {
+      "light": "#eceff4",
+      "dark": "#2e3440"
+    },
+    "editor-color-text": {
+      "light": "#2e3440",
+      "dark": "#d8dee9"
+    },
+    "editor-color-carat": {
+      "light": "#5e81ac",
+      "dark": "#88c0d0"
+    },
+    "editor-color-mdtag": {
+      "light": "#81a1c1",
+      "dark": "#6b768d"
+    },
+    "editor-color-underline": {
+      "light": "#d8dee9",
+      "dark": "#434c5e"
+    },
+    "editor-color-brown": {
+      "light": "#89625b",
+      "dark": "#d08a75"
+    },
+    "editor-color-red": {
+      "light": "#9f5761",
+      "dark": "#c88c95"
+    },
+    "editor-color-pink": {
+      "light": "#79667d",
+      "dark": "#b591af"
+    },
+    "editor-color-blue": {
+      "light": "#526f92",
+      "dark": "#81a1c1"
+    },
+    "editor-color-green": {
+      "light": "#617161",
+      "dark": "#a3be8c"
+    },
+    "editor-color-codeblock-background": {
+      "light": "#e5e9f080",
+      "dark": "#3b425280"
+    },
+    "editor-color-selectedtext-background": {
+      "light": "#88c0d055",
+      "dark": "#81a1c140"
+    },
+    "editor-color-highlight-background": {
+      "light": "#ece5d7",
+      "dark": "#585550"
+    },
+    "editor-color-highlight-underline": "#ebcb8b",
+    "editor-color-highlight-text": {
+      "light": "#2e3440",
+      "dark": "#ebcb8b"
+    }
+  }
+}

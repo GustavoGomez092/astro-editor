@@ -2,6 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useUIStore } from '../../store/uiStore'
 import { useTheme } from '../../lib/theme-provider'
+import { useColourThemes } from '../../hooks/useColourThemes'
 import { useProjectStore } from '../../store/projectStore'
 import { UnifiedTitleBar } from './unified-title-bar'
 import { LeftSidebar } from './LeftSidebar'
@@ -56,6 +57,7 @@ export const Layout: React.FC = () => {
   )
 
   const { setTheme } = useTheme()
+  useColourThemes()
 
   // Extract specific nested values for useEffect dependencies
   const theme = useProjectStore(state => state.globalSettings?.general?.theme)

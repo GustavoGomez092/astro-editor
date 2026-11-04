@@ -1,0 +1,304 @@
+{
+  "$schema": "./theme.schema.json",
+  "id": "default",
+  "name": "Default",
+  "author": "Astro Editor",
+  "appearance": "both",
+  "tokens": {
+    "background": {
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.1815 0 0)"
+    },
+    "foreground": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "card": {
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.2044 0 0)"
+    },
+    "card-foreground": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "popover": {
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.2044 0 0)"
+    },
+    "popover-foreground": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "primary": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "primary-foreground": {
+      "light": "oklch(0.9848 0 0)",
+      "dark": "oklch(0.2156 0 0)"
+    },
+    "secondary": {
+      "light": "oklch(0.9696 0 0)",
+      "dark": "oklch(0.2376 0 0)"
+    },
+    "secondary-foreground": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "muted": {
+      "light": "oklch(0.9696 0 0)",
+      "dark": "oklch(0.2376 0 0)"
+    },
+    "muted-foreground": {
+      "light": "oklch(0.5547 0 0)",
+      "dark": "oklch(0.6829 0 0)"
+    },
+    "accent": {
+      "light": "oklch(0.9696 0 0)",
+      "dark": "oklch(0.2697 0 0)"
+    },
+    "accent-foreground": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "destructive": {
+      "light": "oklch(0.6368 0.2078 25.3259)",
+      "dark": "oklch(0.3959 0.1331 25.7205)"
+    },
+    "destructive-foreground": "oklch(1 0 0)",
+    "border": {
+      "light": "oklch(0.9234 0 0)",
+      "dark": "oklch(0.3008 0 0)"
+    },
+    "input": {
+      "light": "oklch(0.9234 0 0)",
+      "dark": "oklch(0.3008 0 0)"
+    },
+    "ring": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.7652 0 0)"
+    },
+    "sidebar": {
+      "light": "oklch(1 0 0)",
+      "dark": "oklch(0.193 0 0)"
+    },
+    "sidebar-foreground": {
+      "light": "oklch(0.3211 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "sidebar-primary": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.5982 0 0)"
+    },
+    "sidebar-primary-foreground": {
+      "light": "oklch(0.9848 0 0)",
+      "dark": "oklch(1 0 0)"
+    },
+    "sidebar-accent": {
+      "light": "oklch(0.9696 0 0)",
+      "dark": "oklch(0.2591 0 0)"
+    },
+    "sidebar-accent-foreground": {
+      "light": "oklch(0.2156 0 0)",
+      "dark": "oklch(0.9234 0 0)"
+    },
+    "sidebar-border": {
+      "light": "oklch(0.9234 0 0)",
+      "dark": "oklch(0.3008 0 0)"
+    },
+    "sidebar-ring": {
+      "light": "oklch(0.5103 0 0)",
+      "dark": "oklch(0.5982 0 0)"
+    },
+    "heading": {
+      "light": "oklch(0.1579 0 0)",
+      "dark": "oklch(0.9848 0 0)"
+    },
+    "icon": {
+      "light": "oklch(0.373 0 0)",
+      "dark": "oklch(0.872 0 0)"
+    },
+    "active": "var(--filter)",
+    "overlay": "oklch(0 0 0 / 0.5)",
+    "image-preview": {
+      "light": "oklch(1 0 0 / 0.98)",
+      "dark": "oklch(0.2044 0 0 / 0.98)"
+    },
+    "image-preview-border": {
+      "light": "oklch(0 0 0 / 0.1)",
+      "dark": "oklch(1 0 0 / 0.1)"
+    },
+    "image-preview-shadow": {
+      "light": "oklch(0 0 0 / 0.15)",
+      "dark": "oklch(0 0 0 / 0.5)"
+    },
+    "image-preview-spinner": {
+      "light": "oklch(0 0 0 / 0.6)",
+      "dark": "oklch(1 0 0 / 0.6)"
+    },
+    "framework-astro": {
+      "light": "oklch(0.646 0.222 41.116)",
+      "dark": "oklch(0.75 0.183 55.934)"
+    },
+    "framework-react": {
+      "light": "oklch(0.546 0.245 262.881)",
+      "dark": "oklch(0.707 0.165 254.624)"
+    },
+    "framework-vue": {
+      "light": "oklch(0.627 0.194 149.214)",
+      "dark": "oklch(0.792 0.209 151.711)"
+    },
+    "framework-svelte": {
+      "light": "oklch(0.577 0.245 27.325)",
+      "dark": "oklch(0.704 0.191 22.216)"
+    },
+    "window-control-hover": {
+      "light": "oklch(0 0 0 / 0.1)",
+      "dark": "oklch(1 0 0 / 0.1)"
+    },
+    "window-close": "oklch(0.637 0.237 25.331)",
+    "window-close-foreground": "oklch(1 0 0)",
+    "draft": {
+      "light": "oklch(0.47 0.102 69.33)",
+      "dark": "oklch(0.8371 0.1285 69.9811)"
+    },
+    "draft-bg": {
+      "light": "oklch(0.9767 0.0178 73.0768)",
+      "dark": "oklch(0.222 0.0479 70.6222)"
+    },
+    "filter": {
+      "light": "oklch(0.4996 0.1179 242.209)",
+      "dark": "oklch(0.8325 0.1164 222.821)"
+    },
+    "filter-bg": {
+      "light": "oklch(0.975 0.0175 219.652)",
+      "dark": "oklch(0.2077 0.044 234.862)"
+    },
+    "required": {
+      "light": "oklch(0.6356 0.2082 25.3782)",
+      "dark": "oklch(0.7123 0.1656 22.1776)"
+    },
+    "server-running": {
+      "light": "oklch(0.6 0.15 150)",
+      "dark": "oklch(0.75 0.16 150)"
+    },
+    "server-error": "var(--required)",
+    "git-add": {
+      "light": "oklch(0.52 0.13 150)",
+      "dark": "oklch(0.78 0.13 150)"
+    },
+    "git-add-bg": {
+      "light": "oklch(0.965 0.035 150)",
+      "dark": "oklch(0.26 0.045 150)"
+    },
+    "git-del": {
+      "light": "oklch(0.55 0.17 27)",
+      "dark": "oklch(0.75 0.13 25)"
+    },
+    "git-del-bg": {
+      "light": "oklch(0.96 0.03 25)",
+      "dark": "oklch(0.26 0.05 25)"
+    },
+    "git-lane-0": {
+      "light": "oklch(0.56 0.14 250)",
+      "dark": "oklch(0.74 0.12 250)"
+    },
+    "git-lane-1": {
+      "light": "oklch(0.58 0.14 150)",
+      "dark": "oklch(0.76 0.13 150)"
+    },
+    "git-lane-2": {
+      "light": "oklch(0.62 0.14 65)",
+      "dark": "oklch(0.79 0.13 70)"
+    },
+    "git-lane-3": {
+      "light": "oklch(0.56 0.17 340)",
+      "dark": "oklch(0.74 0.13 340)"
+    },
+    "git-lane-4": {
+      "light": "oklch(0.58 0.1 200)",
+      "dark": "oklch(0.77 0.1 200)"
+    },
+    "git-lane-5": {
+      "light": "oklch(0.54 0.15 295)",
+      "dark": "oklch(0.74 0.12 295)"
+    },
+    "git-lane-6": {
+      "light": "oklch(0.58 0.16 30)",
+      "dark": "oklch(0.74 0.13 30)"
+    },
+    "git-lane-7": {
+      "light": "oklch(0.6 0.12 115)",
+      "dark": "oklch(0.78 0.12 115)"
+    },
+    "editor-color-carat": "oklch(0.7646 0.1514 229.433)",
+    "editor-color-background": {
+      "light": "oklch(0.9761 0 0)",
+      "dark": "oklch(0.2178 0 0)"
+    },
+    "editor-color-text": {
+      "light": "oklch(0.2134 0 0)",
+      "dark": "oklch(0.8452 0 0)"
+    },
+    "editor-color-mdtag": {
+      "light": "oklch(0.77 0.0073 124.482)",
+      "dark": "oklch(0.5789 0.003 106.493)"
+    },
+    "editor-color-underline": {
+      "light": "oklch(0.8707 0.0046 78.2958)",
+      "dark": "oklch(0.4452 0.0032 106.529)"
+    },
+    "editor-color-brown": {
+      "light": "oklch(0.5656 0.1171 63.9717)",
+      "dark": "oklch(0.6949 0.0957 74.5736)"
+    },
+    "editor-color-red": {
+      "light": "oklch(0.5749 0.1711 35.6912)",
+      "dark": "oklch(0.6981 0.1094 38.1559)"
+    },
+    "editor-color-pink": {
+      "light": "oklch(0.5794 0.16 335.035)",
+      "dark": "oklch(0.6995 0.0712 333.624)"
+    },
+    "editor-color-blue": {
+      "light": "oklch(0.5543 0.1199 250.587)",
+      "dark": "oklch(0.6885 0.0623 247.237)"
+    },
+    "editor-color-green": {
+      "light": "oklch(0.5474 0.1382 138.74)",
+      "dark": "oklch(0.6833 0.0804 135.902)"
+    },
+    "editor-color-codeblock-background": {
+      "light": "oklch(0.9491 0 0 / 0.5)",
+      "dark": "oklch(0.2645 0 0 / 0.5)"
+    },
+    "editor-color-selectedtext-background": {
+      "light": "oklch(0.9081 0.0548 219.767)",
+      "dark": "oklch(0.3624 0.0572 224.086)"
+    },
+    "editor-color-heading": {
+      "light": "var(--heading-color-light, var(--editor-color-text))",
+      "dark": "var(--heading-color-dark, var(--editor-color-text))"
+    },
+    "editor-color-highlight-background": {
+      "light": "oklch(0.9367 0.111 99.3162)",
+      "dark": "oklch(0.3522 0.0621 97.4493)"
+    },
+    "editor-color-highlight-underline": {
+      "light": "oklch(0.8868 0.1822 95.3305)",
+      "dark": "oklch(0.7685 0.1574 93.205)"
+    },
+    "editor-color-highlight-text": {
+      "light": "var(--editor-color-text)",
+      "dark": "oklch(0.8509 0.0662 94.0342)"
+    },
+    "editor-color-snippet-border": {
+      "light": "oklch(0 0 0 / 0.05)",
+      "dark": "oklch(1 0 0 / 0.1)"
+    },
+    "editor-color-snippet-border-active": {
+      "light": "oklch(0 0 0 / 0.1)",
+      "dark": "oklch(1 0 0 / 0.2)"
+    }
+  }
+}
