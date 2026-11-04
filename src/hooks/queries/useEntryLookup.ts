@@ -13,6 +13,8 @@ export interface EntryLookup {
    * shortened to 40 characters for lists and messages
    */
   titleFor: (path: string) => string | undefined
+  /** The whole title, for the Publish message */
+  fullTitleFor: (path: string) => string | undefined
   /** Whether a repository-relative path is a Markdown file in a collection */
   isEntry: (path: string) => boolean
 }
@@ -56,13 +58,17 @@ export function useEntryLookup(
       // A real title only: never the file name in its place
       const title = entry.frontmatter?.[titleField]
       if (typeof title === 'string' && title.trim()) {
-        titles.set(entry.path, shortTitle(title.trim()))
+        titles.set(entry.path, title.trim())
       }
     }
   })
 
   return {
-    titleFor: path => titles.get(absolute(path)),
+    titleFor: path => {
+      const title = titles.get(absolute(path))
+      return title === undefined ? undefined : shortTitle(title)
+    },
+    fullTitleFor: path => titles.get(absolute(path)),
     // Only Markdown files are entries: images kept next to them are assets
     isEntry: path => /\.mdx?$/i.test(path) && inCollection(path) !== undefined,
   }

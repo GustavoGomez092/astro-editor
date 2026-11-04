@@ -203,7 +203,8 @@ export function ChangesPanel() {
         change: file.change,
         path: file.path,
         entry: lookup.isEntry(file.path),
-        title: lookup.titleFor(file.path),
+        // Whole titles: shortened ones are for lists and toasts
+        title: lookup.fullTitleFor(file.path),
       }))
     )
   const message = draft ?? messageFor(files)

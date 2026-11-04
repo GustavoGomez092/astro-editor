@@ -197,7 +197,7 @@ describe('ChangesPanel', () => {
     expect(screen.getByRole('button', { name: /Sync/ })).toBeEnabled()
   })
 
-  it('shortens long entry titles in the list', async () => {
+  it('shortens long entry titles in the list, not in the message', async () => {
     vi.mocked(commands.scanCollectionFilesRecursive).mockResolvedValue(
       ok([
         {
@@ -221,6 +221,10 @@ describe('ChangesPanel', () => {
     expect(
       await screen.findByText('How we rebuilt the studio website from…')
     ).toBeInTheDocument()
+    // The commit message keeps the whole title
+    expect(screen.getByLabelText('Describe your changes')).toHaveValue(
+      'Update How we rebuilt the studio website from the ground up'
+    )
   })
 
   describe('checking fields before publishing', () => {
