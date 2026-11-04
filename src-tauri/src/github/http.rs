@@ -18,6 +18,8 @@ const UNREACHABLE: &str = "Couldn't reach GitHub. Check your internet connection
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiError {
     pub status: Option<StatusCode>,
+    /// Seconds GitHub asked us to wait (the `Retry-After` header), when it did
+    pub retry_after: Option<u64>,
     pub message: String,
 }
 
@@ -148,6 +150,7 @@ fn unexpected_response(e: reqwest::Error) -> ApiError {
     log::warn!("Astro Editor [GITHUB] Unexpected response: {e}");
     ApiError {
         status: None,
+        retry_after: None,
         message: "GitHub sent a response the app didn't understand.".to_string(),
     }
 }
@@ -157,6 +160,7 @@ async fn send(request: RequestBuilder) -> Result<reqwest::Response, ApiError> {
         log::warn!("Astro Editor [GITHUB] Request failed: {e}");
         ApiError {
             status: None,
+            retry_after: None,
             message: UNREACHABLE.to_string(),
         }
     })?;
@@ -164,6 +168,11 @@ async fn send(request: RequestBuilder) -> Result<reqwest::Response, ApiError> {
     if status.is_success() {
         return Ok(response);
     }
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok());
     // A validation failure's useful text is in `errors[].message`, e.g.
     // "A pull request already exists for owner:branch."
     let detail = response
@@ -192,6 +201,7 @@ async fn send(request: RequestBuilder) -> Result<reqwest::Response, ApiError> {
     };
     Err(ApiError {
         status: Some(status),
+        retry_after,
         message,
     })
 }
