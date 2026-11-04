@@ -1,0 +1,79 @@
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import { renderWithProviders } from '@/test/test-utils'
+import { projectRegistryManager } from '@/lib/project-registry'
+import { useProjectStore } from '@/store/projectStore'
+import { useProjectsScreenStore } from '@/store/projectsScreenStore'
+import { ProjectsDialog } from './ProjectsDialog'
+
+vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir: vi.fn() }))
+
+const project = (id: string, path: string, lastOpened: string) => ({
+  id,
+  name: id,
+  path,
+  lastOpened,
+  created: lastOpened,
+})
+
+const registry = {
+  projects: {
+    blog: project('blog', '/Users/kevin/Sites/blog', '2026-11-03T10:00:00Z'),
+    old: project('old', '/Users/kevin/Old/site', '2026-10-01T10:00:00Z'),
+  },
+  lastOpenedProject: 'blog',
+  version: 2,
+}
+
+describe('ProjectsDialog', () => {
+  beforeEach(() => {
+    globalThis.mockTauri.reset()
+    globalThis.mockTauri.invoke.mockImplementation(
+      (command: string, args?: unknown) =>
+        Promise.resolve(
+          command === 'folders_exist'
+            ? (args as { paths: string[] }).paths.map(
+                path => !path.startsWith('/Users/kevin/Old')
+              )
+            : null
+        )
+    )
+    vi.mocked(projectRegistryManager.getRegistry).mockReturnValue(registry)
+    useProjectStore.setState({ projectPath: null })
+    useProjectsScreenStore.setState({ isOpen: true })
+  })
+
+  it('lists every project, and says when a folder is gone', async () => {
+    renderWithProviders(<ProjectsDialog />)
+
+    expect(await screen.findByText('blog')).toBeInTheDocument()
+    expect(screen.getByText('~/Sites/blog')).toBeInTheDocument()
+    expect(screen.getByText('site')).toBeInTheDocument()
+    expect(await screen.findByText('Folder not found')).toBeInTheDocument()
+  })
+
+  it('filters by name or folder', async () => {
+    renderWithProviders(<ProjectsDialog />)
+    await screen.findByText('blog')
+
+    await userEvent.type(screen.getByLabelText('Search projects'), 'old')
+
+    expect(screen.queryByText('blog')).not.toBeInTheDocument()
+    expect(screen.getByText('site')).toBeInTheDocument()
+  })
+
+  it('opens the highlighted project with Enter', async () => {
+    const setProject = vi.fn()
+    useProjectStore.setState({ setProject })
+    renderWithProviders(<ProjectsDialog />)
+    await screen.findByText('blog')
+
+    await userEvent.type(screen.getByLabelText('Search projects'), '{Enter}')
+
+    await waitFor(() =>
+      expect(setProject).toHaveBeenCalledWith('/Users/kevin/Sites/blog')
+    )
+    expect(useProjectsScreenStore.getState().isOpen).toBe(false)
+  })
+})

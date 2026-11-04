@@ -369,6 +369,25 @@ export class ProjectRegistryManager {
   }
 
   /**
+   * Take a project off the list. Its folder isn't touched, and its settings
+   * file is kept, so opening the folder again brings its settings back
+   */
+  async removeProject(projectId: string): Promise<void> {
+    if (!this.registry) {
+      throw new Error('Registry not initialized')
+    }
+    if (!(projectId in this.registry.projects)) return
+
+    const { [projectId]: _removed, ...projects } = this.registry.projects
+    this.registry.projects = projects
+    if (this.registry.lastOpenedProject === projectId) {
+      this.registry.lastOpenedProject = null
+    }
+    this.projectDataCache.delete(projectId)
+    await saveProjectRegistry(this.registry)
+  }
+
+  /**
    * Get the last opened project ID
    */
   getLastOpenedProjectId(): string | null {

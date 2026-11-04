@@ -1,5 +1,6 @@
 import {
   FileText,
+  FolderClock,
   FolderOpen,
   X,
   Sidebar,
@@ -26,6 +27,7 @@ import { openProjectViaDialog } from '../projects/actions'
 import { DOCS_URLS } from '../docs-urls'
 import { collectionDisplayName } from '../collection-name'
 import { useContentLinkerStore } from '@/store/contentLinkerStore'
+import { useProjectsScreenStore } from '@/store/projectsScreenStore'
 import { publishingCommands } from './publishing-commands'
 import { isGitBusy } from '../git/busy'
 import { isBodyEditorHidden } from '../files/focus-new-file'
@@ -118,6 +120,17 @@ export const projectCommands: AppCommand[] = [
     group: 'project',
     execute: async () => {
       await openProjectViaDialog()
+    },
+    isAvailable: () => true,
+  },
+  {
+    id: 'show-projects',
+    label: 'Projects',
+    description: 'Open a project you opened before',
+    icon: FolderClock,
+    group: 'project',
+    execute: () => {
+      useProjectsScreenStore.getState().open()
     },
     isAvailable: () => true,
   },

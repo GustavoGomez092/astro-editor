@@ -131,6 +131,9 @@ export const WindowsMenu: React.FC = () => {
           Open Project...
           <DropdownMenuShortcut>Ctrl+Shift+O</DropdownMenuShortcut>
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void emit('menu-show-projects')}>
+          Projects...
+        </DropdownMenuItem>
         <DropdownMenuItem
           onClick={handleNewFile}
           disabled={!selectedCollection}

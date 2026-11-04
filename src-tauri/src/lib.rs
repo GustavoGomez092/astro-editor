@@ -175,6 +175,7 @@ pub fn run() {
                         true,
                         Some("CmdOrCtrl+Shift+O"),
                     )?,
+                    &MenuItem::with_id(app, "show_projects", "Projects...", true, None::<&str>)?,
                     &MenuItem::with_id(app, "new_file", "New File", true, Some("CmdOrCtrl+N"))?,
                     &PredefinedMenuItem::separator(app)?,
                     &MenuItem::with_id(app, "save", "Save", true, Some("CmdOrCtrl+S"))?,
@@ -359,6 +360,9 @@ pub fn run() {
             app.on_menu_event(move |app, event| match event.id().as_ref() {
                 "open_project" => {
                     let _ = app.emit("menu-open-project", ());
+                }
+                "show_projects" => {
+                    let _ = app.emit("menu-show-projects", ());
                 }
                 "new_file" => {
                     let _ = app.emit("menu-new-file", ());

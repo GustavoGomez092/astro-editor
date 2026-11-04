@@ -208,6 +208,27 @@ describe('Project Registry System', () => {
     expect(manager.getRegistry().projects[first]?.path).toBe('/work/notes')
   })
 
+  it('removes a project from the list without touching its settings file', async () => {
+    fakeDisk({
+      packages: { '/sites/a': 'a', '/sites/b': 'b' },
+      folders: new Set(['/sites/a', '/sites/b']),
+    })
+    await manager.initialize()
+    const a = await manager.registerProject('/sites/a')
+    const b = await manager.registerProject('/sites/b')
+    mockInvoke.mockClear()
+
+    await manager.removeProject(b)
+
+    expect(Object.keys(manager.getRegistry().projects)).toEqual([a])
+    expect(manager.getLastOpenedProjectId()).toBeNull()
+    const written = mockInvoke.mock.calls
+      .filter(([command]) => command === 'write_app_data_file')
+      .map(([, args]) => (args as { filePath: string }).filePath)
+    expect(written).toContain('/mock/app/data/preferences/project-registry.json')
+    expect(written.some(path => path.includes('/projects/b'))).toBe(false)
+  })
+
   it('keeps the Dev command override until it is cleared', async () => {
     const { invoke } = await import('@tauri-apps/api/core')
     vi.mocked(invoke).mockImplementation(command => {

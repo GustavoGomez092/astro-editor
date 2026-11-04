@@ -366,6 +366,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await projectRegistryManager.initialize()
       const globalSettings = projectRegistryManager.getGlobalSettings()
       set({ globalSettings })
+      // The welcome screen asks for the list before the registry has loaded
+      void queryClient.invalidateQueries({ queryKey: queryKeys.projectsList })
       await info(
         'Astro Editor [PROJECT_REGISTRY] Project registry initialized successfully'
       )

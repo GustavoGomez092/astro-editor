@@ -2,6 +2,9 @@
 
 export const queryKeys = {
   all: ['project'] as const,
+  // The Projects screen's list. Not under `all`, which the file watcher
+  // refreshes, since it checks every project's folder
+  projectsList: ['projectsList'] as const,
   collections: (projectPath: string) =>
     [...queryKeys.all, projectPath, 'collections'] as const,
   // Every file in a collection, with its frontmatter, for entry pickers
