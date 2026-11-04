@@ -181,13 +181,52 @@ pub async fn select_project_folder(app: tauri::AppHandle) -> Result<Option<Strin
     }
 }
 
-/// Which of these folders exist, in the same order. Used to tell a moved
-/// project from a second copy of it, and to mark registered projects whose
-/// folder is gone
+/// Whether a registered project's folder is there
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum FolderState {
+    /// The folder is there
+    Present,
+    /// The folder is gone from a place that's there: moved or deleted
+    Missing,
+    /// It can't be told: its drive isn't connected (the parent is gone too),
+    /// it can't be read, or something other than a folder is there now
+    Unavailable,
+}
+
+/// Folders a drive is mounted in: a folder straight inside one is a drive,
+/// which is gone when it's unplugged rather than deleted
+const MOUNT_FOLDERS: [&str; 4] = ["/Volumes", "/media", "/mnt", "/run/media"];
+
+pub fn folder_state(path: &Path) -> FolderState {
+    match std::fs::metadata(path) {
+        Ok(metadata) if metadata.is_dir() => FolderState::Present,
+        Ok(_) => FolderState::Unavailable,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let parent_is_there = path.parent().is_some_and(|parent| {
+                !MOUNT_FOLDERS.iter().any(|mount| parent == Path::new(mount))
+                    && std::fs::metadata(parent).is_ok_and(|m| m.is_dir())
+            });
+            if parent_is_there {
+                FolderState::Missing
+            } else {
+                FolderState::Unavailable
+            }
+        }
+        Err(_) => FolderState::Unavailable,
+    }
+}
+
+/// The state of each of these folders, in the same order. A project is only
+/// treated as moved when its folder is `Missing`, never when it's
+/// `Unavailable`, so an unplugged drive doesn't hand its settings to a copy
 #[tauri::command]
 #[specta::specta]
-pub async fn folders_exist(paths: Vec<String>) -> Vec<bool> {
-    paths.iter().map(|path| Path::new(path).is_dir()).collect()
+pub async fn folder_states(paths: Vec<String>) -> Vec<FolderState> {
+    paths
+        .iter()
+        .map(|path| folder_state(Path::new(path)))
+        .collect()
 }
 
 #[tauri::command]
@@ -885,21 +924,66 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    // --- folders_exist ---
+    // --- folder_states ---
 
-    #[tokio::test]
-    async fn folders_exist_reports_each_folder() {
+    #[test]
+    fn a_folder_is_present_or_missing_when_its_parent_is_there() {
         let temp = tempfile::tempdir().unwrap();
-        let folder = temp.path().join("site");
-        std::fs::create_dir(&folder).unwrap();
+        let site = temp.path().join("site");
+        std::fs::create_dir(&site).unwrap();
         let file = temp.path().join("notes.md");
         std::fs::write(&file, "").unwrap();
 
-        let paths = [folder, temp.path().join("gone"), file]
+        assert_eq!(folder_state(&site), FolderState::Present);
+        assert_eq!(
+            folder_state(&temp.path().join("gone")),
+            FolderState::Missing
+        );
+        // Something else is there now: not a folder that was deleted
+        assert_eq!(folder_state(&file), FolderState::Unavailable);
+    }
+
+    #[test]
+    fn a_folder_on_an_unplugged_drive_is_unavailable_not_missing() {
+        let temp = tempfile::tempdir().unwrap();
+        // /Volumes/Content/site with /Volumes/Content unmounted: the parent is gone too
+        let site = temp.path().join("Content").join("site");
+        assert_eq!(folder_state(&site), FolderState::Unavailable);
+        // A drive's own folder, straight under /Volumes
+        assert_eq!(
+            folder_state(Path::new("/Volumes/No Such Drive Here")),
+            FolderState::Unavailable
+        );
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn a_folder_that_cannot_be_checked_is_unavailable() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = tempfile::tempdir().unwrap();
+        let locked = temp.path().join("locked");
+        std::fs::create_dir_all(locked.join("site")).unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+
+        let state = folder_state(&locked.join("site"));
+        let gone = folder_state(&locked.join("gone"));
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert_eq!(state, FolderState::Unavailable);
+        assert_eq!(gone, FolderState::Unavailable);
+    }
+
+    #[tokio::test]
+    async fn folder_states_reports_each_folder_in_order() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(temp.path().join("site")).unwrap();
+        let paths = ["site", "gone"]
             .iter()
-            .map(|p| p.to_string_lossy().to_string())
+            .map(|p| temp.path().join(p).to_string_lossy().to_string())
             .collect();
-        assert_eq!(folders_exist(paths).await, vec![true, false, false]);
+        assert_eq!(
+            folder_states(paths).await,
+            vec![FolderState::Present, FolderState::Missing]
+        );
     }
 
     // --- collection_has_body_text ---

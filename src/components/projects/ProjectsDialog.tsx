@@ -4,7 +4,7 @@ import { error as logError } from '@tauri-apps/plugin-log'
 import { FolderOpen, FolderX } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { projectRegistryManager } from '@/lib/project-registry'
-import { foldersExist } from '@/lib/project-registry/utils'
+import { folderStates } from '@/lib/project-registry/utils'
 import { filterProjects, folderName, shortenHome } from '@/lib/projects/recent'
 import { shortenMiddle } from '@/lib/git/clone'
 import { openProjectViaDialog } from '@/lib/projects/actions'
@@ -74,8 +74,8 @@ function ProjectsList() {
       close()
       return
     }
-    void foldersExist([project.path]).then(([exists]) => {
-      if (!exists) {
+    void folderStates([project.path]).then(([state]) => {
+      if (state !== 'present') {
         // Gone since the list was read: show it as not found
         void queryClient.invalidateQueries({ queryKey: queryKeys.projectsList })
         return
@@ -274,7 +274,7 @@ function ProjectRow({
         {(missing || !isActive || isCurrent) && (
           <span className="shrink-0 text-xs text-muted-foreground">
             {missing
-              ? 'Folder not found'
+              ? 'Folder not found — is its drive connected?'
               : isCurrent
                 ? 'Open now'
                 : `Opened ${opened}`}

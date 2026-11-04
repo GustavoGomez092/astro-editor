@@ -63,11 +63,11 @@ export const commands = {
 	resolveImagePath: (imagePath: string, projectRoot: string, currentFilePath: string | null) => typedError<string, string>(__TAURI_INVOKE("resolve_image_path", { imagePath, projectRoot, currentFilePath })),
 	selectProjectFolder: () => typedError<string | null, string>(__TAURI_INVOKE("select_project_folder")),
 	/**
-	 *  Which of these folders exist, in the same order. Used to tell a moved
-	 *  project from a second copy of it, and to mark registered projects whose
-	 *  folder is gone
+	 *  The state of each of these folders, in the same order. A project is only
+	 *  treated as moved when its folder is `Missing`, never when it's
+	 *  `Unavailable`, so an unplugged drive doesn't hand its settings to a copy
 	 */
-	foldersExist: (paths: string[]) => __TAURI_INVOKE<boolean[]>("folders_exist", { paths }),
+	folderStates: (paths: string[]) => __TAURI_INVOKE<FolderState[]>("folder_states", { paths }),
 	scanProject: (projectPath: string) => typedError<Collection[], string>(__TAURI_INVOKE("scan_project", { projectPath })),
 	/**
 	 *  The project's collections with their schemas. `collection_directories`
@@ -382,6 +382,18 @@ export type FileEntry = {
 	last_modified: number | null,
 	frontmatter: { [key in string]: Value } | null,
 };
+
+/**  Whether a registered project's folder is there */
+export type FolderState = 
+/**  The folder is there */
+"present" | 
+/**  The folder is gone from a place that's there: moved or deleted */
+"missing" | 
+/**
+ *  It can't be told: its drive isn't connected (the parent is gone too),
+ *  it can't be read, or something other than a folder is there now
+ */
+"unavailable";
 
 export type GitHubAuthStatus = {
 	signedIn: boolean,

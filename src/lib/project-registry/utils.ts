@@ -2,7 +2,7 @@
  * Project registry utilities for identification and path management
  */
 
-import { commands } from '@/lib/bindings'
+import { commands, type FolderState } from '@/lib/bindings'
 import { ProjectMetadata } from './types'
 import { debug, error as logError, info } from '@tauri-apps/plugin-log'
 
@@ -127,8 +127,12 @@ export async function isSameProject(
   }
 }
 
-/** Which of these folders exist, in the same order. */
-export async function foldersExist(paths: string[]): Promise<boolean[]> {
+/**
+ * Whether each of these folders is there, in the same order: `present`,
+ * `missing` (gone from a place that's there), or `unavailable` (its drive
+ * isn't connected, or it can't be checked)
+ */
+export async function folderStates(paths: string[]): Promise<FolderState[]> {
   if (paths.length === 0) return []
-  return commands.foldersExist(paths)
+  return commands.folderStates(paths)
 }

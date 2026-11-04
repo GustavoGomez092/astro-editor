@@ -22,7 +22,7 @@ import {
   loadProjectData,
   saveProjectData,
 } from './persistence'
-import { discoverProject, foldersExist, isSameProject } from './utils'
+import { discoverProject, folderStates, isSameProject } from './utils'
 import { DEFAULT_PROJECT_SETTINGS } from './defaults'
 
 export class ProjectRegistryManager {
@@ -155,10 +155,11 @@ export class ProjectRegistryManager {
   }
 
   /**
-   * Find the registered project that moved to `newPath`: one whose folder no
-   * longer exists and whose package.json name the new folder has. A project
-   * whose folder is still there is never moved, so two copies of the same
-   * template stay two projects
+   * Find the registered project that moved to `newPath`: one whose folder is
+   * missing and whose package.json name the new folder has. A project whose
+   * folder is still there is never moved, so two copies of the same template
+   * stay two projects; nor is one whose folder can't be checked (its drive is
+   * unplugged, or it can't be read), so it keeps its settings for when it's back
    */
   private async findMovedProject(
     newPath: string
@@ -166,9 +167,9 @@ export class ProjectRegistryManager {
     if (!this.registry) return null
 
     const projects = Object.values(this.registry.projects)
-    const exists = await foldersExist(projects.map(p => p.path))
+    const states = await folderStates(projects.map(p => p.path))
     for (const [index, project] of projects.entries()) {
-      if (exists[index]) continue
+      if (states[index] !== 'missing') continue
       if (await isSameProject(project, newPath)) {
         return project
       }

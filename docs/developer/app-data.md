@@ -40,7 +40,7 @@ Project and collection settings resolve **collection → project → hard-coded 
 
 A project's ID is its `package.json` `name`, made filename-safe, or the folder name if there's no `package.json`. On a clash with an existing ID, a short hash of the path is appended (`utils.ts`).
 
-A project is found by its path first. Only when no registered project has the path does `findMovedProject` look for one that moved: a registered project whose folder no longer exists (`folders_exist`) and whose `package.json` name the new folder has. A project whose folder is still there is never treated as moved, so two copies of one template stay two projects with their own settings. A folder name alone never matches, since unrelated folders often share one.
+A project is found by its path first. Only when no registered project has the path does `findMovedProject` look for one that moved: a registered project whose folder is `missing` (`folder_states`) and whose `package.json` name the new folder has. `missing` means the folder is gone from a parent folder that's still there; a folder whose parent is gone too (an unplugged drive: `/Volumes/<drive>` itself, or anything under it), that can't be read, or that has a file in its place is `unavailable`, and is never treated as moved, so the project keeps its settings for when the drive is back. A project whose folder is still there is never treated as moved, so two copies of one template stay two projects with their own settings. A folder name alone never matches, since unrelated folders often share one.
 
 ## Gotchas
 

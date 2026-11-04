@@ -130,11 +130,13 @@ describe('Project Registry System', () => {
   /**
    * A fake disk for registering projects: `packages` maps a folder to its
    * package.json name (absent: no package.json), `folders` lists the folders
-   * that exist
+   * that exist, and `unavailable` the ones that can't be checked (an unplugged
+   * drive, no permission). Every other folder is missing
    */
   function fakeDisk(disk: {
     packages: Record<string, string>
     folders: Set<string>
+    unavailable?: Set<string>
   }) {
     vi.mocked(invoke).mockImplementation((command: string, args?: unknown) => {
       const a = (args ?? {}) as Record<string, unknown>
@@ -149,9 +151,15 @@ describe('Project Registry System', () => {
       }
       if (command === 'read_app_data_file')
         return Promise.reject(new Error('File not found'))
-      if (command === 'folders_exist')
+      if (command === 'folder_states')
         return Promise.resolve(
-          (a.paths as string[]).map(path => disk.folders.has(path))
+          (a.paths as string[]).map(path =>
+            disk.folders.has(path)
+              ? 'present'
+              : disk.unavailable?.has(path)
+                ? 'unavailable'
+                : 'missing'
+          )
         )
       return Promise.resolve(undefined)
     })
@@ -172,6 +180,47 @@ describe('Project Registry System', () => {
     expect(await manager.registerProject('/new/site')).toBe(id)
     expect(manager.getRegistry().projects[id]?.path).toBe('/new/site')
     expect(Object.keys(manager.getRegistry().projects)).toHaveLength(1)
+  })
+
+  it("doesn't move a project whose drive is unplugged to a copy of it", async () => {
+    const disk = {
+      packages: {
+        '/Volumes/Content/site': 'astro-blog',
+        '/Users/kevin/copy': 'astro-blog',
+      } as Record<string, string>,
+      folders: new Set(['/Volumes/Content/site']),
+      unavailable: new Set<string>(),
+    }
+    fakeDisk(disk)
+    await manager.initialize()
+    const original = await manager.registerProject('/Volumes/Content/site')
+
+    // The drive is unplugged, then a copy of the same template is opened
+    disk.folders = new Set(['/Users/kevin/copy'])
+    disk.unavailable = new Set(['/Volumes/Content/site'])
+    const copy = await manager.registerProject('/Users/kevin/copy')
+
+    expect(copy).not.toBe(original)
+    expect(manager.getRegistry().projects[original]?.path).toBe(
+      '/Volumes/Content/site'
+    )
+  })
+
+  it("doesn't move a project whose folder can't be checked", async () => {
+    const disk = {
+      packages: { '/locked/site': 'astro-blog', '/new/site': 'astro-blog' },
+      folders: new Set(['/locked/site']),
+      unavailable: new Set<string>(),
+    }
+    fakeDisk(disk)
+    await manager.initialize()
+    const original = await manager.registerProject('/locked/site')
+
+    // No permission to look in /locked any more
+    disk.folders = new Set(['/new/site'])
+    disk.unavailable = new Set(['/locked/site'])
+    expect(await manager.registerProject('/new/site')).not.toBe(original)
+    expect(manager.getRegistry().projects[original]?.path).toBe('/locked/site')
   })
 
   it('keeps two copies of one template apart', async () => {

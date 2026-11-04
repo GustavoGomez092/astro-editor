@@ -32,9 +32,9 @@ describe('ProjectsDialog', () => {
     globalThis.mockTauri.invoke.mockImplementation(
       (command: string, args?: unknown) =>
         Promise.resolve(
-          command === 'folders_exist'
-            ? (args as { paths: string[] }).paths.map(
-                path => !path.startsWith('/Users/kevin/Old')
+          command === 'folder_states'
+            ? (args as { paths: string[] }).paths.map(path =>
+                path.startsWith('/Users/kevin/Old') ? 'missing' : 'present'
               )
             : null
         )
@@ -52,7 +52,9 @@ describe('ProjectsDialog', () => {
     expect(await screen.findByText('blog')).toBeInTheDocument()
     expect(screen.getByText('~/Sites/blog')).toBeInTheDocument()
     expect(screen.getByText('site')).toBeInTheDocument()
-    expect(await screen.findByText('Folder not found')).toBeInTheDocument()
+    expect(
+      await screen.findByText('Folder not found — is its drive connected?')
+    ).toBeInTheDocument()
   })
 
   it('filters by name or folder', async () => {

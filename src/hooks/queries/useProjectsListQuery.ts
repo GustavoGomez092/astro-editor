@@ -1,11 +1,11 @@
 import { useQuery } from '@tanstack/react-query'
 import { projectRegistryManager } from '@/lib/project-registry'
 import type { ProjectMetadata } from '@/lib/project-registry/types'
-import { foldersExist } from '@/lib/project-registry/utils'
+import { folderStates } from '@/lib/project-registry/utils'
 import { queryKeys } from '@/lib/query-keys'
 
 export interface ListedProject extends ProjectMetadata {
-  /** False when the project's folder has been moved or deleted */
+  /** False when the project's folder is gone or its drive isn't connected */
   folderExists: boolean
 }
 
@@ -15,10 +15,10 @@ export interface ListedProject extends ProjectMetadata {
  */
 async function fetchProjects(): Promise<ListedProject[]> {
   const projects = registeredProjects()
-  const exists = await foldersExist(projects.map(p => p.path))
+  const states = await folderStates(projects.map(p => p.path))
   return projects.map((project, index) => ({
     ...project,
-    folderExists: exists[index] ?? false,
+    folderExists: states[index] === 'present',
   }))
 }
 

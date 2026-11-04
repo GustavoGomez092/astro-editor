@@ -32,8 +32,10 @@ if (new URLSearchParams(window.location.search).get('section') === 'projects') {
     lastOpenedProject: PROJECTS[0]!.id,
     version: 2,
   })
-  commands.foldersExist = paths =>
-    Promise.resolve(paths.map(path => !path.includes('/Archive/')))
+  commands.folderStates = paths =>
+    Promise.resolve(
+      paths.map(path => (path.includes('/Archive/') ? 'missing' : 'present'))
+    )
   useProjectStore.setState({ projectPath: PROJECTS[0]!.path })
   useProjectsScreenStore.setState({ isOpen: true })
 }
