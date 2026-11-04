@@ -53,11 +53,13 @@ Merges are always merge commits (sync, publish, bring in changes, pull requests)
 - **Network timeouts** are set once at startup (`git::init_network_timeouts`: 15 s to connect, 60 s per read), so a stalled connection can't hang Publish.
 - **One idea of "upstream".** `status::upstream_of` is the configured upstream, else `origin/<branch>` when it exists. Status, the branch list, Sync and Publish all use it, so the panel's ahead/behind matches what Sync and Publish will do. Publish still writes the upstream to the config on first push.
 - **Push rejections:** a remote's refusal comes through `push_update_reference`. Only a non-fast-forward ("non-fast-forward", "fetch first", or libgit2's `NotFastForward` from a local remote) says GitHub has changes to sync first; anything else (protected branches, hooks) is shown as "GitHub refused the update: <reason>".
+- **"Bring in changes from main" is offered from `gitCommitsBehindDefault`**: the default branch's commits (as last fetched, else the local branch) that the current branch doesn't have, counted with `graph_ahead_behind`, so it doesn't depend on how much history the UI has loaded.
+- **Messages name the next step only when it helps**: a blocked sync suggests publishing first, but not when the file in the way is ignored (publishing can't help; the message says a file that isn't part of the site would be overwritten), and a conflict with the default branch doesn't point at Publish.
 - **Repository info is worked out locally** from `origin`'s URL and the default branch (`origin/HEAD`, else `main`, else `master`), so it works offline and before sign-in. Fetch records `origin/HEAD` when a repository doesn't have it.
 - **A 404 or 403 from GitHub means "no access"**: GitHub answers 404 for private repositories the token can't see. Both become "Your GitHub account doesn't have access to this repository".
 - **Pull request checks are best effort.** The list combines the head commit's combined status and its check runs; if either request fails, that part counts as no checks rather than failing the list. The list endpoint leaves out `mergeable`, so each open pull request is fetched once more.
 - **Pagination only follows `Link` URLs on the API's own origin,** because the token goes with the request.
-- **Clone refuses a folder that already has files** and removes what it created if it fails. Progress arrives as `git-clone-progress` events (`CloneProgress { received, total }`, at most about 100 per clone).
+- **Clone creates the parent folder if it's missing** (the default, `~/Sites`, doesn't exist on a fresh Mac), **refuses a folder that already has files** and removes what it created if it fails. Progress arrives as `git-clone-progress` events (`CloneProgress { received, total }`, at most about 100 per clone).
 
 ## Testing
 

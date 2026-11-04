@@ -116,6 +116,20 @@ pub async fn git_push(project_path: String) -> Result<GitStatus, String> {
     .await
 }
 
+/// How many commits "Bring in changes from main" would bring in: the default
+/// branch's commits (as last fetched) that the current branch doesn't have
+#[tauri::command]
+#[specta::specta]
+pub async fn git_commits_behind_default(project_path: String) -> Result<u32, String> {
+    blocking(move || {
+        git::with_repo(
+            &PathBuf::from(project_path),
+            git::sync::commits_behind_default,
+        )
+    })
+    .await
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn git_branches(project_path: String) -> Result<Vec<BranchInfo>, String> {

@@ -157,11 +157,47 @@ pub fn merge_default_branch(
     let integration = integrate(repo, &branch, &name, target, &default, &|| {
         commit_identity(repo, user)
     })?;
+    // Publishing can't sort out a conflict with the default branch, so the
+    // message doesn't point there
+    let message = match (&integration.outcome, &integration.conflict_file) {
+        (SyncOutcome::Conflict, Some(file)) => format!(
+            "This branch and {default} both changed the same lines of {file}, so nothing was changed."
+        ),
+        _ => integration.message,
+    };
     Ok(SyncResult {
         outcome: integration.outcome,
-        message: integration.message,
+        message,
         status: repo_status(repo)?,
     })
+}
+
+/// How many commits the default branch (as last fetched from the remote, else
+/// the local one) has that the checked-out branch doesn't: what "Bring in
+/// changes from main" would bring in. 0 on the default branch itself.
+pub fn commits_behind_default(repo: &Repository) -> Result<u32, String> {
+    let Some(default) = default_branch(repo) else {
+        return Ok(0);
+    };
+    if current_branch_name(repo).as_deref() == Some(default.as_str()) {
+        return Ok(0);
+    }
+    let Some(head) = repo.head().ok().and_then(|h| h.target()) else {
+        return Ok(0);
+    };
+    let tip = [
+        (format!("origin/{default}"), BranchType::Remote),
+        (default.clone(), BranchType::Local),
+    ]
+    .into_iter()
+    .find_map(|(name, kind)| repo.find_branch(&name, kind).ok()?.get().target());
+    let Some(tip) = tip else {
+        return Ok(0);
+    };
+    let (_, behind) = repo
+        .graph_ahead_behind(head, tip)
+        .map_err(|e| describe("Couldn't compare the branches", &e))?;
+    Ok(u32::try_from(behind).unwrap_or(u32::MAX))
 }
 
 /// The author for commits: git config's user.name and user.email if both are set,
@@ -225,6 +261,15 @@ fn remote_label(repo: &Repository) -> String {
         .and_then(|r| r.url().map(|url| parse_github_remote(url).is_some()))
         .unwrap_or(false);
     if github { "GitHub" } else { "the remote" }.to_string()
+}
+
+/// "the remote" → "The remote", for the start of a sentence
+fn capitalize(text: &str) -> String {
+    let mut chars = text.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
 }
 
 /// Stage everything (deletions included) and commit it. With nothing new to commit,
@@ -391,7 +436,8 @@ fn integrate(
             Integration::new(
                 SyncOutcome::BlockedByLocalChanges,
                 format!(
-                    "{label} has changes to {} that you're also editing here. Publish your edits first; that combines both.",
+                    "{} has changes to {} that you're also editing here. Publish your edits first; that combines both.",
+                    capitalize(label),
                     if files.is_empty() { "files".to_string() } else { name_files(files) }
                 ),
             )
@@ -401,7 +447,25 @@ fn integrate(
         }
         match checkout_safely(repo, incoming_tree.as_object()) {
             Ok(()) => {}
-            Err(CheckoutRefused::Conflicts(files)) => return Ok(blocked(&files)),
+            Err(CheckoutRefused::Conflicts(files)) => {
+                // Files git would overwrite that aren't changes of the site's
+                // (ignored ones, like .env): publishing can't help with those
+                let outside: Vec<String> = files
+                    .iter()
+                    .filter(|path| !local_changes.iter().any(|c| &c.path == *path))
+                    .cloned()
+                    .collect();
+                if !outside.is_empty() {
+                    return Ok(Integration::new(
+                        SyncOutcome::BlockedByLocalChanges,
+                        format!(
+                            "Bringing in the changes from {label} would overwrite {}, a file on this computer that isn't part of the site, so nothing was changed. Move or rename it, then try again.",
+                            name_files(&outside)
+                        ),
+                    ));
+                }
+                return Ok(blocked(&files));
+            }
             Err(CheckoutRefused::Failed(_)) => return Ok(blocked(&[])),
         }
         move_branch(repo, branch, incoming, local, "fast-forward")?;
@@ -415,7 +479,8 @@ fn integrate(
         return Ok(Integration::new(
             SyncOutcome::BlockedByLocalChanges,
             format!(
-                "{label} has new changes, and you have edits that aren't published yet. Publish your edits first; that combines both."
+                "{} has new changes, and you have edits that aren't published yet. Publish your edits first; that combines both.",
+                capitalize(label)
             ),
         ));
     }
@@ -539,6 +604,11 @@ mod tests {
         let result = sync(&setup.local, None, None).unwrap();
         assert_eq!(result.outcome, SyncOutcome::BlockedByLocalChanges);
         assert!(result.message.contains("README.md"), "{}", result.message);
+        assert!(
+            result.message.starts_with("The remote has changes"),
+            "starts a sentence: {}",
+            result.message
+        );
         assert_eq!(head_id(&setup.local), before);
         assert_eq!(read(&setup.local, "README.md"), "mine\n");
         assert_eq!(result.status.behind, 1);
@@ -762,8 +832,66 @@ mod tests {
         let result = sync(&setup.local, None, None).unwrap();
         assert_eq!(result.outcome, SyncOutcome::BlockedByLocalChanges);
         assert!(result.message.contains(".env"), "{}", result.message);
+        // Publishing can't help with a file that isn't part of the site
+        assert!(
+            result.message.contains("isn't part of the site"),
+            "{}",
+            result.message
+        );
+        assert!(!result.message.contains("Publish"), "{}", result.message);
         assert_eq!(read(&setup.local, ".env"), "SECRET=mine\n");
         assert_eq!(head_id(&setup.local), before);
+    }
+
+    #[test]
+    fn merge_default_branch_conflict_does_not_point_at_publish() {
+        let setup = repo_with_remote();
+        let main = setup.local.head().unwrap().peel_to_commit().unwrap();
+        setup.local.branch("staging", &main, false).unwrap();
+        setup.local.set_head("refs/heads/staging").unwrap();
+        setup
+            .local
+            .checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        write(&setup.local, "README.md", "staging\n");
+        commit_all(&setup.local, "Staging edit");
+        let before = head_id(&setup.local);
+        push_from_elsewhere(setup.remote_dir.path(), "main", "README.md", "main\n");
+
+        let result = merge_default_branch(&setup.local, None, None).unwrap();
+        assert_eq!(result.outcome, SyncOutcome::Conflict, "{}", result.message);
+        assert!(result.message.contains("README.md"), "{}", result.message);
+        assert!(result.message.contains("main"), "{}", result.message);
+        assert!(!result.message.contains("Publish"), "{}", result.message);
+        assert_eq!(head_id(&setup.local), before);
+        assert_eq!(read(&setup.local, "README.md"), "staging\n");
+    }
+
+    #[test]
+    fn commits_behind_default_counts_what_bring_in_would_bring() {
+        let setup = repo_with_remote();
+        let main = setup.local.head().unwrap().peel_to_commit().unwrap();
+        setup.local.branch("staging", &main, false).unwrap();
+        setup.local.set_head("refs/heads/staging").unwrap();
+        assert_eq!(commits_behind_default(&setup.local).unwrap(), 0);
+
+        push_from_elsewhere(setup.remote_dir.path(), "main", "a.md", "a\n");
+        push_from_elsewhere(setup.remote_dir.path(), "main", "b.md", "b\n");
+        crate::git::test_support::fetch(&setup.local);
+        assert_eq!(commits_behind_default(&setup.local).unwrap(), 2);
+
+        // Staging's own commits don't count
+        write(&setup.local, "draft.md", "draft\n");
+        commit_all(&setup.local, "Draft");
+        assert_eq!(commits_behind_default(&setup.local).unwrap(), 2);
+    }
+
+    #[test]
+    fn commits_behind_default_is_zero_on_the_default_branch() {
+        let setup = repo_with_remote();
+        push_from_elsewhere(setup.remote_dir.path(), "main", "a.md", "a\n");
+        crate::git::test_support::fetch(&setup.local);
+        assert_eq!(commits_behind_default(&setup.local).unwrap(), 0);
     }
 
     #[test]

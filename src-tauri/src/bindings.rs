@@ -93,6 +93,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::git::git_commit_details,
             crate::commands::git::git_commit_file_diff,
             crate::commands::git::git_merge_default_branch,
+            crate::commands::git::git_commits_behind_default,
             crate::commands::git::git_clone,
             // github.rs commands
             crate::commands::github::github_auth_status,

@@ -146,6 +146,11 @@ export const commands = {
 	gitCommitFileDiff: (projectPath: string, id: string, path: string) => typedError<FileDiff, string>(__TAURI_INVOKE("git_commit_file_diff", { projectPath, id, path })),
 	/**  "Bring in changes from main": merge the default branch into the current one */
 	gitMergeDefaultBranch: (projectPath: string) => typedError<SyncResult, string>(__TAURI_INVOKE("git_merge_default_branch", { projectPath })),
+	/**
+	 *  How many commits "Bring in changes from main" would bring in: the default
+	 *  branch's commits (as last fetched) that the current branch doesn't have
+	 */
+	gitCommitsBehindDefault: (projectPath: string) => typedError<number, string>(__TAURI_INVOKE("git_commits_behind_default", { projectPath })),
 	/**  Clone into a new folder inside `parent_dir`; returns the new project path */
 	gitClone: (cloneUrl: string, parentDir: string) => typedError<string, string>(__TAURI_INVOKE("git_clone", { cloneUrl, parentDir })),
 	githubAuthStatus: () => typedError<GitHubAuthStatus, string>(__TAURI_INVOKE("github_auth_status")),

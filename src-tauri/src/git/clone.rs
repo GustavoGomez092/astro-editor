@@ -32,14 +32,13 @@ pub fn clone_into(
     token: Option<&str>,
     mut progress: impl FnMut(u32, u32),
 ) -> Result<PathBuf, String> {
-    if !parent_dir.is_dir() {
-        return Err(format!(
-            "The folder {} doesn't exist.",
-            parent_dir.display()
-        ));
-    }
     let name = folder_name(url)
         .ok_or_else(|| "That doesn't look like a repository address.".to_string())?;
+    // ~/Sites, the default, doesn't exist on a fresh Mac
+    if !parent_dir.is_dir() {
+        fs::create_dir_all(parent_dir)
+            .map_err(|e| format!("Couldn't create the folder {}: {e}", parent_dir.display()))?;
+    }
     let target = parent_dir.join(&name);
     let existed = target.exists();
     if existed {
@@ -127,6 +126,26 @@ mod tests {
         );
         assert_eq!(folder_name("https://github.com/").as_deref(), None);
         assert_eq!(folder_name("https://github.com/kevin/..").as_deref(), None);
+    }
+
+    #[test]
+    fn clone_creates_a_missing_parent_folder() {
+        let setup = repo_with_remote();
+        let home = TempDir::new().unwrap();
+        let parent = home.path().join("Sites");
+        let url = setup.remote_dir.path().to_str().unwrap();
+
+        let path = clone_into(url, &parent, None, |_, _| {}).unwrap();
+        assert!(parent.is_dir());
+        assert!(path.join("README.md").is_file());
+    }
+
+    #[test]
+    fn clone_with_a_bad_address_creates_nothing() {
+        let home = TempDir::new().unwrap();
+        let parent = home.path().join("Sites");
+        assert!(clone_into("https://example.com", &parent, None, |_, _| {}).is_err());
+        assert!(!parent.exists());
     }
 
     #[test]
