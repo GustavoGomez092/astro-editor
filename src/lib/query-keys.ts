@@ -14,6 +14,14 @@ export const queryKeys = {
       ...queryKeys.collectionFiles(projectPath, collectionName),
       'hasBody',
     ] as const,
+  // How many files a collection holds, subfolders included, for the sidebar.
+  // Under collectionFiles for the same reason as collectionHasBody: the file
+  // watcher, Reload Collections and reloadProjectFiles all refresh it
+  collectionFileCount: (projectPath: string, collectionName: string) =>
+    [
+      ...queryKeys.collectionFiles(projectPath, collectionName),
+      'count',
+    ] as const,
   // The files and folders in one folder of a collection, for the sidebar
   directoryContents: (
     projectPath: string,

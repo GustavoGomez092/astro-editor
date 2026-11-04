@@ -1,12 +1,12 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react'
+import React, { useCallback, useMemo } from 'react'
 import { error as logError } from '@tauri-apps/plugin-log'
 import { useShallow } from 'zustand/react/shallow'
-import { commands } from '@/lib/bindings'
 import { useEditorStore } from '../../store/editorStore'
 import { useProjectStore } from '../../store/projectStore'
 import { useUIStore } from '../../store/uiStore'
 import { useCollectionsQuery } from '../../hooks/queries/useCollectionsQuery'
 import { useDirectoryScanQuery } from '../../hooks/queries/useDirectoryScanQuery'
+import { useCollectionFileCountsQuery } from '../../hooks/queries/useCollectionFileCountsQuery'
 import type { FileEntry, Collection } from '@/types'
 import { useRenameFileMutation } from '../../hooks/mutations/useRenameFileMutation'
 import { Button } from '../ui/button'
@@ -142,8 +142,6 @@ const FilesPanel: React.FC = () => {
     }))
   }, [])
 
-  const [fileCounts, setFileCounts] = useState<Record<string, number>>({})
-
   const { data: collections = [] } = useCollectionsQuery(
     projectPath,
     currentProjectSettings
@@ -172,41 +170,8 @@ const FilesPanel: React.FC = () => {
 
   const renameMutation = useRenameFileMutation()
 
-  // Load file counts for all collections (recursive)
-  useEffect(() => {
-    let cancelled = false
-
-    const loadFileCounts = async () => {
-      const counts: Record<string, number> = {}
-
-      for (const collection of collections) {
-        try {
-          const result = await commands.countCollectionFilesRecursive(
-            collection.path
-          )
-          if (result.status === 'error') {
-            counts[collection.name] = 0
-          } else {
-            counts[collection.name] = result.data
-          }
-        } catch {
-          counts[collection.name] = 0
-        }
-      }
-
-      if (!cancelled) {
-        setFileCounts(counts)
-      }
-    }
-
-    if (collections.length > 0) {
-      void loadFileCounts()
-    }
-
-    return () => {
-      cancelled = true
-    }
-  }, [collections])
+  // File counts for all collections (recursive)
+  const fileCounts = useCollectionFileCountsQuery(projectPath, collections)
 
   // Get effective settings for frontmatter field mappings (collection-aware)
   const { frontmatterMappings } = useEffectiveSettings(
