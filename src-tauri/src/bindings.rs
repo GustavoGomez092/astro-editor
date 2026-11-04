@@ -126,9 +126,14 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::github::github_check_astro_repos,
             // grammar.rs commands
             crate::commands::grammar::check_grammar,
+            // previews.rs commands
+            crate::commands::previews::project_preview,
+            crate::commands::previews::capture_project_preview,
         ])
         // Payload of the `git-clone-progress` event, which isn't a command's return type
         .typ::<crate::git::CloneProgress>()
+        // Payload of the `project-preview-updated` event
+        .typ::<crate::previews::ProjectPreviewUpdated>()
 }
 
 #[cfg(test)]
