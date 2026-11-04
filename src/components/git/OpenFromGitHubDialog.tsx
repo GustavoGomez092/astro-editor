@@ -134,10 +134,18 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
       }
     : null
   const matches = filterRepos(
-    visibleRepos(repos.data ?? [], statusOf, showAll),
+    visibleRepos(repos.data ?? [], statusOf, showAll, chosen?.cloneUrl ?? null),
     pasted ? '' : search
   )
   const selection = chosen ?? pasted
+  const stillChecking = (repos.data ?? []).some(r => statusOf(r) === 'checking')
+  // Said aloud once the answers are in, so the list changing isn't a surprise
+  const listStatus =
+    repos.data && !stillChecking
+      ? showAll
+        ? `Showing all ${repos.data.length} repositories`
+        : `Showing ${matches.length} Astro ${matches.length === 1 ? 'site' : 'sites'}`
+      : ''
   const destination =
     parentDir && selection
       ? `${parentDir}/${folderNameFrom(selection.cloneUrl)}`
@@ -276,6 +284,10 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
           </span>
         )}
       </div>
+
+      <p role="status" aria-live="polite" className="sr-only">
+        {listStatus}
+      </p>
 
       <div
         className="h-64 overflow-y-auto rounded-md border p-1"
@@ -460,14 +472,16 @@ function RepoRow({
 }) {
   return (
     <RepoOption selected={selected} disabled={disabled} onSelect={onSelect}>
-      <span
-        className={cn(
-          'min-w-0 truncate',
-          status === 'checking' && 'opacity-50'
-        )}
-      >
+      <span className="min-w-0 truncate">
         <span className="text-muted-foreground">{repo.owner}/</span>
-        <span className="font-medium text-foreground">{repo.name}</span>
+        <span
+          className={cn(
+            'font-medium',
+            status === 'checking' ? 'text-muted-foreground' : 'text-foreground'
+          )}
+        >
+          {repo.name}
+        </span>
       </span>
       {repo.private && (
         <Lock

@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/test-utils'
 import { useGitStore } from '@/store/gitStore'
 import { useProjectStore } from '@/store/projectStore'
 import { commands } from '@/lib/bindings'
+import { error as logError } from '@tauri-apps/plugin-log'
 import { OpenFromGitHubDialog } from './OpenFromGitHubDialog'
 
 vi.mock('@/lib/bindings', () => ({
@@ -231,6 +232,67 @@ describe('OpenFromGitHubDialog', () => {
           expect(commands.githubCheckAstroRepos).toHaveBeenCalledWith([
             'kr/empty',
           ])
+        )
+      })
+
+      it("marks everything Couldn't check when the whole request fails, logs it, and saves nothing", async () => {
+        vi.mocked(commands.githubCheckAstroRepos).mockResolvedValue({
+          status: 'error',
+          error: "Couldn't reach GitHub.",
+        })
+        renderWithProviders(<OpenFromGitHubDialog />)
+        const options = await screen.findAllByRole('option')
+        await vi.waitFor(() =>
+          expect(screen.getAllByText("Couldn't check")).toHaveLength(3)
+        )
+        expect(options).toHaveLength(3)
+        expect(logError).toHaveBeenCalled()
+        expect(
+          localStorage.getItem('astro-editor:astro-site-checks')
+        ).toBeNull()
+      })
+
+      it('keeps the repository that is picked in the list when it turns out not to be Astro', async () => {
+        let answer: (value: unknown) => void = () => {}
+        vi.mocked(commands.githubCheckAstroRepos).mockReturnValue(
+          new Promise(resolve => (answer = resolve)) as never
+        )
+        renderWithProviders(<OpenFromGitHubDialog />)
+        await userEvent.click(
+          await screen.findByRole('option', { name: /notes/ })
+        )
+        answer(
+          ok(
+            ['site', 'notes', 'empty'].map(n => ({
+              fullName: `kr/${n}`,
+              check: n === 'site' ? ('astro' as const) : ('notAstro' as const),
+            }))
+          )
+        )
+        await vi.waitFor(() =>
+          expect(
+            screen.queryByRole('option', { name: /empty/ })
+          ).not.toBeInTheDocument()
+        )
+        expect(screen.getByRole('option', { name: /notes/ })).toHaveAttribute(
+          'aria-selected',
+          'true'
+        )
+      })
+
+      it('says out loud how many Astro sites are showing once the check is done', async () => {
+        vi.mocked(commands.githubCheckAstroRepos).mockResolvedValue(
+          ok([
+            { fullName: 'kr/site', check: 'astro' },
+            { fullName: 'kr/notes', check: 'notAstro' },
+            { fullName: 'kr/empty', check: 'notAstro' },
+          ])
+        )
+        renderWithProviders(<OpenFromGitHubDialog />)
+        await vi.waitFor(() =>
+          expect(screen.getByRole('status')).toHaveTextContent(
+            'Showing 1 Astro site'
+          )
         )
       })
 

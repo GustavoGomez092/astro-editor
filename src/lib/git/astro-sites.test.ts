@@ -1,8 +1,7 @@
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { RepoSummary } from '@/lib/bindings'
 import {
   cachedCheck,
-  chunk,
   loadShowAll,
   saveChecks,
   saveShowAll,
@@ -16,7 +15,7 @@ const repo = (fullName: string, pushedAt: string | null): RepoSummary => ({
   name: fullName,
   private: false,
   defaultBranch: 'main',
-  cloneUrl: '',
+  cloneUrl: `https://github.com/${fullName}.git`,
   updatedAt: '2026-11-01T00:00:00Z',
   pushedAt,
 })
@@ -49,6 +48,32 @@ describe('astro site cache', () => {
     expect(cachedCheck(a)).toBeNull()
   })
 
+  it('drops answers for repositories that are gone, when given the full list', () => {
+    const a = repo('k/a', 'one')
+    const b = repo('k/b', 'one')
+    saveChecks(
+      [a, b],
+      new Map([
+        ['k/a', 'astro'],
+        ['k/b', 'astro'],
+      ])
+    )
+    saveChecks([], new Map(), new Set(['k/a']))
+    expect(cachedCheck(a)).toBe('astro')
+    expect(cachedCheck(b)).toBeNull()
+  })
+
+  it('reads the saved text once until it changes', () => {
+    const a = repo('k/a', 'one')
+    saveChecks([a], new Map([['k/a', 'astro']]))
+    const get = vi.spyOn(JSON, 'parse')
+    cachedCheck(a)
+    cachedCheck(a)
+    cachedCheck(a)
+    expect(get.mock.calls.length).toBeLessThanOrEqual(1)
+    get.mockRestore()
+  })
+
   it('survives a damaged cache', () => {
     localStorage.setItem('astro-editor:astro-site-checks', '{nope')
     expect(cachedCheck(repo('k/a', 'one'))).toBeNull()
@@ -68,15 +93,18 @@ describe('visibleRepos', () => {
       'checking',
     ])
   })
+  it('keeps the picked repository in the list whatever its status', () => {
+    const picked = repos[1]!
+    expect(
+      visibleRepos(repos, statusOf, false, picked.cloneUrl).map(r => r.fullName)
+    ).toEqual(['astro', 'notAstro', 'unknown', 'checking'])
+  })
   it('shows everything when asked', () => {
     expect(visibleRepos(repos, statusOf, true)).toHaveLength(4)
   })
 })
 
 describe('helpers', () => {
-  it('chunks', () => {
-    expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]])
-  })
   it('remembers the show-all choice, off by default', () => {
     localStorage.clear()
     expect(loadShowAll()).toBe(false)

@@ -1,15 +1,14 @@
-import { useQueries, useQuery } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { homeDir } from '@tauri-apps/api/path'
 import { commands, type AstroCheck, type RepoSummary } from '@/lib/bindings'
 import {
-  CHECK_CHUNK_SIZE,
   cachedCheck,
-  chunk,
   pushMarker,
   saveChecks,
   type SiteStatus,
 } from '@/lib/git/astro-sites'
 import { sitesFolder } from '@/lib/git/clone'
+import { error as logError } from '@tauri-apps/plugin-log'
 import { unwrap } from '@/lib/git/unwrap'
 import { queryKeys } from '@/lib/query-keys'
 
@@ -30,47 +29,66 @@ export const useSitesFolderQuery = () =>
     staleTime: Infinity,
   })
 
-/** The query for one group of repositories (the styleguide seeds it by this key). */
-export const astroSitesKey = (group: RepoSummary[]) =>
-  ['astroSites', ...group.map(r => `${r.fullName}@${pushMarker(r)}`)] as const
+/** The list is cut off at this many repositories (10 pages of 100), so it may be incomplete. */
+const LIST_LIMIT = 1000
+
+/** The query for a list of repositories (the styleguide seeds it by this key). */
+export const astroSitesKey = (repos: RepoSummary[]) =>
+  [
+    'astroSites',
+    repos.map(r => `${r.fullName}@${pushMarker(r)}`).join('|'),
+  ] as const
+
+async function fetchChecks(
+  fullNames: string[]
+): Promise<Map<string, AstroCheck>> {
+  try {
+    const checked = await unwrap(commands.githubCheckAstroRepos(fullNames))
+    return new Map(checked.map(c => [c.fullName, c.check]))
+  } catch (reason) {
+    void logError(
+      `Astro Editor [GITHUB] Checking for Astro sites failed: ${String(reason)}`
+    )
+    throw reason
+  }
+}
 
 /**
  * Whether each repository is an Astro site. Saved answers are used at once; the
- * rest are asked of GitHub 50 at a time, newest first, and saved for next time.
- * Until a repository is answered it is 'checking'; one that can't be checked
- * (or whose request failed) is 'unknown'.
+ * rest are asked of GitHub in one call (Rust runs the queries, three at a time)
+ * and saved for next time. Until the answer arrives a repository is 'checking';
+ * one that can't be checked, or whose check failed, is 'unknown' and is tried
+ * again the next time the dialog opens.
  */
 export function useAstroSiteStatus(
   repos: RepoSummary[],
   enabled: boolean
 ): (repo: RepoSummary) => SiteStatus {
-  const chunks = chunk(repos, CHECK_CHUNK_SIZE)
-  const results = useQueries({
-    queries: chunks.map(group => ({
-      queryKey: astroSitesKey(group),
-      queryFn: async () => {
-        const todo = group.filter(r => cachedCheck(r) === null)
-        const answers = new Map<string, AstroCheck>()
-        if (todo.length > 0) {
-          const checked = await unwrap(
-            commands.githubCheckAstroRepos(todo.map(r => r.fullName))
-          ).catch(() => [])
-          for (const c of checked) answers.set(c.fullName, c.check)
-          saveChecks(todo, answers)
-        }
-        return answers
-      },
-      enabled: enabled && group.some(r => cachedCheck(r) === null),
-      staleTime: Infinity,
-      retry: false,
-    })),
+  const todo = repos.filter(r => cachedCheck(r) === null)
+  const query = useQuery({
+    queryKey: astroSitesKey(repos),
+    queryFn: async () => {
+      const answers = await fetchChecks(todo.map(r => r.fullName))
+      saveChecks(
+        todo,
+        answers,
+        repos.length < LIST_LIMIT
+          ? new Set(repos.map(r => r.fullName))
+          : undefined
+      )
+      return answers
+    },
+    enabled: enabled && todo.length > 0,
+    // Anything not settled is asked again soon (when the dialog reopens)
+    staleTime: q =>
+      [...(q.state.data?.values() ?? [])].includes('unknown')
+        ? 10_000
+        : Infinity,
+    retry: false,
   })
-  const answered = new Map<string, AstroCheck>()
-  chunks.forEach((group, i) => {
-    const data = results[i]?.data
-    if (data)
-      for (const r of group)
-        answered.set(r.fullName, data.get(r.fullName) ?? 'unknown')
-  })
-  return repo => cachedCheck(repo) ?? answered.get(repo.fullName) ?? 'checking'
+  const answered = query.data
+  return repo =>
+    cachedCheck(repo) ??
+    (answered ? (answered.get(repo.fullName) ?? 'unknown') : null) ??
+    (query.isError ? 'unknown' : 'checking')
 }

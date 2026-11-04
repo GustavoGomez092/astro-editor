@@ -3,9 +3,6 @@ import type { AstroCheck, RepoSummary } from '@/lib/bindings'
 /** What the list shows for a repository. */
 export type SiteStatus = AstroCheck | 'checking'
 
-/** Repositories per request, matching what Rust sends GitHub in one query. */
-export const CHECK_CHUNK_SIZE = 50
-
 const CACHE_KEY = 'astro-editor:astro-site-checks'
 const SHOW_ALL_KEY = 'astro-editor:open-from-github-show-all'
 
@@ -21,13 +18,26 @@ export function pushMarker(repo: RepoSummary): string {
   return repo.pushedAt ?? repo.updatedAt
 }
 
+// The saved answers are parsed once per change, not once per row per render
+let parsedFrom: string | null = null
+let parsed: Cache = {}
+
 function readCache(): Cache {
+  let raw: string | null = null
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(CACHE_KEY) ?? '{}')
-    return raw && typeof raw === 'object' ? (raw as Cache) : {}
+    raw = localStorage.getItem(CACHE_KEY)
   } catch {
     return {}
   }
+  if (raw === parsedFrom) return parsed
+  try {
+    const value: unknown = JSON.parse(raw ?? '{}')
+    parsed = value && typeof value === 'object' ? (value as Cache) : {}
+  } catch {
+    parsed = {}
+  }
+  parsedFrom = raw
+  return parsed
 }
 
 /** The saved answer for this repository at its current push, or null. */
@@ -37,12 +47,22 @@ export function cachedCheck(repo: RepoSummary): AstroCheck | null {
   return hit.astro ? 'astro' : 'notAstro'
 }
 
-/** Saves the definite answers (`unknown` is never saved, so it's tried again). */
+/**
+ * Saves the definite answers (`unknown` is never saved, so it's tried again).
+ * With `keep` (the names in a fully loaded list), answers for repositories that
+ * are no longer in it are dropped.
+ */
 export function saveChecks(
   repos: RepoSummary[],
-  answers: Map<string, AstroCheck>
+  answers: Map<string, AstroCheck>,
+  keep?: Set<string>
 ): void {
-  const cache = readCache()
+  const cache = { ...readCache() }
+  if (keep) {
+    for (const name of Object.keys(cache)) {
+      if (!keep.has(name)) delete cache[name]
+    }
+  }
   for (const repo of repos) {
     const answer = answers.get(repo.fullName)
     if (answer === 'astro' || answer === 'notAstro') {
@@ -57,13 +77,6 @@ export function saveChecks(
   } catch {
     // Not saving only means checking again next time
   }
-}
-
-export function chunk<T>(items: T[], size: number): T[][] {
-  const out: T[][] = []
-  for (let i = 0; i < items.length; i += size)
-    out.push(items.slice(i, i + size))
-  return out
 }
 
 /** Whether the writer chose to see every repository, not just Astro sites. */
@@ -86,13 +99,17 @@ export function saveShowAll(value: boolean): void {
 /**
  * The repositories to list. With the filter on, repositories known not to be
  * Astro sites are left out; ones still being checked, and ones that couldn't
- * be checked, stay.
+ * be checked, stay. The repository picked (by clone URL) always stays, so what
+ * will be downloaded never disappears from the list.
  */
 export function visibleRepos(
   repos: RepoSummary[],
   statusOf: (repo: RepoSummary) => SiteStatus,
-  showAll: boolean
+  showAll: boolean,
+  pickedCloneUrl: string | null = null
 ): RepoSummary[] {
   if (showAll) return repos
-  return repos.filter(repo => statusOf(repo) !== 'notAstro')
+  return repos.filter(
+    repo => repo.cloneUrl === pickedCloneUrl || statusOf(repo) !== 'notAstro'
+  )
 }
