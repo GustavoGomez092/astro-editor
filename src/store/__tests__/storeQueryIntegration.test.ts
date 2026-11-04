@@ -608,11 +608,11 @@ describe('Store ↔ Query Integration Tests', () => {
       // Open same file again
       store.openFile(mockFileEntry)
 
-      // Verify: State cleared and reset (as per openFile implementation)
+      // Verify: Nothing changes; the cached content query wouldn't reload it
       const updatedStore = useEditorStore.getState()
       expect(updatedStore.currentFile).toEqual(mockFileEntry)
-      expect(updatedStore.editorContent).toBe('') // Cleared
-      expect(updatedStore.frontmatter).toEqual({}) // Cleared
+      expect(updatedStore.editorContent).toBe('Content')
+      expect(updatedStore.frontmatter).toEqual({ title: 'Title' })
       expect(updatedStore.isDirty).toBe(false)
     })
 

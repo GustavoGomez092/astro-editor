@@ -38,6 +38,16 @@ interface EditorState {
   updateCurrentFileAfterRename: (newPath: string) => void
 }
 
+// Selects the opened file's collection in the sidebar. A custom event, so the
+// editor store doesn't reach into the project store (Bridge Pattern)
+const dispatchFileOpened = (file: FileEntry) => {
+  window.dispatchEvent(
+    new CustomEvent('file-opened', {
+      detail: { collectionName: file.collection },
+    })
+  )
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
   // Initial state
   currentFile: null,
@@ -55,8 +65,15 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   openFile: (file: FileEntry) => {
     const { autoSaveTimeoutId, autoSaveCallback, currentFile, isDirty } = get()
 
-    // Re-opening the open file would reload it from disk over unsaved edits
-    if (isDirty && currentFile?.id === file.id) return
+    // Opening the open file again only selects its collection. Clearing the
+    // store here would wipe unsaved edits, and a saved file would stay blank:
+    // its content query is cached, so nothing loads it back, and the next
+    // edit would save the blank form over the file. Compared by path, which
+    // a rename updates (the id isn't)
+    if (currentFile?.path === file.path) {
+      dispatchFileOpened(file)
+      return
+    }
 
     // Clear auto-save timeout if it exists to prevent race condition
     // where previous file's auto-save could fire after opening new file
@@ -85,13 +102,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       lastSaveTimestamp: Date.now(),
     })
 
-    // Update the selected collection to match the opened file's collection
-    // Use custom event to communicate with project store (Bridge Pattern)
-    window.dispatchEvent(
-      new CustomEvent('file-opened', {
-        detail: { collectionName: file.collection },
-      })
-    )
+    dispatchFileOpened(file)
 
     // Content will be loaded by useFileContentQuery hook
   },
