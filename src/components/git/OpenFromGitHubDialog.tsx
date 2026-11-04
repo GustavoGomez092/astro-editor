@@ -269,7 +269,7 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
           className="min-w-0 flex-1 truncate font-mono text-xs"
           title={destination ?? ''}
         >
-          {destination ? shortenMiddle(shortenHome(destination), 44) : '…'}
+          {destination ? shortenMiddle(shortenHome(destination), 38) : '…'}
         </span>
         <Button
           type="button"
