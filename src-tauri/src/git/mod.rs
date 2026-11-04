@@ -481,6 +481,43 @@ pub(crate) fn checkout_safely(
     })
 }
 
+/// Puts back the files a safe checkout of `written` changed, as they are in
+/// `previous`, the tree checked out before it: for when the branch can't then
+/// be moved. Only the paths that differ between the two are touched, and the
+/// safe checkout had already made sure none of them had local edits.
+pub(crate) fn undo_checkout(repo: &Repository, written: &git2::Tree, previous: &git2::Tree) {
+    let paths: Vec<PathBuf> = match repo.diff_tree_to_tree(Some(previous), Some(written), None) {
+        Ok(diff) => diff
+            .deltas()
+            .flat_map(|d| [d.old_file().path(), d.new_file().path()])
+            .flatten()
+            .map(Path::to_path_buf)
+            .collect(),
+        Err(e) => {
+            ::log::warn!(
+                "Astro Editor [GIT] Couldn't put the files back: {}",
+                e.message()
+            );
+            return;
+        }
+    };
+    // A checkout with no paths would cover every file
+    if paths.is_empty() {
+        return;
+    }
+    let mut checkout = CheckoutBuilder::new();
+    checkout.force().disable_pathspec_match(true);
+    for path in &paths {
+        checkout.path(path);
+    }
+    if let Err(e) = repo.checkout_tree(previous.as_object(), Some(&mut checkout)) {
+        ::log::warn!(
+            "Astro Editor [GIT] Couldn't put the files back: {}",
+            e.message()
+        );
+    }
+}
+
 /// Plain-language text for a libgit2 error, prefixed with what was being done
 pub(crate) fn describe(action: &str, e: &git2::Error) -> String {
     format!("{action}: {}", e.message())

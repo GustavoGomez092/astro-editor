@@ -7,7 +7,7 @@
 //! pushes; the next Publish does.
 
 use super::status::{repo_status, upstream_of};
-use super::sync::{combine_message, current_branch, move_branch};
+use super::sync::{combine_message, current_branch, move_branch_or_undo};
 use super::{
     checkout_safely, describe, name_files, CheckoutRefused, ConflictChoice, ConflictFile,
     ConflictResolution, SyncOutcome, SyncResult,
@@ -124,7 +124,7 @@ pub fn resolve_conflicts(
     let Some((local, upstream, upstream_name)) = diverged(repo)? else {
         return Ok(SyncResult {
             outcome: SyncOutcome::UpToDate,
-            message: "Everything is up to date.".to_string(),
+            message: "Nothing to resolve.".to_string(),
             status: repo_status(repo)?,
         });
     };
@@ -209,7 +209,13 @@ pub fn resolve_conflicts(
             status: repo_status(repo)?,
         });
     }
-    move_branch(repo, &branch, merge, Some(local.id()), "merge")?;
+    let previous = local.tree().ok();
+    move_branch_or_undo(
+        repo,
+        (&branch, merge, Some(local.id()), "merge"),
+        &tree,
+        previous.as_ref(),
+    )?;
     Ok(SyncResult {
         outcome: SyncOutcome::Merged,
         message: format!(
@@ -408,6 +414,35 @@ mod tests {
         assert!(result.message.contains("README.md"), "{}", result.message);
         assert_eq!(head_id(&setup.local), mine);
         assert_eq!(read(&setup.local, "README.md"), "unsaved idea\n");
+    }
+
+    #[test]
+    fn a_branch_that_is_only_behind_has_nothing_to_resolve() {
+        let setup = repo_with_remote();
+        let before = head_id(&setup.local);
+        push_from_elsewhere(setup.remote_dir.path(), "main", "news.md", "news\n");
+        fetch(&setup.local);
+        let result = resolve(&setup, &[]).unwrap();
+        assert_eq!(result.outcome, SyncOutcome::UpToDate);
+        assert_eq!(result.message, "Nothing to resolve.");
+        assert_eq!(head_id(&setup.local), before);
+    }
+
+    #[test]
+    fn a_branch_that_cant_move_puts_the_files_back() {
+        let (setup, mine, _) = conflicted();
+        push_from_elsewhere(setup.remote_dir.path(), "main", "news.md", "news\n");
+        fetch(&setup.local);
+        // Another git process is updating the branch
+        let ref_lock = setup.local.path().join("refs/heads/main.lock");
+        std::fs::write(&ref_lock, "").unwrap();
+        assert!(resolve(&setup, &[choose("README.md", ConflictChoice::Theirs)]).is_err());
+        std::fs::remove_file(ref_lock).unwrap();
+        assert_eq!(head_id(&setup.local), mine);
+        assert_eq!(read(&setup.local, "README.md"), "mine\n");
+        assert!(!setup.local.workdir().unwrap().join("news.md").exists());
+        let status = crate::git::status::repo_status(&setup.local).unwrap();
+        assert!(status.files.is_empty(), "{:?}", status.files);
     }
 
     #[test]

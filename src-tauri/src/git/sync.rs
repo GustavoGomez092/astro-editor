@@ -388,10 +388,27 @@ fn commit_everything(
     .map_err(|e| describe("Couldn't save your changes", &e))
 }
 
+/// [`move_branch`] after checking out `written`; if the branch can't move, the
+/// files are put back as they were in `previous`, so nothing is left half done
+pub(crate) fn move_branch_or_undo(
+    repo: &Repository,
+    (branch, to, expected, why): (&str, Oid, Option<Oid>, &str),
+    written: &Tree,
+    previous: Option<&Tree>,
+) -> Result<(), String> {
+    let moved = move_branch(repo, branch, to, expected, why);
+    if moved.is_err() {
+        if let Some(previous) = previous {
+            super::undo_checkout(repo, written, previous);
+        }
+    }
+    moved
+}
+
 /// A checkout that failed for a reason other than local changes
 fn checkout_failed(label: &str, e: &git2::Error) -> String {
     format!(
-        "Couldn't bring in the changes from {label}, so nothing was changed: {}",
+        "Couldn't bring in the changes from {label}: {}",
         e.message()
     )
 }
@@ -555,7 +572,15 @@ fn integrate(
                 ))
             }
         }
-        move_branch(repo, branch, incoming, local, "fast-forward")?;
+        let previous = local
+            .and_then(|oid| repo.find_commit(oid).ok())
+            .and_then(|commit| commit.tree().ok());
+        move_branch_or_undo(
+            repo,
+            (branch, incoming, local, "fast-forward"),
+            &incoming_tree,
+            previous.as_ref(),
+        )?;
         return Ok(Integration::new(
             SyncOutcome::FastForwarded,
             format!("Brought in {} from {label}.", plural(behind, "change")),
@@ -626,7 +651,13 @@ fn integrate(
             format!("Combining the changes would overwrite {what}, so nothing was changed."),
         ));
     }
-    move_branch(repo, branch, merge, local, "merge")?;
+    let previous = local_commit.tree().ok();
+    move_branch_or_undo(
+        repo,
+        (branch, merge, local, "merge"),
+        &tree,
+        previous.as_ref(),
+    )?;
     Ok(Integration::new(
         SyncOutcome::Merged,
         format!(
@@ -1136,8 +1167,53 @@ mod tests {
         let e = git2::Error::from_str("failed to stat 'src/x.md'");
         let message = checkout_failed("GitHub", &e);
         assert!(!message.contains("Publish"), "{message}");
+        // Some files may have been written before it failed
+        assert!(!message.contains("nothing was changed"), "{message}");
         assert!(message.contains("failed to stat 'src/x.md'"), "{message}");
         assert!(message.contains("GitHub"), "{message}");
+    }
+
+    fn lock_branch(repo: &Repository) -> std::path::PathBuf {
+        let ref_lock = repo.path().join("refs/heads/main.lock");
+        std::fs::write(&ref_lock, "").unwrap();
+        ref_lock
+    }
+
+    #[test]
+    fn a_merge_whose_branch_cant_move_puts_the_files_back() {
+        let setup = repo_with_remote();
+        push_from_elsewhere(setup.remote_dir.path(), "main", "news.md", "news\n");
+        write(&setup.local, "mine.md", "mine\n");
+        let mine = commit_all(&setup.local, "My change");
+        let ref_lock = lock_branch(&setup.local);
+        assert!(sync(&setup.local, None, None).is_err());
+        std::fs::remove_file(ref_lock).unwrap();
+        assert_eq!(head_id(&setup.local), mine);
+        assert!(!setup.local.workdir().unwrap().join("news.md").exists());
+        assert!(repo_status(&setup.local).unwrap().files.is_empty());
+    }
+
+    #[test]
+    fn a_fast_forward_whose_branch_cant_move_puts_the_files_back() {
+        let setup = repo_with_remote();
+        let before = head_id(&setup.local);
+        push_from_elsewhere(setup.remote_dir.path(), "main", "news.md", "news\n");
+        push_from_elsewhere(setup.remote_dir.path(), "main", "README.md", "theirs\n");
+        write(&setup.local, "draft.md", "unpublished\n");
+        let ref_lock = lock_branch(&setup.local);
+        assert!(sync(&setup.local, None, None).is_err());
+        std::fs::remove_file(ref_lock).unwrap();
+        assert_eq!(head_id(&setup.local), before);
+        assert_eq!(read(&setup.local, "README.md"), "hello\n");
+        assert!(!setup.local.workdir().unwrap().join("news.md").exists());
+        assert_eq!(read(&setup.local, "draft.md"), "unpublished\n");
+        let files: Vec<_> = repo_status(&setup.local)
+            .unwrap()
+            .files
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        assert_eq!(files, ["draft.md"]);
     }
 
     #[test]
