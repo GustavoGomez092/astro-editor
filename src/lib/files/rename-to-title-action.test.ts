@@ -165,12 +165,12 @@ describe('renameCurrentFileToTitle', () => {
     expect(renameFile).toHaveBeenCalled()
     expect(useEditorStore.getState().currentFile?.name).toBe('fresh-title')
     expect(useEditorStore.getState().frontmatter.slug).toBe('fresh-title')
-    expect(toast.warning).toHaveBeenCalledWith(
-      'Renamed to fresh-title.md',
-      expect.objectContaining({
-        description: expect.stringContaining('slug'),
-      })
-    )
+    const [message, options] = toast.warning.mock.calls[0] as [
+      string,
+      { description: string },
+    ]
+    expect(message).toBe('Renamed to fresh-title.md')
+    expect(options.description).toContain('slug')
   })
 
   it('leaves the slug alone when the rename fails', async () => {
