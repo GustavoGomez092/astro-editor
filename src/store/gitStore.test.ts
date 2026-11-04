@@ -59,4 +59,12 @@ describe('gitStore', () => {
     useGitStore.getState().setNewBranchOpen(true)
     expect(useGitStore.getState().newBranchOpen).toBe(true)
   })
+
+  it('opens the Open from GitHub dialog, which survives a project switch', () => {
+    useGitStore.getState().setOpenFromGitHubOpen(true)
+    useGitStore.getState().reset()
+    expect(useGitStore.getState().openFromGitHubOpen).toBe(true)
+    useGitStore.getState().setOpenFromGitHubOpen(false)
+    expect(useGitStore.getState().openFromGitHubOpen).toBe(false)
+  })
 })

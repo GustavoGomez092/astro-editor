@@ -1,4 +1,10 @@
-import { CloudUpload, GitBranchPlus, History, RefreshCw } from 'lucide-react'
+import {
+  CloudDownload,
+  CloudUpload,
+  GitBranchPlus,
+  History,
+  RefreshCw,
+} from 'lucide-react'
 import { useGitStore } from '@/store/gitStore'
 import { useUIStore } from '@/store/uiStore'
 import type { AppCommand, CommandContext } from './types'
@@ -64,5 +70,18 @@ export const publishingCommands: AppCommand[] = [
       useGitStore.getState().setNewBranchOpen(true)
     },
     isAvailable: available,
+  },
+  {
+    id: 'git-open-from-github',
+    label: 'Open from GitHub…',
+    description: 'Download a site from GitHub and open it',
+    icon: CloudDownload,
+    group: 'project',
+    execute: () => {
+      useGitStore.getState().setOpenFromGitHubOpen(true)
+    },
+    // Needs no open project
+    isAvailable: context =>
+      Boolean(context.globalSettings?.general.showPublishingTools),
   },
 ]

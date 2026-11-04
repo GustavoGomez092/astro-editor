@@ -13,6 +13,10 @@ import { PullRequestCard } from '../components/git/PullRequestCard'
 import { SignInDialog } from '../components/git/SignInSheet'
 import { OpenPullRequestDialog } from '../components/git/OpenPullRequestDialog'
 import { Button } from '../components/ui/button'
+import { OpenFromGitHubDialog } from '../components/git/OpenFromGitHubDialog'
+import { queryClient } from '../lib/query-client'
+import { queryKeys } from '../lib/query-keys'
+import { useGitStore } from '../store/gitStore'
 import type {
   BranchInfo,
   CommitDetails as Details,
@@ -20,6 +24,7 @@ import type {
   GitStatus,
   GraphCommit,
   PullRequest,
+  RepoSummary,
 } from '../lib/bindings'
 
 /** Fixed, so relative dates don't change between shots. */
@@ -426,4 +431,43 @@ export function GitOpenPullRequestSection() {
       onSubmit={noop}
     />
   )
+}
+
+const REPOS: RepoSummary[] = [
+  ['kevinrobinson', 'site', false, 1],
+  ['kevinrobinson', 'portfolio-2025', true, 30],
+  ['harbour-studio', 'harbour-site', true, 200],
+  ['kevinrobinson', 'type-specimens', false, 900],
+].map(([owner, name, isPrivate, hoursAgo]) => ({
+  fullName: `${owner}/${name}`,
+  owner: owner as string,
+  name: name as string,
+  private: isPrivate as boolean,
+  defaultBranch: 'main',
+  cloneUrl: `https://github.com/${owner}/${name}.git`,
+  updatedAt: new Date(
+    Date.now() - (hoursAgo as number) * HOUR * 1000
+  ).toISOString(),
+}))
+
+// The dialog reads these from the query cache and the store, as in the app.
+// Module level, like ComponentBuilderSection's store setup
+queryClient.setQueryData(queryKeys.githubAuth, {
+  signedIn: true,
+  login: 'kevinrobinson',
+  name: 'Kevin Robinson',
+  avatarUrl: null,
+})
+queryClient.setQueryData(queryKeys.githubRepos, REPOS)
+queryClient.setQueryData(['sitesFolder'], '/Users/kevin/Sites')
+if (
+  new URLSearchParams(window.location.search).get('section') ===
+  'git-open-from-github'
+) {
+  useGitStore.setState({ openFromGitHubOpen: true })
+}
+
+/** Open from GitHub, signed in, with a few repositories. */
+export function GitOpenFromGitHubSection() {
+  return <OpenFromGitHubDialog />
 }

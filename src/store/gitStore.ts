@@ -25,6 +25,8 @@ interface GitState {
   selectedCommitFilePath: string | null
   signIn: SignInState
   newBranchOpen: boolean
+  /** The Open from GitHub (clone) dialog */
+  openFromGitHubOpen: boolean
 
   setPanelTab: (tab: GitPanelTab) => void
   openDiff: (path: string) => void
@@ -35,6 +37,7 @@ interface GitState {
   selectCommitFile: (path: string | null) => void
   setSignIn: (update: Partial<SignInState>) => void
   setNewBranchOpen: (open: boolean) => void
+  setOpenFromGitHubOpen: (open: boolean) => void
   /** Back to the initial state, e.g. when another project opens */
   reset: () => void
 }
@@ -52,6 +55,7 @@ const INITIAL = {
     error: null,
   } as SignInState,
   newBranchOpen: false,
+  openFromGitHubOpen: false,
 }
 
 /**
@@ -78,6 +82,13 @@ export const useGitStore = create<GitState>(set => ({
       },
     })),
   setNewBranchOpen: open => set({ newBranchOpen: open }),
-  // Sign-in isn't tied to a project, so it survives a project switch
-  reset: () => set(state => ({ ...INITIAL, signIn: state.signIn })),
+  setOpenFromGitHubOpen: open => set({ openFromGitHubOpen: open }),
+  // Sign-in and cloning aren't tied to a project (a clone ends by opening
+  // one), so they survive a project switch
+  reset: () =>
+    set(state => ({
+      ...INITIAL,
+      signIn: state.signIn,
+      openFromGitHubOpen: state.openFromGitHubOpen,
+    })),
 }))

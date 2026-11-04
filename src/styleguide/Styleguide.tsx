@@ -26,6 +26,7 @@ import {
   GitChangesSection,
   GitDiffSection,
   GitHistorySection,
+  GitOpenFromGitHubSection,
   GitOpenPullRequestSection,
   GitSignInSection,
 } from './GitSection'
@@ -67,6 +68,12 @@ const SECTIONS: Section[] = [
     id: 'git-sign-in',
     title: 'Sign in with GitHub',
     Component: GitSignInSection,
+    overlay: true,
+  },
+  {
+    id: 'git-open-from-github',
+    title: 'Open from GitHub',
+    Component: GitOpenFromGitHubSection,
     overlay: true,
   },
   {

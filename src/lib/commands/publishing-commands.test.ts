@@ -27,12 +27,13 @@ describe('publishing commands', () => {
     useUIStore.setState({ sidebarVisible: false })
   })
 
-  it('offers Publish, Sync, History and New branch', () => {
+  it('offers Publish, Sync, History, New branch and Open from GitHub', () => {
     expect(publishingCommands.map(c => c.label)).toEqual([
       'Publish',
       'Sync',
       'History',
       'New Branch…',
+      'Open from GitHub…',
     ])
   })
 
@@ -41,8 +42,11 @@ describe('publishing commands', () => {
     const visible = (ctx: CommandContext) =>
       getAllCommands(ctx).filter(c => ids.includes(c.id))
     expect(visible(context(false, '/site'))).toHaveLength(0)
-    expect(visible(context(true, null))).toHaveLength(0)
-    expect(visible(context(true, '/site'))).toHaveLength(4)
+    // Open from GitHub needs no project
+    expect(visible(context(true, null)).map(c => c.id)).toEqual([
+      'git-open-from-github',
+    ])
+    expect(visible(context(true, '/site'))).toHaveLength(5)
   })
 
   it('Publish and Sync ask the Changes panel to run them', async () => {
@@ -69,5 +73,13 @@ describe('publishing commands', () => {
     await command('git-new-branch').execute(context(true, '/site'))
     expect(useGitStore.getState().newBranchOpen).toBe(true)
     expect(useGitStore.getState().panelTab).toBe('changes')
+  })
+})
+
+describe('Open from GitHub command', () => {
+  it('opens the dialog', async () => {
+    const open = publishingCommands.find(c => c.id === 'git-open-from-github')
+    await open?.execute({} as CommandContext)
+    expect(useGitStore.getState().openFromGitHubOpen).toBe(true)
   })
 })
