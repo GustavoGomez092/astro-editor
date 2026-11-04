@@ -7,6 +7,7 @@ function page(bodyEditor: 'shown' | 'hidden') {
       <div class="cm-editor"><div class="cm-content" contenteditable="true" tabindex="0"></div></div>
     </div>
     <div data-frontmatter-panel>
+      <button type="button">Clear</button>
       <label>Name<input id="frontmatter-name-field" /></label>
       <textarea id="frontmatter-title-field"></textarea>
     </div>`

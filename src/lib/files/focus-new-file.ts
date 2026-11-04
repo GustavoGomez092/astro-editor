@@ -4,7 +4,8 @@ export const BODY_EDITOR_ATTRIBUTE = 'data-body-editor'
 /** Marks the frontmatter panel, where a new entry's fields are. */
 export const FRONTMATTER_PANEL_ATTRIBUTE = 'data-frontmatter-panel'
 
-const FIELD = 'input, textarea, select, button, [contenteditable="true"]'
+// Text-like fields only: a button (clear, pick an image) isn't where you type
+const FIELD = 'input, textarea, select, [contenteditable="true"]'
 
 /**
  * Puts the cursor where a new entry is written: the title field when it was
