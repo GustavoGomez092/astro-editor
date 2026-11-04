@@ -36,6 +36,7 @@ import { useGitStore } from '../../store/gitStore'
 import { SignInSheet } from '../git/SignInSheet'
 import { OpenFromGitHubDialog } from '../git/OpenFromGitHubDialog'
 import { useEditorStore } from '../../store/editorStore'
+import { useBodyEditorHidden } from '../../hooks/editor/useBodyEditorHidden'
 import { focusEditor } from '../../lib/focus-utils'
 import { commands } from '../../lib/bindings'
 import { getPlatform } from '../../hooks/usePlatform'
@@ -82,13 +83,21 @@ export const Layout: React.FC = () => {
     }
   }, [sidebarVisible])
 
+  // A collection without body text has its form in the main area
+  // (MainEditor), so the frontmatter panel collapses for it. That isn't the
+  // writer closing the panel: their setting is left alone, and the panel comes
+  // back with the next file that has body text
+  const formInMain = useBodyEditorHidden()
+  const rightPanelShown = frontmatterPanelVisible && !formInMain
+  const formInMainRef = useRef(formInMain)
   useEffect(() => {
-    if (frontmatterPanelVisible) {
+    formInMainRef.current = formInMain
+    if (rightPanelShown) {
       rightPanelRef.current?.expand()
     } else {
       rightPanelRef.current?.collapse()
     }
-  }, [frontmatterPanelVisible])
+  }, [rightPanelShown, formInMain])
 
   // Sync drag-to-collapse back to the store
   const handleLeftPanelResize = useCallback(
@@ -104,6 +113,8 @@ export const Layout: React.FC = () => {
 
   const handleRightPanelResize = useCallback(
     (size: { asPercentage: number }) => {
+      // Collapsed for a form in the main area, not by the writer
+      if (formInMainRef.current) return
       const isCollapsed = size.asPercentage === 0
       const { frontmatterPanelVisible: current, setFrontmatterPanelVisible } =
         useUIStore.getState()
@@ -250,7 +261,7 @@ export const Layout: React.FC = () => {
           </ResizablePanel>
 
           <ResizableHandle
-            className={`!cursor-col-resize ${frontmatterPanelVisible ? '' : 'hidden'}`}
+            className={`!cursor-col-resize ${rightPanelShown ? '' : 'hidden'}`}
           />
           <ResizablePanel
             id="right-sidebar"

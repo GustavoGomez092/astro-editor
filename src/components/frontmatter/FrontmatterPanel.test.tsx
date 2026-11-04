@@ -9,6 +9,12 @@ import { renderWithProviders } from '../../test/test-utils'
 import { useCollectionsQuery } from '../../hooks/queries/useCollectionsQuery'
 vi.mock('../../hooks/queries/useCollectionsQuery')
 
+// Whether the open file's collection hides the body editor
+import { useBodyEditorHidden } from '../../hooks/editor/useBodyEditorHidden'
+vi.mock('../../hooks/editor/useBodyEditorHidden', () => ({
+  useBodyEditorHidden: vi.fn(() => false),
+}))
+
 // Helper to create mock file entries with all required fields
 const createMockFile = (overrides: Partial<FileEntry> = {}): FileEntry => ({
   id: 'posts/test',
@@ -38,6 +44,7 @@ describe('FrontmatterPanel Component', () => {
   beforeEach(() => {
     // Default mock - no collections
     mockCollectionsQuery([])
+    vi.mocked(useBodyEditorHidden).mockReturnValue(false)
 
     useEditorStore.setState({
       currentFile: null,
@@ -456,5 +463,45 @@ describe('FrontmatterPanel Component', () => {
     expect(screen.getByText('tech')).toBeInTheDocument()
     expect(screen.getByText('programming')).toBeInTheDocument()
     expect(screen.getByLabelText('Remove tech tag')).toBeInTheDocument()
+  })
+
+  describe('placement', () => {
+    // A collection without body text is edited in the main area, so its form
+    // shows there and the sidebar steps aside
+    const openEntry = (bodyHidden: boolean) => {
+      vi.mocked(useBodyEditorHidden).mockReturnValue(bodyHidden)
+      useEditorStore.setState({
+        currentFile: createMockFile(),
+        frontmatter: { title: 'Hero' },
+      })
+    }
+
+    it('shows the fields in the sidebar when the body editor shows', () => {
+      openEntry(false)
+      renderWithProviders(<FrontmatterPanel />)
+      expect(screen.getByDisplayValue('Hero')).toBeInTheDocument()
+    })
+
+    it('shows nothing in the sidebar when the body editor is hidden', () => {
+      openEntry(true)
+      const { container } = renderWithProviders(<FrontmatterPanel />)
+      expect(screen.queryByDisplayValue('Hero')).toBeNull()
+      expect(container.querySelector('[data-frontmatter-panel]')).toBeNull()
+    })
+
+    it('shows the fields in the main area when the body editor is hidden', () => {
+      openEntry(true)
+      renderWithProviders(<FrontmatterPanel placement="main" />)
+      expect(screen.getByDisplayValue('Hero')).toBeInTheDocument()
+    })
+
+    it('shows nothing in the main area when the body editor shows', () => {
+      openEntry(false)
+      const { container } = renderWithProviders(
+        <FrontmatterPanel placement="main" />
+      )
+      expect(screen.queryByDisplayValue('Hero')).toBeNull()
+      expect(container.querySelector('[data-frontmatter-panel]')).toBeNull()
+    })
   })
 })

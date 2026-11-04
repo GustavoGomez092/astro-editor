@@ -5,6 +5,7 @@ import { useProjectStore } from '../../../store/projectStore'
 import { useUIStore } from '../../../store/uiStore'
 import { useCreateFile } from '../../../hooks/useCreateFile'
 import { useAppVersionQuery } from '../../../hooks/queries/useAppVersionQuery'
+import { useBodyEditorHidden } from '../../../hooks/editor/useBodyEditorHidden'
 import { Badge } from '../../ui/badge'
 import { Button } from '../../ui/button'
 import {
@@ -50,6 +51,9 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
   const frontmatterPanelVisible = useUIStore(
     state => state.frontmatterPanelVisible
   )
+  // A collection without body text has its form in the main area, and the
+  // frontmatter panel stays collapsed (Layout)
+  const formInMain = useBodyEditorHidden()
   const toggleSidebar = useUIStore(state => state.toggleSidebar)
   const sidebarVisible = useUIStore(state => state.sidebarVisible)
   const focusModeEnabled = useUIStore(state => state.focusModeEnabled)
@@ -193,14 +197,17 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
           onClick={toggleFrontmatterPanel}
           variant="ghost"
           size="sm"
+          disabled={formInMain}
           className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
           title={
-            frontmatterPanelVisible
-              ? 'Close Frontmatter Panel'
-              : 'Open Frontmatter Panel'
+            formInMain
+              ? "This collection's fields are in the main area"
+              : frontmatterPanelVisible
+                ? 'Close Frontmatter Panel'
+                : 'Open Frontmatter Panel'
           }
         >
-          {frontmatterPanelVisible ? (
+          {frontmatterPanelVisible && !formInMain ? (
             <PanelRightClose className="size-4" />
           ) : (
             <PanelRight className="size-4" />

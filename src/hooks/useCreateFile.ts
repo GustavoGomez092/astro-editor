@@ -19,10 +19,7 @@ import {
   newFileName,
   newFileTitlePlaceholder,
 } from '../lib/files/new-file'
-import {
-  BODY_EDITOR_ATTRIBUTE,
-  focusNewFile,
-} from '../lib/files/focus-new-file'
+import { focusNewFile } from '../lib/files/focus-new-file'
 
 /**
  * Creates a file named after `title` (or today's date when there's none) in
@@ -134,19 +131,8 @@ async function createFileInCurrentFolder(
     }
 
     // Focus where the writer types next, once the entry and its form show.
-    // A collection without body text is edited in the frontmatter panel, so
-    // that's shown first
-    setTimeout(() => {
-      const ui = useUIStore.getState()
-      const bodyHidden =
-        document.querySelector(`[${BODY_EDITOR_ATTRIBUTE}="hidden"]`) !== null
-      if (bodyHidden && !ui.frontmatterPanelVisible) {
-        ui.setFrontmatterPanelVisible(true)
-        setTimeout(() => focusNewFile({ titleGiven: !!title }), 100)
-        return
-      }
-      focusNewFile({ titleGiven: !!title })
-    }, 200)
+    // A collection without body text has its form in the main area
+    setTimeout(() => focusNewFile({ titleGiven: !!title }), 200)
   }
 }
 

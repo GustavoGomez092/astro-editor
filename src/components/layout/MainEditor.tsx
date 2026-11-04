@@ -10,6 +10,7 @@ import { GitMainView } from '../git/GitMainView'
 import { useGitEditGuard } from '../../hooks/useGitEditGuard'
 import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
 import { useGitStore } from '../../store/gitStore'
+import { FrontmatterPanel } from '../frontmatter'
 
 // Welcome screen component for better organization
 const WelcomeScreen: React.FC = () => {
@@ -52,20 +53,6 @@ const WelcomeScreen: React.FC = () => {
   )
 }
 
-// Shown instead of the editor in a collection without body text
-const NoBodyText: React.FC = () => (
-  <div className="flex h-full items-center justify-center p-8">
-    <div className="flex max-w-sm flex-col gap-2 text-center text-muted-foreground">
-      <h2 className="m-0 text-lg font-normal">No text to write here</h2>
-      <p className="m-0 text-sm">
-        Entries in this collection are only the fields on the right, so
-        that&apos;s where you edit them. To write text here too, change Body
-        Text in this collection&apos;s settings.
-      </p>
-    </div>
-  </div>
-)
-
 export const MainEditor: React.FC = () => {
   // PERFORMANCE FIX: Use specific selector instead of currentFile object to avoid cascade
   const hasCurrentFile = useEditorStore(state => !!state.currentFile)
@@ -90,7 +77,14 @@ export const MainEditor: React.FC = () => {
             >
               <Editor />
             </div>
-            {bodyHidden && <NoBodyText />}
+            {/* A collection without body text is edited here, in a form
+                where the editor would be; the sidebar's form steps aside */}
+            <div
+              className={bodyHidden ? 'h-full' : 'hidden'}
+              data-main-form={bodyHidden ? 'shown' : 'hidden'}
+            >
+              <FrontmatterPanel placement="main" />
+            </div>
           </>
         ) : (
           <WelcomeScreen />
