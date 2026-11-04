@@ -30,6 +30,7 @@ import { useDeepLink } from '../../hooks/useDeepLink'
 import { useSquareCornersEffect } from '../../hooks/useSquareCornersEffect'
 import { useExternalLinkHandler } from '../../hooks/useExternalLinkHandler'
 import { useGitStatusRefresh } from '../../hooks/useGitStatusRefresh'
+import { useSitePreparation } from '../../hooks/useSitePreparation'
 import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
 import { useGitStore } from '../../store/gitStore'
 import { SignInSheet } from '../git/SignInSheet'
@@ -153,6 +154,8 @@ export const Layout: React.FC = () => {
 
   // Git panel: keep the status current; a new project starts on Files
   useGitStatusRefresh(projectPath)
+  // A fresh clone has no collection schemas until `astro sync` runs
+  useSitePreparation(projectPath)
   useEffect(() => {
     useGitStore.getState().reset()
   }, [projectPath])

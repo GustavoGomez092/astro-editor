@@ -4,6 +4,7 @@ import {
   cloneProgressPercent,
   cloneUrlFromInput,
   filterRepos,
+  shortenMiddle,
   sitesFolder,
 } from './clone'
 
@@ -75,5 +76,20 @@ describe('sitesFolder', () => {
   it('is ~/Sites', () => {
     expect(sitesFolder('/Users/kevin')).toBe('/Users/kevin/Sites')
     expect(sitesFolder('/Users/kevin/')).toBe('/Users/kevin/Sites')
+  })
+})
+
+describe('shortenMiddle', () => {
+  it('leaves a short path alone', () => {
+    expect(shortenMiddle('~/Sites/kr-site', 40)).toBe('~/Sites/kr-site')
+  })
+  it('cuts the middle of a long path, keeping both ends', () => {
+    const long =
+      '/private/tmp/claude-501/-Volumes-Content-projects/scratchpad/ae/Sites/kr-site-e2e'
+    const short = shortenMiddle(long, 40)
+    expect(short).toHaveLength(40)
+    expect(short.startsWith('/private/tmp')).toBe(true)
+    expect(short.endsWith('Sites/kr-site-e2e')).toBe(true)
+    expect(short).toContain('…')
   })
 })

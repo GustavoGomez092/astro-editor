@@ -8,7 +8,9 @@ import {
   cloneRepository,
   cloneUrlFromInput,
   filterRepos,
+  shortenMiddle,
 } from '@/lib/git/clone'
+import { markSitePrepared, prepareSite } from '@/lib/dev-server/prepare'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
 import { formatRelativeTime } from '@/lib/dates'
 import { toast } from '@/lib/toast'
@@ -55,7 +57,8 @@ function folderNameFrom(cloneUrl: string): string {
 /**
  * Open from GitHub: pick one of the writer's repositories (or paste a link),
  * choose where it goes (~/Sites by default), download it and open it as the
- * project. Its dependencies are installed by Preview the first time it runs.
+ * project. Before it opens, the site is prepared (dependencies installed,
+ * `astro sync` run) so its forms have their schemas at once.
  */
 export function OpenFromGitHubDialog() {
   const open = useGitStore(state => state.openFromGitHubOpen)
@@ -88,6 +91,8 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
   const [chosen, setChosen] = useState<Choice | null>(null)
   const [folder, setFolder] = useState<string | null>(null)
   const [progress, setProgress] = useState<CloneProgress | null>(null)
+  // After the download: installing and reading the collections
+  const [preparing, setPreparing] = useState(false)
   const cloning = useGitStore(state => state.cloneInProgress)
   const setCloning = (value: boolean) =>
     useGitStore.getState().setCloneInProgress(value)
@@ -103,6 +108,10 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
     : null
   const matches = filterRepos(repos.data ?? [], pasted ? '' : search)
   const selection = chosen ?? pasted
+  const destination =
+    parentDir && selection
+      ? `${parentDir}/${folderNameFrom(selection.cloneUrl)}`
+      : parentDir
 
   const chooseFolder = () => {
     void pickFolder({
@@ -125,14 +134,28 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
     setCloning(true)
     setError(null)
     setProgress(null)
+    const name = folderNameFrom(selection.cloneUrl)
     void cloneRepository(selection.cloneUrl, parentDir, setProgress)
-      .then(projectPath => {
+      .then(async projectPath => {
+        // Before opening it, so its forms have their schemas at once
+        setPreparing(true)
+        markSitePrepared(projectPath)
+        const prepared = await prepareSite(projectPath)
+        setPreparing(false)
         setCloning(false)
         useProjectStore.getState().setProject(projectPath)
-        toast.success(`Opened ${folderNameFrom(selection.cloneUrl)}`)
+        if (prepared) {
+          toast.success(`Opened ${name}`)
+        } else {
+          toast.warning(`Opened ${name}, but some fields may be missing.`, {
+            description:
+              "Its collections couldn't be read yet. Preview's output shows why.",
+          })
+        }
         onDone()
       })
       .catch((reason: unknown) => {
+        setPreparing(false)
         setCloning(false)
         setError(reason instanceof Error ? reason.message : String(reason))
       })
@@ -170,8 +193,9 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
   const percent = progress ? cloneProgressPercent(progress) : null
 
   return (
+    // min-w-0: a long folder path mustn't widen the dialog past its buttons
     <form
-      className="space-y-4"
+      className="min-w-0 space-y-4"
       onSubmit={event => {
         event.preventDefault()
         startClone()
@@ -239,14 +263,13 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         )}
       </div>
 
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-muted-foreground">Save in</span>
+      <div className="flex min-w-0 items-center gap-2 text-sm">
+        <span className="shrink-0 text-muted-foreground">Save in</span>
         <span
           className="min-w-0 flex-1 truncate font-mono text-xs"
-          title={parentDir ?? ''}
+          title={destination ?? ''}
         >
-          {parentDir ? shortenHome(parentDir) : '…'}
-          {selection && `/${folderNameFrom(selection.cloneUrl)}`}
+          {destination ? shortenMiddle(shortenHome(destination), 44) : '…'}
         </span>
         <Button
           type="button"
@@ -265,13 +288,19 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
             <div
               className={cn(
                 'h-full rounded-full bg-primary transition-[width]',
-                percent === null && 'w-1/3 animate-pulse'
+                (percent === null || preparing) && 'w-1/3 animate-pulse'
               )}
-              style={percent === null ? undefined : { width: `${percent}%` }}
+              style={
+                percent === null || preparing
+                  ? undefined
+                  : { width: `${percent}%` }
+              }
             />
           </div>
           <p className="text-xs text-muted-foreground">
-            Downloading{percent === null ? '…' : ` ${percent}%`}
+            {preparing
+              ? 'Preparing your site…'
+              : `Downloading${percent === null ? '…' : ` ${percent}%`}`}
           </p>
         </div>
       )}

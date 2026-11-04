@@ -50,3 +50,14 @@ export async function cloneRepository(
   )
   return unwrap(commands.gitClone(cloneUrl, parentDir)).finally(unlisten)
 }
+
+/**
+ * A path cut in the middle to at most `max` characters, keeping its start
+ * and, longer, its end (where the site's folder is): "/private/tmp/…/Sites/kr".
+ */
+export function shortenMiddle(path: string, max: number): string {
+  if (path.length <= max) return path
+  const head = Math.floor((max - 1) * 0.4)
+  const tail = max - 1 - head
+  return `${path.slice(0, head)}…${path.slice(path.length - tail)}`
+}
