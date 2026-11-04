@@ -21,7 +21,6 @@ import { getCollectionFolderOverrides } from '../lib/project-registry/path-resol
 import { collectionPathsChanged } from '../lib/project-registry/collection-settings'
 import { queryClient } from '../lib/query-client'
 import { queryKeys } from '../lib/query-keys'
-import { wasStartupClaimedByDeepLink } from '../lib/deep-link'
 import { stopDevServer } from '../lib/dev-server'
 
 interface ProjectState {
@@ -44,6 +43,8 @@ interface ProjectState {
 
   // Actions
   setProject: (path: string) => void
+  /** Closes the open project (back to Home): stops its watcher and dev server */
+  closeProject: () => Promise<void>
   setSelectedCollection: (collection: string | null) => void
   setCurrentSubdirectory: (subdirectory: string | null) => void
   navigateUp: () => void // Go up one level in directory hierarchy
@@ -140,6 +141,22 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         await logError(errorMsg)
       }
     })()
+  },
+
+  closeProject: async () => {
+    const { projectPath } = get()
+    if (!projectPath) return
+    useEditorStore.getState().closeCurrentFile()
+    await get().stopFileWatcher()
+    // Left running it would go unseen, as when another project opens
+    void stopDevServer(projectPath)
+    set({
+      projectPath: null,
+      currentProjectId: null,
+      currentProjectSettings: null,
+      selectedCollection: null,
+      currentSubdirectory: null,
+    })
   },
 
   setSelectedCollection: (collection: string | null) => {
@@ -307,46 +324,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   loadPersistedProject: async () => {
     try {
+      // The app always starts on Home: the writer picks a site there, and a
+      // deep link opens its own file. Nothing reopens the last project
       await get().initializeProjectRegistry()
 
-      // If the app was launched by a deep link, let it choose which project to
-      // open instead of restoring the last one (avoids opening the wrong project
-      // then switching). Bounded wait so we never hang on normal startup.
-      if (await wasStartupClaimedByDeepLink()) {
-        await info(
-          'Astro Editor [PROJECT_SETUP] Deep link claimed startup - skipping persisted project load'
-        )
-        return
-      }
-
-      // Try to load the last opened project from registry
-      const lastProjectId = projectRegistryManager.getLastOpenedProjectId()
-      if (lastProjectId) {
-        // Get project metadata from registry (not from project data)
-        const registry = projectRegistryManager.getRegistry()
-        const projectMetadata = registry.projects[lastProjectId]
-
-        if (projectMetadata) {
-          try {
-            // Verify the project path still exists before setting it
-            const result = await commands.scanProject(projectMetadata.path)
-            if (result.status === 'error') {
-              throw new Error(result.error)
-            }
-            // If no error, the project path is valid, so restore it
-            get().setProject(projectMetadata.path)
-          } catch (error) {
-            toast.info('Previous project no longer available', {
-              description: 'The last opened project could not be found.',
-            })
-            void logWarn(
-              `Saved project path no longer valid: ${projectMetadata.path}: ${String(error)}`
-            )
-          }
-        }
-      }
-
-      // Project persistence is now fully handled by the file-based project registry
       // Clean up any legacy localStorage entries to prevent conflicts
       try {
         localStorage.removeItem('astro-editor-last-project')
@@ -354,7 +335,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // Ignore errors - localStorage cleanup is optional
       }
     } catch (error) {
-      void logWarn(`Failed to load persisted project: ${String(error)}`)
+      void logWarn(`Failed to load the project registry: ${String(error)}`)
     }
   },
 

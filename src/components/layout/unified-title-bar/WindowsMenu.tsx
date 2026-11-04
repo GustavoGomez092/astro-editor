@@ -131,6 +131,10 @@ export const WindowsMenu: React.FC = () => {
           Open Project...
           <DropdownMenuShortcut>Ctrl+Shift+O</DropdownMenuShortcut>
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => void emit('menu-go-home')}>
+          Home
+          <DropdownMenuShortcut>Ctrl+Shift+H</DropdownMenuShortcut>
+        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void emit('menu-show-projects')}>
           Projects...
         </DropdownMenuItem>

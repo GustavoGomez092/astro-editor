@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { onOpenUrl, getCurrent } from '@tauri-apps/plugin-deep-link'
 import { error as logError } from '@tauri-apps/plugin-log'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { parseDeepLinkPath, resolveDeepLinkStartup } from '../lib/deep-link'
+import { parseDeepLinkPath } from '../lib/deep-link'
 
 function logOpenError(error: unknown) {
   void logError(`Deep link failed to open: ${String(error)}`)
@@ -21,9 +21,6 @@ async function getLaunchOpenUrls(): Promise<string[]> {
  * - **Warm** (app already running): `onOpenUrl` fires with the incoming URL(s).
  * - **Cold start** (app launched *by* the link): `onOpenUrl` does not fire for
  *   the launch URL, so we read it once via `getCurrent()`.
- *
- * On cold start we also signal `resolveDeepLinkStartup` so the persisted-project
- * loader yields to the deep link's target project (see `loadPersistedProject`).
  */
 export function useDeepLink(openFileByPath: (path: string) => Promise<void>) {
   // Capture the latest callback in a ref so listeners are set up only once
@@ -61,9 +58,6 @@ export function useDeepLink(openFileByPath: (path: string) => Promise<void>) {
         void logError(`Deep link getCurrent failed: ${String(e)}`)
         return []
       })
-
-      // Let the persisted-project loader know whether to stand down.
-      resolveDeepLinkStartup(openUrls.length > 0)
 
       if (!cancelled) {
         for (const url of openUrls) {

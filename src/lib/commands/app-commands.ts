@@ -18,13 +18,14 @@ import {
   BookOpen,
   Keyboard,
   FilePen,
+  House,
 } from 'lucide-react'
 import { openPath } from '@tauri-apps/plugin-opener'
 import { AppCommand, CommandContext } from './types'
 import type { Collection } from '@/types'
 import { toast } from '../toast'
 import { openInIde } from '../ide'
-import { openProjectViaDialog } from '../projects/actions'
+import { goHome, openProjectViaDialog } from '../projects/actions'
 import { DOCS_URLS } from '../docs-urls'
 import { collectionDisplayName } from '../collection-name'
 import { useContentLinkerStore } from '@/store/contentLinkerStore'
@@ -146,6 +147,15 @@ export const projectCommands: AppCommand[] = [
       await openProjectViaDialog()
     },
     isAvailable: () => true,
+  },
+  {
+    id: 'go-home',
+    label: 'Go Home',
+    description: 'Close this site and see all your sites',
+    icon: House,
+    group: 'project',
+    execute: () => goHome(),
+    isAvailable: (context: CommandContext) => Boolean(context.projectPath),
   },
   {
     id: 'show-projects',

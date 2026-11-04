@@ -10,6 +10,11 @@ const platformStrings = {
     windows: 'Show in Explorer',
     linux: 'Show in File Manager',
   },
+  showInFileManager: {
+    macos: 'Show in Finder',
+    windows: 'Show in Explorer',
+    linux: 'Show in File Manager',
+  },
   fileManager: {
     macos: 'Finder',
     windows: 'Explorer',
