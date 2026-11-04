@@ -91,8 +91,7 @@ describe('frontmatterToWrite with keys the file never had', () => {
     name: string,
     type: FieldType,
     extra: Partial<SchemaField> = {}
-  ): SchemaField =>
-    ({ name, label: name, type, required: false, ...extra }) as SchemaField
+  ): SchemaField => ({ name, label: name, type, required: false, ...extra })
   const FIELDS = [
     field('title', FieldType.String),
     field('featured', FieldType.Boolean),
