@@ -35,7 +35,19 @@ export const PreviewButton: React.FC = () => {
   const [outputOpen, setOutputOpen] = React.useState(false)
   const activePath = enabled ? projectPath : null
   const state = useDevServer(activePath)
-  const lines = useDevServerLogs(activePath, outputOpen)
+
+  // A stopped server has no status dot, so close its output with it;
+  // otherwise it reopens on the next start and its logs keep polling
+  const [previousStatus, setPreviousStatus] = React.useState(state.status)
+  if (state.status !== previousStatus) {
+    setPreviousStatus(state.status)
+    if (state.status === 'stopped') setOutputOpen(false)
+  }
+
+  const lines = useDevServerLogs(
+    activePath,
+    outputOpen && state.status !== 'stopped'
+  )
 
   if (!activePath) return null
 

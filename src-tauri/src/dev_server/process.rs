@@ -1,13 +1,15 @@
 //! Starting and stopping a project's dev server.
 //!
-//! The command runs through the user's login shell (`$SHELL -lc`), because an
-//! app opened from the Dock doesn't get the `PATH` a terminal has, so it
-//! wouldn't find Node from nvm or Homebrew. The shell leads its own process
-//! group, so stopping signals the group and takes down everything the server
-//! started (Astro, Vite, esbuild) instead of only the shell.
+//! The command runs as `/bin/sh -c` with the `PATH` the user's own shell has
+//! (`env_path.rs`), so it finds Node from nvm, fnm, Volta or Homebrew even when
+//! the app was opened from the Dock, and with an environment cleaned of what
+//! the app's launcher left in it. The shell leads its own process group, so
+//! stopping signals the group and takes down everything the server started
+//! (Astro, Vite, esbuild) instead of only the shell.
 
 use super::detect::{self, Ready};
-use super::{Config, DevServerState, DevServerStatus, DevServers, Server, StateListener};
+use super::env_path;
+use super::{lock, Config, DevServerState, DevServerStatus, DevServers, Server, StateListener};
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -25,6 +27,9 @@ const KILL_WAIT: Duration = Duration::from_secs(1);
 /// still in the pipes
 const DRAIN_TIMEOUT: Duration = Duration::from_millis(500);
 
+/// Longer output lines are cut to this many bytes
+const MAX_LINE_BYTES: usize = 4096;
+
 /// How many output lines an error message ends with
 const ERROR_LINES: usize = 10;
 
@@ -37,14 +42,14 @@ impl DevServers {
             .shared
             .servers
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .entry(project_path.to_string())
             .or_default()
             .clone();
         let listener = self.shared.listener.clone();
         let root = Path::new(project_path);
 
-        let mut inner = server.inner.lock().unwrap();
+        let mut inner = lock(&server.inner);
         if inner.is_active() {
             return inner.state.clone();
         }
@@ -116,7 +121,7 @@ impl DevServers {
         let listener = &self.shared.listener;
 
         let (run, pgid) = {
-            let mut inner = server.inner.lock().unwrap();
+            let mut inner = lock(&server.inner);
             if !inner.is_active() {
                 if inner.state.status == DevServerStatus::Stopped {
                     return inner.state.clone();
@@ -136,7 +141,7 @@ impl DevServers {
             terminate_group(&server, pgid);
         }
 
-        let mut inner = server.inner.lock().unwrap();
+        let mut inner = lock(&server.inner);
         if inner.run == run && inner.state.status != DevServerStatus::Stopped {
             inner.pgid = None;
             inner.state = stopped_state(&inner.state);
@@ -154,7 +159,7 @@ impl DevServers {
             .shared
             .servers
             .lock()
-            .unwrap()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
             .keys()
             .cloned()
             .collect();
@@ -187,23 +192,14 @@ fn error_state(command: Option<String>, error: String) -> DevServerState {
     }
 }
 
-/// Runs `command` in the project folder through the login shell, as the
-/// leader of a new process group
+/// Runs `command` in the project folder with `/bin/sh -c`, with the user's
+/// `PATH` and a cleaned environment, as the leader of a new process group
 fn spawn(config: &Config, root: &Path, command: &str) -> std::io::Result<Child> {
     #[cfg(unix)]
     let mut cmd = {
         use std::os::unix::process::CommandExt;
-        let shell = config
-            .shell
-            .clone()
-            .or_else(|| {
-                std::env::var_os("SHELL")
-                    .filter(|s| !s.is_empty())
-                    .map(PathBuf::from)
-            })
-            .unwrap_or_else(|| PathBuf::from("/bin/zsh"));
-        let mut cmd = Command::new(shell);
-        cmd.arg("-lc").arg(command).process_group(0);
+        let mut cmd = Command::new("/bin/sh");
+        cmd.arg("-c").arg(command).process_group(0);
         cmd
     };
     #[cfg(windows)]
@@ -215,12 +211,68 @@ fn spawn(config: &Config, root: &Path, command: &str) -> std::io::Result<Child> 
             .creation_flags(CREATE_NEW_PROCESS_GROUP | CREATE_NO_WINDOW);
         cmd
     };
+    let path = config.path.clone().unwrap_or_else(env_path::user_path);
     cmd.current_dir(root)
-        .envs(config.env.iter().map(|(k, v)| (k, v)))
+        .env_clear()
+        .envs(server_env(std::env::vars_os(), &config.env))
+        .env("PATH", path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
+}
+
+/// Variables that change how tools behave depending on how the app was
+/// launched: Astro detaches its server when it sees an AI agent's markers
+/// (it checks them with `am-i-vibing`), and npm's `npm_*`, `INIT_CWD`,
+/// `NODE_ENV`, `PORT`, `HOST` and `NODE_OPTIONS` belong to whatever ran the
+/// app, not to this project
+const REMOVED_VARIABLES: &[&str] = &[
+    "CLAUDECODE",
+    "AI_AGENT",
+    "AGENT",
+    "GEMINI_CLI",
+    "CURSOR_AGENT",
+    "CURSOR_TRACE_ID",
+    "AIDER_API_KEY",
+    "AMP_CURRENT_THREAD_ID",
+    "ANTIGRAVITY_AGENT",
+    "ANTIGRAVITY_PROJECT_ID",
+    "AUGMENT_AGENT",
+    "CODEIUM_EDITOR_APP_ROOT",
+    "CRUSH",
+    "OPENCODE",
+    "PI_CODING_AGENT",
+    "QWEN_CODE",
+    "REPL_ID",
+    "REPLIT_MODE",
+    // Zed's, VS Code's and Warp's agents are told apart by the terminal
+    "TERM_PROGRAM",
+    "TERM_PROGRAM_VERSION",
+    "INIT_CWD",
+    "NODE_ENV",
+    "PORT",
+    "HOST",
+    "NODE_OPTIONS",
+    "PATH",
+    env_path::GUARD_VARIABLE,
+];
+
+const REMOVED_PREFIXES: &[&str] = &["CLAUDE_CODE_", "CODEX_", "OPENCODE_", "npm_", "NPM_CONFIG_"];
+
+fn is_removed(name: &str) -> bool {
+    REMOVED_VARIABLES.contains(&name) || REMOVED_PREFIXES.iter().any(|p| name.starts_with(p))
+}
+
+/// The app's environment plus `extra`, without the removed variables
+fn server_env(
+    inherited: impl Iterator<Item = (std::ffi::OsString, std::ffi::OsString)>,
+    extra: &[(String, String)],
+) -> Vec<(std::ffi::OsString, std::ffi::OsString)> {
+    inherited
+        .chain(extra.iter().map(|(k, v)| (k.into(), v.into())))
+        .filter(|(name, _)| !name.to_str().is_some_and(is_removed))
+        .collect()
 }
 
 #[cfg(windows)]
@@ -261,7 +313,7 @@ fn read_lines(pipe: impl Read + Send + 'static, tx: Sender<Message>) {
             match reader.read_until(b'\n', &mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(_) => {
-                    let line = detect::strip_ansi(&String::from_utf8_lossy(&buf));
+                    let line = cap_line(detect::strip_ansi(&String::from_utf8_lossy(&buf)));
                     if tx.send(Message::Line(line)).is_err() {
                         break;
                     }
@@ -270,6 +322,21 @@ fn read_lines(pipe: impl Read + Send + 'static, tx: Sender<Message>) {
         }
         let _ = tx.send(Message::Eof);
     });
+}
+
+/// Cuts a line longer than `MAX_LINE_BYTES` (a minified bundle in an error,
+/// say), so the kept output stays small
+fn cap_line(mut line: String) -> String {
+    if line.len() <= MAX_LINE_BYTES {
+        return line;
+    }
+    let mut end = MAX_LINE_BYTES;
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    line.truncate(end);
+    line.push('…');
+    line
 }
 
 /// Follows one run of a server: the install, if any, then the server itself
@@ -287,7 +354,7 @@ impl Monitor {
     fn run(self, mut rx: Receiver<Message>, install: Option<String>, command: String) {
         if let Some(install) = install {
             let code = self.follow(&rx, false);
-            let mut inner = self.server.inner.lock().unwrap();
+            let mut inner = lock(&self.server.inner);
             if inner.run != self.run {
                 return;
             }
@@ -335,7 +402,7 @@ impl Monitor {
         }
 
         let code = self.follow(&rx, true);
-        let mut inner = self.server.inner.lock().unwrap();
+        let mut inner = lock(&self.server.inner);
         if inner.run != self.run {
             return;
         }
@@ -401,7 +468,7 @@ impl Monitor {
     }
 
     fn on_line(&self, line: String, server: bool) {
-        let mut inner = self.server.inner.lock().unwrap();
+        let mut inner = lock(&self.server.inner);
         if inner.run != self.run {
             return;
         }
@@ -428,9 +495,32 @@ impl Monitor {
     }
 }
 
-/// The plain-words error for a shell that couldn't find the command's
-/// program (usually npm, so Node isn't installed or isn't on the login
-/// shell's PATH)
+/// The program a shell couldn't find, from its message: `sh: npm: command not
+/// found`, `zsh:1: command not found: npm`, `env: node: No such file or
+/// directory` (a `#!/usr/bin/env node` script), or cmd.exe's "is not recognized"
+fn missing_program(line: &str) -> Option<String> {
+    static PATTERNS: std::sync::OnceLock<Vec<regex::Regex>> = std::sync::OnceLock::new();
+    let patterns = PATTERNS.get_or_init(|| {
+        [
+            r"command not found: (\S+)",
+            r"([^\s:]+): command not found",
+            r"([^\s:]+): not found",
+            r"env: ([^\s:]+): No such file or directory",
+            r"'([^']+)' is not recognized as an internal or external command",
+        ]
+        .iter()
+        .map(|p| regex::Regex::new(p).unwrap())
+        .collect()
+    });
+    patterns
+        .iter()
+        .find_map(|re| re.captures(line))
+        .map(|caps| caps[1].to_string())
+}
+
+/// The plain-words error for a shell that couldn't find the command's own
+/// program, or Node behind it. A program missing further in (`astro`, when
+/// dependencies aren't installed) gets the ordinary error with the output.
 fn not_found_error(
     code: Option<i32>,
     command: &str,
@@ -440,18 +530,23 @@ fn not_found_error(
     if !matches!(code, Some(127) | Some(9009)) {
         return None;
     }
-    let program = command.split_whitespace().next()?;
-    let mentioned = logs.iter().rev().take(ERROR_LINES).any(|line| {
-        line.contains(program) && (line.contains("not found") || line.contains("not recognized"))
-    });
-    mentioned.then(|| {
-        with_last_lines(
-            &format!(
-                "Couldn't find {program}. Install Node.js from https://nodejs.org, then try again."
-            ),
-            logs,
-        )
-    })
+    let first = command.split_whitespace().next()?;
+    let missing = logs
+        .iter()
+        .rev()
+        .take(ERROR_LINES)
+        .find_map(|line| missing_program(line))?;
+    if missing != first && missing != "node" {
+        return None;
+    }
+    let message = match missing.as_str() {
+        "node" | "npm" | "npx" | "pnpm" | "yarn" | "corepack" => format!(
+            "Couldn't find {missing}. Install Node.js from https://nodejs.org, then try again."
+        ),
+        "bun" => "Couldn't find bun. Install it from https://bun.sh, then try again.".to_string(),
+        _ => format!("Couldn't find {missing}. Check the Dev command in Project Settings."),
+    };
+    Some(with_last_lines(&message, logs))
 }
 
 /// The message, then the last lines of output, which usually say why
@@ -532,13 +627,14 @@ fn group_alive(_server: &Server, pgid: u32) -> bool {
 /// Windows has no process groups to ask, so this waits for the shell itself
 #[cfg(windows)]
 fn group_alive(server: &Server, pid: u32) -> bool {
-    let inner = server.inner.lock().unwrap();
+    let inner = lock(&server.inner);
     inner.pgid == Some(pid) && inner.is_active()
 }
 
 #[cfg(test)]
 mod tests {
     use super::super::*;
+    use super::{missing_program, MAX_LINE_BYTES};
     use std::fs;
     use std::path::{Path, PathBuf};
     use std::time::{Duration, Instant};
@@ -554,15 +650,16 @@ mod tests {
     impl Fixture {
         /// `package_json` of `None` leaves it out
         fn new(package_json: Option<&str>) -> Self {
+            Self::with_env(package_json, &[])
+        }
+
+        /// With extra variables in the environment the servers start from
+        fn with_env(package_json: Option<&str>, env: &[(&str, &str)]) -> Self {
             let dir = TempDir::new().unwrap();
             if let Some(json) = package_json {
                 fs::write(dir.path().join("package.json"), json).unwrap();
             }
-            // Stands in for the login shell without reading the profile, so the
-            // tests control PATH: called as `<shell> -lc <command>`
-            let shell = dir.path().join("shell");
-            fs::write(&shell, "#!/bin/sh\nexec /bin/sh -c \"$2\"\n").unwrap();
-            make_executable(&shell);
+            // The tests set PATH rather than resolve the user's
             let bin = dir.path().join("bin");
             fs::create_dir(&bin).unwrap();
             let path = format!("{}:/usr/bin:/bin", bin.display());
@@ -572,8 +669,11 @@ mod tests {
             let servers = DevServers::with_config(
                 Arc::new(move |_, state| recorded.lock().unwrap().push(state.clone())),
                 Config {
-                    shell: Some(shell),
-                    env: vec![("PATH".into(), path)],
+                    path: Some(path),
+                    env: env
+                        .iter()
+                        .map(|(k, v)| (k.to_string(), v.to_string()))
+                        .collect(),
                 },
             );
             Self {
@@ -774,6 +874,155 @@ sleep 30",
             ),
             "{error}"
         );
+    }
+
+    #[test]
+    fn bun_not_found_links_bun_sh() {
+        let fx = Fixture::new(Some(DEV_PACKAGE));
+        fs::write(fx.dir.path().join("bun.lock"), "").unwrap();
+        fs::create_dir(fx.dir.path().join("node_modules")).unwrap();
+        fs::write(fx.dir.path().join("node_modules/.bun-tag"), "").unwrap();
+        fx.start(None);
+        let error = fx.wait_for(DevServerStatus::Error).error.unwrap();
+        assert!(
+            error.starts_with("Couldn't find bun. Install it from https://bun.sh, then try again."),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn missing_node_behind_env_is_node_message() {
+        let fx = Fixture::new(None);
+        // What a `#!/usr/bin/env node` script says without Node
+        fx.start(Some("env node server.js"));
+        let error = fx.wait_for(DevServerStatus::Error).error.unwrap();
+        assert!(
+            error.starts_with(
+                "Couldn't find node. Install Node.js from https://nodejs.org, then try again."
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn other_command_not_found_points_to_settings() {
+        let fx = Fixture::new(None);
+        fx.start(Some("astro-nope dev"));
+        let error = fx.wait_for(DevServerStatus::Error).error.unwrap();
+        assert!(
+            error.starts_with(
+                "Couldn't find astro-nope. Check the Dev command in Project Settings."
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn missing_program_from_shell_messages() {
+        let cases = [
+            ("sh: npm: command not found", "npm"),
+            ("sh: line 1: bun: command not found", "bun"),
+            ("/bin/sh: 1: pnpm: not found", "pnpm"),
+            ("zsh:1: command not found: yarn", "yarn"),
+            ("env: node: No such file or directory", "node"),
+            (
+                "'npx' is not recognized as an internal or external command,",
+                "npx",
+            ),
+        ];
+        for (line, program) in cases {
+            assert_eq!(missing_program(line).as_deref(), Some(program), "{line}");
+        }
+        assert_eq!(missing_program("Error: page not found"), None);
+    }
+
+    #[test]
+    fn child_environment_is_cleaned() {
+        let fx = Fixture::with_env(
+            None,
+            &[
+                ("CLAUDECODE", "1"),
+                ("CLAUDE_CODE_ENTRYPOINT", "cli"),
+                ("AI_AGENT", "claude-code"),
+                ("CODEX_THREAD_ID", "t1"),
+                ("GEMINI_CLI", "1"),
+                ("npm_config_x", "1"),
+                ("npm_lifecycle_event", "dev"),
+                ("INIT_CWD", "/elsewhere"),
+                ("NODE_ENV", "production"),
+                ("PORT", "9999"),
+                ("HOST", "0.0.0.0"),
+                ("NODE_OPTIONS", "--inspect"),
+                ("KEEP_ME", "yes"),
+            ],
+        );
+        let command = fx.script(
+            "server.sh",
+            "env > env.txt\necho http://localhost:4321/\nsleep 30",
+        );
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        let env = fs::read_to_string(fx.dir.path().join("env.txt")).unwrap();
+        let names: Vec<&str> = env.lines().filter_map(|l| l.split('=').next()).collect();
+        for removed in [
+            "CLAUDECODE",
+            "CLAUDE_CODE_ENTRYPOINT",
+            "AI_AGENT",
+            "CODEX_THREAD_ID",
+            "GEMINI_CLI",
+            "npm_config_x",
+            "npm_lifecycle_event",
+            "INIT_CWD",
+            "NODE_ENV",
+            "PORT",
+            "HOST",
+            "NODE_OPTIONS",
+        ] {
+            assert!(!names.contains(&removed), "{removed} reached the server");
+        }
+        assert!(env.lines().any(|l| l == "KEEP_ME=yes"), "{env}");
+        let bin = fx.dir.path().join("bin");
+        assert!(
+            env.lines()
+                .any(|l| l == format!("PATH={}:/usr/bin:/bin", bin.display())),
+            "{env}"
+        );
+    }
+
+    #[test]
+    fn long_lines_are_capped() {
+        let fx = Fixture::new(None);
+        let command = fx.script(
+            "server.sh",
+            "head -c 10000 /dev/zero | tr '\\0' x\necho\necho http://localhost:4321/\nsleep 30",
+        );
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        let logs = fx.servers.logs(fx.path());
+        assert!(logs[0].starts_with("xxxx"), "{:?}", &logs[0][..10]);
+        assert!(
+            logs[0].len() <= MAX_LINE_BYTES + '…'.len_utf8(),
+            "{}",
+            logs[0].len()
+        );
+        assert!(logs[0].ends_with('…'));
+    }
+
+    #[test]
+    fn poisoned_lock_is_recovered() {
+        let fx = Fixture::new(None);
+        let command = fx.script("server.sh", "echo http://localhost:4321/\nsleep 30");
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        let server = fx.servers.server(fx.path()).unwrap();
+        // A thread that panics holding the lock poisons it
+        let _ = std::thread::spawn(move || {
+            let _guard = server.inner.lock().unwrap();
+            panic!("poison");
+        })
+        .join();
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+        assert_eq!(fx.servers.stop(fx.path()).status, DevServerStatus::Stopped);
     }
 
     #[test]

@@ -1,13 +1,14 @@
 //! Runs a project's dev server so a writer can preview the site: one server per
-//! project, started through the login shell in its own process group so it can
+//! project, started with the user's `PATH` in its own process group so it can
 //! always be stopped as a whole. See `docs/developer/dev-server.md`.
 
 pub mod detect;
+pub mod env_path;
 mod process;
 
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 /// How many lines of output each server keeps for the output popover
 pub const LOG_LIMIT: usize = 200;
@@ -45,6 +46,12 @@ impl DevServerState {
             error: None,
         }
     }
+}
+
+/// Locks a mutex even if a thread panicked holding it: the state inside is
+/// still usable, and stopping servers (on quit, say) must never fail on it
+pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
+    mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
 /// Called with the project path and its new state whenever a state changes.
@@ -113,9 +120,9 @@ pub(crate) struct Shared {
 /// for one that doesn't read the user's profile.
 #[derive(Default, Clone)]
 pub struct Config {
-    /// The shell to run commands with, called as `<shell> -lc <command>`.
-    /// `None` uses `$SHELL`, falling back to `/bin/zsh`.
-    pub shell: Option<std::path::PathBuf>,
+    /// The PATH servers run with. `None` uses the user's, resolved from
+    /// their shell (`env_path.rs`).
+    pub path: Option<String>,
     /// Extra environment variables for the server
     pub env: Vec<(String, String)>,
 }
@@ -139,20 +146,20 @@ impl DevServers {
         self.shared
             .servers
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .get(project_path)
             .cloned()
     }
 
     pub fn state(&self, project_path: &str) -> DevServerState {
         self.server(project_path)
-            .map(|server| server.inner.lock().unwrap().state.clone())
+            .map(|server| lock(&server.inner).state.clone())
             .unwrap_or_else(DevServerState::stopped)
     }
 
     pub fn logs(&self, project_path: &str) -> Vec<String> {
         self.server(project_path)
-            .map(|server| server.inner.lock().unwrap().logs.iter().cloned().collect())
+            .map(|server| lock(&server.inner).logs.iter().cloned().collect())
             .unwrap_or_default()
     }
 }
@@ -160,9 +167,12 @@ impl DevServers {
 impl Drop for Shared {
     /// A backstop for quitting without `stop_all`: kills any server still running
     fn drop(&mut self) {
-        let servers = self.servers.get_mut().unwrap();
+        let servers = self
+            .servers
+            .get_mut()
+            .unwrap_or_else(PoisonError::into_inner);
         for server in servers.values() {
-            let inner = server.inner.lock().unwrap();
+            let inner = lock(&server.inner);
             if let (true, Some(pgid)) = (inner.is_active(), inner.pgid) {
                 process::kill_group(pgid);
             }

@@ -43,7 +43,13 @@ pub async fn dev_server_start(
 ) -> Result<DevServerState, String> {
     check_project(&project_path)?;
     let override_command = dev_command_override(&app, &project_path);
-    Ok(servers.start(&project_path, override_command.as_deref()))
+    let servers = servers.inner().clone();
+    // The first start waits for the user's PATH (env_path.rs), up to 8 s
+    tauri::async_runtime::spawn_blocking(move || {
+        servers.start(&project_path, override_command.as_deref())
+    })
+    .await
+    .map_err(|e| format!("Couldn't start the dev server: {e}"))
 }
 
 /// Stops the project's dev server and everything it started. Waits until it's

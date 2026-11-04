@@ -79,11 +79,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // Close any currently open file when switching projects
         useEditorStore.getState().closeCurrentFile()
 
-        // The previous project's dev server would keep running unseen
-        const previousPath = get().projectPath
-        if (previousPath && previousPath !== path)
-          void stopDevServer(previousPath)
-
         // Register the project and get its ID
         await info(`Astro Editor [PROJECT_SETUP] Registering project: ${path}`)
         const projectId = await projectRegistryManager.registerProject(path)
@@ -102,6 +97,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // another doesn't, so they'd keep running and every event would be
         // handled once per project opened
         await get().stopFileWatcher()
+
+        // The previous project's dev server would keep running unseen. Stopped
+        // only once the new project has loaded, so a failed switch leaves it
+        const previousPath = get().projectPath
+        if (previousPath && previousPath !== path)
+          void stopDevServer(previousPath)
 
         set({
           projectPath: path,
@@ -398,6 +399,12 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       await projectRegistryManager.updateGlobalSettings(settings)
       const updatedSettings = projectRegistryManager.getGlobalSettings()
       set({ globalSettings: updatedSettings })
+
+      // Hiding the Preview control would leave its server running unseen
+      const { projectPath } = get()
+      if (settings.general?.showPublishingTools === false && projectPath) {
+        void stopDevServer(projectPath)
+      }
     } catch (error) {
       toast.error('Failed to update global settings', {
         description:

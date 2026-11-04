@@ -72,4 +72,4 @@ Dev logs go to `~/Library/Logs/is.danny.astroeditor.dev/`:
 
 ## Driving the Preview control
 
-Astro 7 detaches its dev server when it sees an AI agent's environment variables (`CLAUDECODE`, `AI_AGENT`, …), and the dev app passes its environment on to the servers it starts. When an agent launches `tauri:dev` to try the Preview control, it should unset them first, or the server escapes its process group. See `dev-server.md`.
+The dev app passes its environment on, but dev servers start without AI-agent markers (`CLAUDECODE`, `AI_AGENT`, …), which make Astro 7 detach its server, so an agent can drive Preview from `tauri:dev` as is. See `dev-server.md`.

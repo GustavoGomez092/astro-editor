@@ -138,6 +138,9 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             commands::quit::install_terminate_hook(app.handle());
 
+            // Resolve the user's PATH now, so the first Preview doesn't wait on it
+            std::thread::spawn(dev_server::env_path::user_path);
+
             // Dev servers report each state change to the frontend
             let event_handle = app.handle().clone();
             app.manage(dev_server::DevServers::new(std::sync::Arc::new(
