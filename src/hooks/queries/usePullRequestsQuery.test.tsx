@@ -6,6 +6,7 @@ import { commands, type PullRequest } from '@/lib/bindings'
 import { queryKeys } from '@/lib/query-keys'
 import { useProjectStore } from '../../store/projectStore'
 import {
+  NEW_PULL_REQUEST_MS,
   PULL_REQUEST_POLL_MS,
   usePullRequestsQuery,
 } from './usePullRequestsQuery'
@@ -50,7 +51,7 @@ describe('usePullRequestsQuery polling', () => {
   let focused = true
 
   beforeEach(() => {
-    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval', 'Date'] })
     vi.clearAllMocks()
     focused = true
     vi.spyOn(document, 'hasFocus').mockImplementation(() => focused)
@@ -102,6 +103,55 @@ describe('usePullRequestsQuery polling', () => {
     expect(calls()).toBe(3)
   })
 
+  // The app remembers when it first saw each pull request, for good, so
+  // these use numbers no other test does
+  it("checks again for a new pull request whose checks GitHub hasn't registered yet", async () => {
+    const fresh = { ...PR, number: 40, checks: 'none' as const }
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([fresh]))
+    const { result } = render()
+    await vi.waitFor(() => expect(result.current.data).toEqual([fresh]))
+
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(
+      ok([{ ...fresh, checks: 'success' }])
+    )
+    await tick()
+    await vi.waitFor(() =>
+      expect(result.current.data?.[0]?.checks).toBe('success')
+    )
+    await tick()
+    expect(calls()).toBe(2)
+  })
+
+  it('stops waiting for checks ten minutes after first seeing the pull request', async () => {
+    const quiet = { ...PR, number: 41, checks: 'none' as const }
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([quiet]))
+    const { result } = render()
+    await vi.waitFor(() => expect(result.current.data).toEqual([quiet]))
+
+    await tick()
+    await vi.waitFor(() => expect(calls()).toBe(2))
+
+    vi.setSystemTime(Date.now() + NEW_PULL_REQUEST_MS)
+    await tick()
+    await tick()
+    expect(calls()).toBe(2)
+  })
+
+  it('reads again as soon as the window comes back to the front', async () => {
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([PR]))
+    const { result } = render()
+    await vi.waitFor(() => expect(result.current.data).toEqual([PR]))
+    focused = false
+    await tick()
+    expect(calls()).toBe(1)
+
+    focused = true
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    await vi.waitFor(() => expect(calls()).toBe(2))
+  })
+
   it('waits while the window is in the background', async () => {
     vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([PR]))
     const { result } = render()
@@ -126,6 +176,27 @@ describe('usePullRequestsQuery polling', () => {
     await act(() => new Promise(resolve => setTimeout(resolve, 20)))
     await tick()
     await tick()
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
+    expect(calls()).toBe(1)
+  })
+
+  it('stops when the publishing tools are turned off', async () => {
+    const fresh = { ...PR, number: 42, checks: 'none' as const }
+    vi.mocked(commands.githubListPullRequests).mockResolvedValue(ok([fresh]))
+    const { result } = render()
+    await vi.waitFor(() => expect(result.current.data).toEqual([fresh]))
+    act(() => {
+      useProjectStore.setState({
+        globalSettings: { general: { showPublishingTools: false } } as never,
+      })
+    })
+    await tick()
+    await tick()
+    act(() => {
+      window.dispatchEvent(new Event('focus'))
+    })
     expect(calls()).toBe(1)
   })
 })
