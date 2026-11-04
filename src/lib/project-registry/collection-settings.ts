@@ -7,7 +7,12 @@
  * 3. Hard-coded default (from ASTRO_PATHS)
  */
 
-import { ProjectSettings } from './types'
+import type {
+  CollectionSettings,
+  CollectionSort,
+  CollectionSpecificSettings,
+  ProjectSettings,
+} from './types'
 import { ASTRO_PATHS } from '../constants'
 import { DEFAULT_PUBLISHED_DATE_FIELDS } from './defaults'
 
@@ -142,4 +147,61 @@ export function canImportImages(
     collectionName
   ).pathOverrides
   return !/^(\.?\/)?public(\/|$)/.test(assetsDirectory)
+}
+
+const DEFAULT_SORT: CollectionSort = { mode: 'default', direction: 'desc' }
+
+/** The sidebar sort saved for a collection, or the Default sort. */
+export function getCollectionSort(
+  projectSettings: ProjectSettings | null | undefined,
+  collectionName: string
+): CollectionSort {
+  return (
+    projectSettings?.collections?.find(c => c.name === collectionName)?.settings
+      .sort ?? DEFAULT_SORT
+  )
+}
+
+/** Whether a collection's settings override anything, so its entry is kept. */
+export function hasCollectionSettings(
+  settings: CollectionSpecificSettings
+): boolean {
+  const hasValues = (group?: object) =>
+    !!group && Object.values(group).some(value => value !== undefined)
+
+  return (
+    hasValues(settings.pathOverrides) ||
+    hasValues(settings.frontmatterMappings) ||
+    settings.defaultFileType !== undefined ||
+    settings.urlPattern !== undefined ||
+    settings.useAbsoluteAssetPaths !== undefined ||
+    settings.sort !== undefined
+  )
+}
+
+/**
+ * The project's collection settings with `sort` saved for one collection. The
+ * Default sort isn't stored, and an entry left with no settings is dropped.
+ */
+export function withCollectionSort(
+  projectSettings: ProjectSettings | null | undefined,
+  collectionName: string,
+  sort: CollectionSort
+): CollectionSettings[] {
+  const collections = projectSettings?.collections ?? []
+  const existing = collections.find(c => c.name === collectionName)
+  const settings: CollectionSpecificSettings = { ...existing?.settings }
+  if (sort.mode === DEFAULT_SORT.mode) {
+    delete settings.sort
+  } else {
+    settings.sort = sort
+  }
+
+  const updated = existing
+    ? collections.map(c =>
+        c.name === collectionName ? { name: collectionName, settings } : c
+      )
+    : [...collections, { name: collectionName, settings }]
+
+  return updated.filter(c => hasCollectionSettings(c.settings))
 }

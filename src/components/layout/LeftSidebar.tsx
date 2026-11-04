@@ -29,9 +29,36 @@ import { FileItem } from './FileItem'
 import { FilterBar } from './FilterBar'
 import { openProjectViaDialog } from '../../lib/projects/actions'
 import { filterFilesByDraft } from '../../lib/files/filtering'
-import { sortFiles, getSortOptionsForCollection } from '../../lib/files/sorting'
+import {
+  sortFiles,
+  getSortOptionsForCollection,
+  defaultSortDirection,
+} from '../../lib/files/sorting'
+import {
+  getCollectionSort,
+  withCollectionSort,
+} from '../../lib/project-registry/collection-settings'
+import type { CollectionSort } from '../../lib/project-registry/types'
 import { filterFilesBySearch } from '../../lib/files/search'
 import { deserializeCompleteSchema } from '../../lib/schema'
+
+/** Saves the selected collection's sort in the project settings. */
+function saveCollectionSort(
+  change: (current: CollectionSort) => CollectionSort
+) {
+  const { selectedCollection, currentProjectSettings, updateProjectSettings } =
+    useProjectStore.getState()
+  if (!selectedCollection) return
+
+  const current = getCollectionSort(currentProjectSettings, selectedCollection)
+  void updateProjectSettings({
+    collections: withCollectionSort(
+      currentProjectSettings,
+      selectedCollection,
+      change(current)
+    ),
+  })
+}
 
 export const LeftSidebar: React.FC = () => {
   // Object subscription needs shallow
@@ -58,12 +85,14 @@ export const LeftSidebar: React.FC = () => {
     useShallow(state =>
       selectedCollection
         ? state.getCollectionViewState(selectedCollection)
-        : {
-            sortMode: 'default',
-            sortDirection: 'desc' as const,
-            searchQuery: '',
-            filterBarExpanded: false,
-          }
+        : { searchQuery: '', filterBarExpanded: false }
+    )
+  )
+
+  // The sort is saved per collection in the project settings
+  const collectionSort = useProjectStore(
+    useShallow(state =>
+      getCollectionSort(state.currentProjectSettings, selectedCollection || '')
     )
   )
 
@@ -97,17 +126,14 @@ export const LeftSidebar: React.FC = () => {
   }, [])
 
   const handleSortModeChange = useCallback((mode: string) => {
-    const { selectedCollection } = useProjectStore.getState()
-    if (selectedCollection) {
-      useUIStore.getState().setSortMode(selectedCollection, mode)
-    }
+    saveCollectionSort(() => ({ mode, direction: defaultSortDirection(mode) }))
   }, [])
 
   const handleSortDirectionToggle = useCallback(() => {
-    const { selectedCollection } = useProjectStore.getState()
-    if (selectedCollection) {
-      useUIStore.getState().toggleSortDirection(selectedCollection)
-    }
+    saveCollectionSort(current => ({
+      ...current,
+      direction: current.direction === 'asc' ? 'desc' : 'asc',
+    }))
   }, [])
 
   const [fileCounts, setFileCounts] = useState<Record<string, number>>({})
@@ -288,7 +314,7 @@ export const LeftSidebar: React.FC = () => {
 
   // Derived filter states for UI indicators
   const searchActive = collectionViewState.searchQuery.trim() !== ''
-  const sortActive = collectionViewState.sortMode !== 'default'
+  const sortActive = collectionSort.mode !== 'default'
 
   // Determine header background class based on composable states
   // Priority: drafts (intentional filter) > search (hides files) > default
@@ -316,8 +342,8 @@ export const LeftSidebar: React.FC = () => {
     return sortFiles(
       result,
       {
-        mode: collectionViewState.sortMode,
-        direction: collectionViewState.sortDirection,
+        mode: collectionSort.mode,
+        direction: collectionSort.direction,
       },
       frontmatterMappings
     )
@@ -326,8 +352,8 @@ export const LeftSidebar: React.FC = () => {
     frontmatterMappings,
     showDraftsOnly,
     collectionViewState.searchQuery,
-    collectionViewState.sortMode,
-    collectionViewState.sortDirection,
+    collectionSort.mode,
+    collectionSort.direction,
   ])
 
   const headerTitle = selectedCollection
@@ -501,8 +527,8 @@ export const LeftSidebar: React.FC = () => {
       {selectedCollection && collectionViewState.filterBarExpanded && (
         <FilterBar
           searchQuery={collectionViewState.searchQuery}
-          sortMode={collectionViewState.sortMode}
-          sortDirection={collectionViewState.sortDirection}
+          sortMode={collectionSort.mode}
+          sortDirection={collectionSort.direction}
           sortOptions={sortOptions}
           onSearchChange={handleSearchChange}
           onSortModeChange={handleSortModeChange}

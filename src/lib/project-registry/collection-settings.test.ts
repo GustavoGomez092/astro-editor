@@ -3,7 +3,13 @@
  */
 
 import { describe, it, expect } from 'vitest'
-import { canImportImages, getCollectionSettings } from './collection-settings'
+import {
+  canImportImages,
+  getCollectionSettings,
+  getCollectionSort,
+  hasCollectionSettings,
+  withCollectionSort,
+} from './collection-settings'
 import { ProjectSettings } from './types'
 import { ASTRO_PATHS } from '../constants'
 
@@ -388,5 +394,91 @@ describe('canImportImages', () => {
       )
     ).toBe(false)
     expect(canImportImages(settings({}), undefined)).toBe(false)
+  })
+})
+
+describe('collection sort', () => {
+  const project = (
+    collections: ProjectSettings['collections']
+  ): ProjectSettings => ({
+    pathOverrides: {},
+    frontmatterMappings: {},
+    collections,
+  })
+
+  it('defaults to the Default sort', () => {
+    expect(getCollectionSort(project([]), 'sections')).toEqual({
+      mode: 'default',
+      direction: 'desc',
+    })
+    expect(getCollectionSort(null, 'sections').mode).toBe('default')
+  })
+
+  it('reads the saved sort for the collection', () => {
+    const settings = project([
+      {
+        name: 'sections',
+        settings: { sort: { mode: 'order', direction: 'asc' } },
+      },
+    ])
+    expect(getCollectionSort(settings, 'sections')).toEqual({
+      mode: 'order',
+      direction: 'asc',
+    })
+    expect(getCollectionSort(settings, 'work').mode).toBe('default')
+  })
+
+  it("saves a sort alongside the collection's other settings", () => {
+    const settings = project([
+      { name: 'sections', settings: { urlPattern: '/{slug}' } },
+    ])
+
+    expect(
+      withCollectionSort(settings, 'sections', {
+        mode: 'order',
+        direction: 'asc',
+      })
+    ).toEqual([
+      {
+        name: 'sections',
+        settings: {
+          urlPattern: '/{slug}',
+          sort: { mode: 'order', direction: 'asc' },
+        },
+      },
+    ])
+  })
+
+  it('adds an entry for a collection with no settings yet', () => {
+    expect(
+      withCollectionSort(project(undefined), 'work', {
+        mode: 'title',
+        direction: 'asc',
+      })
+    ).toEqual([
+      { name: 'work', settings: { sort: { mode: 'title', direction: 'asc' } } },
+    ])
+  })
+
+  it('forgets the sort when it goes back to Default, and drops an empty entry', () => {
+    const settings = project([
+      { name: 'work', settings: { sort: { mode: 'order', direction: 'asc' } } },
+      { name: 'sections', settings: { urlPattern: '/{slug}' } },
+    ])
+
+    expect(
+      withCollectionSort(settings, 'work', {
+        mode: 'default',
+        direction: 'desc',
+      })
+    ).toEqual([{ name: 'sections', settings: { urlPattern: '/{slug}' } }])
+  })
+
+  it('counts a saved sort as a setting worth keeping', () => {
+    expect(
+      hasCollectionSettings({ sort: { mode: 'order', direction: 'asc' } })
+    ).toBe(true)
+    expect(hasCollectionSettings({ pathOverrides: {} })).toBe(false)
+    expect(hasCollectionSettings({ urlPattern: '/{slug}' })).toBe(true)
   })
 })

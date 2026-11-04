@@ -1,5 +1,9 @@
 import { describe, it, expect, afterEach, vi } from 'vitest'
-import { getPublishedDate, sortFilesByPublishedDate } from './sorting'
+import {
+  defaultSortDirection,
+  getPublishedDate,
+  sortFilesByPublishedDate,
+} from './sorting'
 import { formatIsoDate } from '../dates'
 import type { FileEntry } from '@/types'
 
@@ -288,5 +292,19 @@ describe('sortFilesByPublishedDate', () => {
     const result = sortFilesByPublishedDate(files, mockMappings)
     expect(result[0]).toBe(file2)
     expect(result[1]).toBe(file1)
+  })
+})
+
+describe('defaultSortDirection', () => {
+  it('sorts order, titles and file names ascending', () => {
+    expect(defaultSortDirection('order')).toBe('asc')
+    expect(defaultSortDirection('title')).toBe('asc')
+    expect(defaultSortDirection('filename')).toBe('asc')
+  })
+
+  it('sorts dates newest first', () => {
+    expect(defaultSortDirection('date-pubDate')).toBe('desc')
+    expect(defaultSortDirection('modified')).toBe('desc')
+    expect(defaultSortDirection('default')).toBe('desc')
   })
 })

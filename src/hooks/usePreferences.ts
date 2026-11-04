@@ -6,6 +6,7 @@ import {
   CollectionSpecificSettings,
   DeepPartial,
 } from '../lib/project-registry'
+import { hasCollectionSettings } from '../lib/project-registry/collection-settings'
 
 /**
  * Custom hook for managing preferences with easy read/write access
@@ -71,35 +72,9 @@ export const usePreferences = () => {
       }
 
       // Remove collections with no settings (cleanup)
-      updatedCollections = updatedCollections.filter(c => {
-        const hasPathOverrides =
-          c.settings.pathOverrides &&
-          Object.keys(c.settings.pathOverrides).some(
-            key =>
-              c.settings.pathOverrides?.[
-                key as keyof typeof c.settings.pathOverrides
-              ] !== undefined
-          )
-        const hasFrontmatterMappings =
-          c.settings.frontmatterMappings &&
-          Object.keys(c.settings.frontmatterMappings).some(
-            key =>
-              c.settings.frontmatterMappings?.[
-                key as keyof typeof c.settings.frontmatterMappings
-              ] !== undefined
-          )
-        const hasDefaultFileType = c.settings.defaultFileType !== undefined
-        const hasUrlPattern = c.settings.urlPattern !== undefined
-        const hasAbsoluteAssetPaths =
-          c.settings.useAbsoluteAssetPaths !== undefined
-        return (
-          hasPathOverrides ||
-          hasFrontmatterMappings ||
-          hasDefaultFileType ||
-          hasUrlPattern ||
-          hasAbsoluteAssetPaths
-        )
-      })
+      updatedCollections = updatedCollections.filter(c =>
+        hasCollectionSettings(c.settings)
+      )
 
       return updateProjectSettings({
         collections: updatedCollections,
