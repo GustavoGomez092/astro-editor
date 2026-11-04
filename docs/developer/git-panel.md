@@ -22,9 +22,9 @@ Gate new UI the same way, so turning the preference off leaves the app as it was
 
 Every mutation that changes the repository (publish, sync, checkout, "Bring in changes", merging a pull request) shares `GIT_CHANGE_MUTATION_KEY` and goes through `lib/git/repo-change.ts`:
 
-- **It saves the open file first** (`saveBeforeGitChange`, using `saveUnsavedEdits` from `lib/quit.ts`). Unsaved edits saved after a checkout or sync would silently undo the incoming changes. If the save fails, nothing runs: "Couldn't save your edits, so nothing was changed."
-- **While it runs, nothing can be edited**: `useGitBusy()` makes the editor area and the frontmatter panel `inert`, and the panel disables Sync, Publish, Bring in, the branch menu and the message box.
-- **Afterwards it reloads what git rewrote** (`reloadProjectFiles`, after checkout, sync, bring in and a publish that merged): the open file's content, collections, collection file lists and folder listings. The watcher can't be relied on here, because it ignores the open file for a few seconds after our own save, which just happened. If the open file is gone (it doesn't exist on the branch), it's closed.
+- **It saves the open file first** (`saveBeforeGitChange`, using `saveUnsavedEdits` from `lib/quit.ts`). Unsaved edits saved after a checkout or sync would silently undo the incoming changes. If the save fails, nothing runs. The editor has already shown why the save failed, so the git mutation doesn't add a second toast.
+- **While it runs, nothing can be edited**: `useGitEditGuard()` makes the editor area and the frontmatter panel `inert`, and the panel disables Sync, Publish, Bring in, the branch menu and the message box. Focus is remembered as the operation starts (before React applies `inert`, which takes it away) and put back afterwards, if it was in one of those areas and the writer hasn't gone elsewhere.
+- **Afterwards it reloads what git rewrote** (`reloadProjectFiles`, after checkout, sync, bring in and a publish that merged or fast-forwarded), the open file first, then collections, collection file lists and folder listings. `onSuccess` awaits it, so the mutation, and the block on editing, only ends once the editor holds the new text. The watcher can't be relied on here, because it ignores the open file for a few seconds after our own save, which just happened. It does nothing if another project opened meanwhile, and closes the open file only if it's gone (it doesn't exist on the branch) and has no unsaved edits.
 
 ## Keeping the status current
 

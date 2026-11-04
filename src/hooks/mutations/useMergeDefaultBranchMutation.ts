@@ -5,6 +5,7 @@ import { showSyncOutcome } from '@/lib/git/messages'
 import {
   asIs,
   GIT_CHANGE_MUTATION_KEY,
+  gitErrorToast,
   needsAttention,
   reloadProjectFiles,
   saveBeforeGitChange,
@@ -30,9 +31,10 @@ export const useMergeDefaultBranchMutation = ({
   return useMutation({
     mutationKey: GIT_CHANGE_MUTATION_KEY,
     mutationFn: mergeDefault,
-    onSuccess: (result, { projectPath }) => {
+    onSuccess: async (result, { projectPath }) => {
       void refreshGit(queryClient, projectPath, result.status)
-      void reloadProjectFiles(queryClient, projectPath)
+      // Awaited: editing stays blocked until the open file shows the result
+      await reloadProjectFiles(queryClient, projectPath)
       if (needsAttention(result.outcome) && onNeedsAttention) {
         onNeedsAttention(result)
       } else {
@@ -40,9 +42,12 @@ export const useMergeDefaultBranchMutation = ({
       }
     },
     onError: error => {
-      toast.error("Couldn't bring in the changes", {
-        description: present(error.message),
-      })
+      gitErrorToast(
+        "Couldn't bring in the changes",
+        error,
+        present,
+        (title, description) => toast.error(title, { description })
+      )
     },
   })
 }

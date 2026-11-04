@@ -5,6 +5,7 @@ import { showSyncOutcome } from '@/lib/git/messages'
 import {
   asIs,
   GIT_CHANGE_MUTATION_KEY,
+  gitErrorToast,
   needsAttention,
   reloadProjectFiles,
   saveBeforeGitChange,
@@ -27,9 +28,10 @@ export const useGitSyncMutation = ({
   return useMutation({
     mutationKey: GIT_CHANGE_MUTATION_KEY,
     mutationFn: sync,
-    onSuccess: (result, { projectPath }) => {
+    onSuccess: async (result, { projectPath }) => {
       void refreshGit(queryClient, projectPath, result.status)
-      void reloadProjectFiles(queryClient, projectPath)
+      // Awaited: editing stays blocked until the open file shows the result
+      await reloadProjectFiles(queryClient, projectPath)
       if (needsAttention(result.outcome) && onNeedsAttention) {
         onNeedsAttention(result)
       } else {
@@ -37,7 +39,9 @@ export const useGitSyncMutation = ({
       }
     },
     onError: error => {
-      toast.error("Couldn't sync", { description: present(error.message) })
+      gitErrorToast("Couldn't sync", error, present, (title, description) =>
+        toast.error(title, { description })
+      )
     },
   })
 }

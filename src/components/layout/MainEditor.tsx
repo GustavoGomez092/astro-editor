@@ -6,7 +6,7 @@ import { openProjectViaDialog } from '../../lib/projects/actions'
 import { Button } from '../ui/button'
 import { useProjectStore } from '@/store/projectStore'
 import { GitMainView } from '../git/GitMainView'
-import { useGitBusy } from '../../hooks/useGitBusy'
+import { useGitEditGuard } from '../../hooks/useGitEditGuard'
 import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
 import { useGitStore } from '../../store/gitStore'
 
@@ -54,14 +54,13 @@ export const MainEditor: React.FC = () => {
   const hasCurrentFile = useEditorStore(state => !!state.currentFile)
   const typewriterModeEnabled = useUIStore(state => state.typewriterModeEnabled)
   // No edits while git rewrites files: they'd be saved over what came in
-  const gitBusy = useGitBusy()
+  const gitGuard = useGitEditGuard()
 
   return (
     <div className="relative flex h-full flex-col">
       <div
         className={`flex-1 overflow-x-hidden overflow-y-auto bg-editor-background${typewriterModeEnabled ? ' no-scrollbar' : ''}`}
-        inert={gitBusy || undefined}
-        aria-busy={gitBusy || undefined}
+        {...gitGuard}
       >
         {hasCurrentFile ? <Editor /> : <WelcomeScreen />}
       </div>

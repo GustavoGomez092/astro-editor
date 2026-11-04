@@ -4,6 +4,7 @@ import { refreshGit } from '@/lib/git/cache'
 import {
   asIs,
   GIT_CHANGE_MUTATION_KEY,
+  gitErrorToast,
   reloadProjectFiles,
   saveBeforeGitChange,
   type GitMutationOptions,
@@ -34,15 +35,19 @@ export const useGitCheckoutMutation = ({
   return useMutation({
     mutationKey: GIT_CHANGE_MUTATION_KEY,
     mutationFn: checkout,
-    onSuccess: (status, { projectPath, name, create }) => {
+    onSuccess: async (status, { projectPath, name, create }) => {
       void refreshGit(queryClient, projectPath, status)
-      void reloadProjectFiles(queryClient, projectPath)
+      // Awaited: editing stays blocked until the open file shows the branch
+      await reloadProjectFiles(queryClient, projectPath)
       toast.success(create ? `Created ${name}` : `Switched to ${name}`)
     },
     onError: (error, { name }) => {
-      toast.error(`Couldn't switch to ${name}`, {
-        description: present(error.message),
-      })
+      gitErrorToast(
+        `Couldn't switch to ${name}`,
+        error,
+        present,
+        (title, description) => toast.error(title, { description })
+      )
     },
   })
 }

@@ -4,6 +4,7 @@ import { refreshGit } from '@/lib/git/cache'
 import {
   asIs,
   GIT_CHANGE_MUTATION_KEY,
+  gitErrorToast,
   needsAttention,
   reloadProjectFiles,
   saveBeforeGitChange,
@@ -35,11 +36,12 @@ export const useGitPublishMutation = ({
   return useMutation({
     mutationKey: GIT_CHANGE_MUTATION_KEY,
     mutationFn: publish,
-    onSuccess: (result, { projectPath }) => {
+    onSuccess: async (result, { projectPath }) => {
       void refreshGit(queryClient, projectPath, result.status)
-      // Bringing in changes from GitHub rewrote files
-      if (result.outcome === 'merged') {
-        void reloadProjectFiles(queryClient, projectPath)
+      // Bringing in changes from GitHub rewrote files. Awaited: editing stays
+      // blocked until the open file shows the result
+      if (result.outcome === 'merged' || result.outcome === 'fastForwarded') {
+        await reloadProjectFiles(queryClient, projectPath)
       }
       if (needsAttention(result.outcome) && onNeedsAttention) {
         onNeedsAttention(result)
@@ -50,7 +52,9 @@ export const useGitPublishMutation = ({
       }
     },
     onError: error => {
-      toast.error("Couldn't publish", { description: present(error.message) })
+      gitErrorToast("Couldn't publish", error, present, (title, description) =>
+        toast.error(title, { description })
+      )
     },
   })
 }

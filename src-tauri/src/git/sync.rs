@@ -263,12 +263,14 @@ fn remote_label(repo: &Repository) -> String {
     if github { "GitHub" } else { "the remote" }.to_string()
 }
 
-/// "the remote" → "The remote", for the start of a sentence
-fn capitalize(text: &str) -> String {
-    let mut chars = text.chars();
-    match chars.next() {
-        Some(first) => first.to_uppercase().chain(chars).collect(),
-        None => String::new(),
+/// The label as the subject of a sentence: "GitHub", "The remote", or, for a
+/// branch (bringing in the default branch), "The main branch", so a branch
+/// name is never capitalised
+fn subject(label: &str) -> String {
+    match label {
+        "GitHub" => "GitHub".to_string(),
+        "the remote" => "The remote".to_string(),
+        branch => format!("The {branch} branch"),
     }
 }
 
@@ -437,7 +439,7 @@ fn integrate(
                 SyncOutcome::BlockedByLocalChanges,
                 format!(
                     "{} has changes to {} that you're also editing here. Publish your edits first; that combines both.",
-                    capitalize(label),
+                    subject(label),
                     if files.is_empty() { "files".to_string() } else { name_files(files) }
                 ),
             )
@@ -480,7 +482,7 @@ fn integrate(
             SyncOutcome::BlockedByLocalChanges,
             format!(
                 "{} has new changes, and you have edits that aren't published yet. Publish your edits first; that combines both.",
-                capitalize(label)
+                subject(label)
             ),
         ));
     }
@@ -865,6 +867,27 @@ mod tests {
         assert!(!result.message.contains("Publish"), "{}", result.message);
         assert_eq!(head_id(&setup.local), before);
         assert_eq!(read(&setup.local, "README.md"), "staging\n");
+    }
+
+    #[test]
+    fn merge_default_branch_blocked_names_the_branch_in_lowercase() {
+        let setup = repo_with_remote();
+        let main = setup.local.head().unwrap().peel_to_commit().unwrap();
+        setup.local.branch("staging", &main, false).unwrap();
+        setup.local.set_head("refs/heads/staging").unwrap();
+        push_from_elsewhere(setup.remote_dir.path(), "main", "README.md", "main\n");
+        write(&setup.local, "README.md", "mine\n");
+
+        let result = merge_default_branch(&setup.local, None, None).unwrap();
+        assert_eq!(result.outcome, SyncOutcome::BlockedByLocalChanges);
+        assert!(
+            result
+                .message
+                .starts_with("The main branch has changes to README.md"),
+            "{}",
+            result.message
+        );
+        assert_eq!(read(&setup.local, "README.md"), "mine\n");
     }
 
     #[test]

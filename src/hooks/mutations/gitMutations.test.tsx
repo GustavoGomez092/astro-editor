@@ -1,12 +1,18 @@
 import React from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, renderHook } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import {
+  QueryClient,
+  QueryClientProvider,
+  useQuery,
+} from '@tanstack/react-query'
 import { commands, type GitStatus, type PullRequest } from '@/lib/bindings'
 import { queryKeys } from '@/lib/query-keys'
 import { mockToast, resetToastMocks } from '@/test/mocks/toast'
 import { SAVE_FAILED } from '@/lib/git/repo-change'
 import { useEditorStore } from '@/store/editorStore'
+import { useProjectStore } from '@/store/projectStore'
+import { useGitBusy } from '../useGitBusy'
 import { useGitPublishMutation } from './useGitPublishMutation'
 import { useGitSyncMutation } from './useGitSyncMutation'
 import { useGitCheckoutMutation } from './useGitCheckoutMutation'
@@ -85,6 +91,7 @@ describe('git mutations', () => {
     vi.mocked(commands.gitFetch).mockResolvedValue(ok(STATUS))
     vi.mocked(commands.readFileContent).mockResolvedValue(ok('---\n---\n'))
     useEditorStore.setState({ currentFile: null, isDirty: false })
+    useProjectStore.setState({ projectPath: P })
   })
 
   it('publish refreshes status, branches and history and says so', async () => {
@@ -280,16 +287,14 @@ describe('git mutations', () => {
       const order: string[] = []
       dirtyEditor(order, false)
       const { result } = setup(useGitCheckoutMutation)
+      let failure: unknown
       await act(() =>
         result.current
           .mutateAsync({ projectPath: P, name: 'main', create: false })
-          .catch(() => {})
+          .catch((error: unknown) => (failure = error))
       )
       expect(commands.gitCheckout).not.toHaveBeenCalled()
-      expect(mockToast.error).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ description: SAVE_FAILED })
-      )
+      expect((failure as Error).message).toBe(SAVE_FAILED)
     })
 
     it('publish, bring in and merging a pull request save first too', async () => {
@@ -368,6 +373,129 @@ describe('git mutations', () => {
       await vi.waitFor(() =>
         expect(useEditorStore.getState().currentFile).toBeNull()
       )
+    })
+
+    it('keeps edits blocked until the open file has reloaded', async () => {
+      useEditorStore.setState({ currentFile: OPEN_FILE, isDirty: false })
+      vi.mocked(commands.gitCheckout).mockResolvedValue(ok(STATUS))
+      let reads = 0
+      let finishReload: (text: string) => void = () => {}
+      const { result } = setup(() => ({
+        checkout: useGitCheckoutMutation(),
+        busy: useGitBusy(),
+        content: useQuery({
+          queryKey: queryKeys.fileContent(P, OPEN_FILE.id),
+          queryFn: () =>
+            reads++ === 0
+              ? Promise.resolve('old branch')
+              : new Promise<string>(resolve => (finishReload = resolve)),
+        }),
+      }))
+      await vi.waitFor(() =>
+        expect(result.current.content.data).toBe('old branch')
+      )
+
+      let done = false
+      act(() => {
+        void result.current.checkout
+          .mutateAsync({ projectPath: P, name: 'main', create: false })
+          .then(() => (done = true))
+      })
+      await vi.waitFor(() => expect(reads).toBe(2))
+      // Checked out, but the open file hasn't reloaded: still blocked
+      await new Promise(resolve => setTimeout(resolve, 20))
+      expect(result.current.busy).toBe(true)
+      expect(done).toBe(false)
+
+      act(() => finishReload('new branch'))
+      await vi.waitFor(() => expect(result.current.busy).toBe(false))
+      expect(result.current.content.data).toBe('new branch')
+    })
+
+    it('leaves files alone when another project opened during the operation', async () => {
+      useEditorStore.setState({ currentFile: OPEN_FILE, isDirty: true })
+      vi.mocked(commands.gitCheckout).mockImplementation(() => {
+        // The writer opened another project meanwhile; its file is dirty
+        useProjectStore.setState({ projectPath: '/other' })
+        return Promise.resolve(ok(STATUS))
+      })
+      // The save before the checkout succeeds for the first project's file
+      useEditorStore.setState({
+        saveFile: vi.fn(() => {
+          useEditorStore.setState({ isDirty: false })
+          return Promise.resolve()
+        }),
+      })
+      const { client, result } = setup(useGitCheckoutMutation)
+      client.setQueryData(queryKeys.collections('/other'), [])
+      await act(() =>
+        result.current.mutateAsync({
+          projectPath: P,
+          name: 'main',
+          create: false,
+        })
+      )
+      useEditorStore.setState({ isDirty: true })
+      expect(commands.readFileContent).not.toHaveBeenCalled()
+      expect(useEditorStore.getState().currentFile?.id).toBe(OPEN_FILE.id)
+      expect(
+        client.getQueryState(queryKeys.collections('/other'))?.isInvalidated
+      ).toBe(false)
+    })
+
+    it('never closes a file with unsaved edits, even if it seems gone', async () => {
+      useEditorStore.setState({ currentFile: OPEN_FILE, isDirty: false })
+      vi.mocked(commands.gitCheckout).mockImplementation(() => {
+        // Typed into while the checkout ran (edits weren't blocked yet)
+        useEditorStore.setState({ isDirty: true })
+        return Promise.resolve(ok(STATUS))
+      })
+      vi.mocked(commands.readFileContent).mockResolvedValue({
+        status: 'error',
+        error: 'File not found',
+      })
+      const { result } = setup(useGitCheckoutMutation)
+      await act(() =>
+        result.current.mutateAsync({
+          projectPath: P,
+          name: 'main',
+          create: false,
+        })
+      )
+      expect(useEditorStore.getState().currentFile?.id).toBe(OPEN_FILE.id)
+      expect(useEditorStore.getState().isDirty).toBe(true)
+    })
+
+    it('shows one message when the save fails, not two', async () => {
+      const order: string[] = []
+      dirtyEditor(order, false)
+      const { result } = setup(useGitSyncMutation)
+      await act(() =>
+        result.current.mutateAsync({ projectPath: P }).catch(() => {})
+      )
+      // The save showed its own error; the sync adds nothing
+      expect(mockToast.error).not.toHaveBeenCalled()
+      expect(commands.gitSync).not.toHaveBeenCalled()
+    })
+
+    it('reloads files after a publish that fast-forwarded', async () => {
+      useEditorStore.setState({ currentFile: OPEN_FILE, isDirty: false })
+      vi.mocked(commands.gitPublish).mockResolvedValue(
+        ok({
+          commitId: 'abc',
+          pushed: true,
+          outcome: 'fastForwarded',
+          message: 'Published to staging.',
+          status: STATUS,
+        })
+      )
+      const { client, result } = setup(useGitPublishMutation)
+      const content = queryKeys.fileContent(P, OPEN_FILE.id)
+      client.setQueryData(content, {})
+      await act(() =>
+        result.current.mutateAsync({ projectPath: P, message: 'x' })
+      )
+      expect(client.getQueryState(content)?.isInvalidated).toBe(true)
     })
   })
 })

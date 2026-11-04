@@ -9,7 +9,7 @@ import { useCollectionsQuery } from './useCollectionsQuery'
 export interface EntryLookup {
   /** The entry's title for a repository-relative path, when it's known */
   titleFor: (path: string) => string | undefined
-  /** Whether a repository-relative path is inside a collection */
+  /** Whether a repository-relative path is a Markdown file in a collection */
   isEntry: (path: string) => boolean
 }
 
@@ -59,6 +59,7 @@ export function useEntryLookup(
 
   return {
     titleFor: path => titles.get(absolute(path)),
-    isEntry: path => inCollection(path) !== undefined,
+    // Only Markdown files are entries: images kept next to them are assets
+    isEntry: path => /\.mdx?$/i.test(path) && inCollection(path) !== undefined,
   }
 }

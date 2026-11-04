@@ -2,7 +2,9 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { commands } from '@/lib/bindings'
 import { refreshGit } from '@/lib/git/cache'
 import {
+  asIs,
   GIT_CHANGE_MUTATION_KEY,
+  gitErrorToast,
   saveBeforeGitChange,
 } from '@/lib/git/repo-change'
 import { unwrap } from '@/lib/git/unwrap'
@@ -33,7 +35,9 @@ export const useMergePullRequestMutation = () => {
       toast.success('Merged', { description: pr.title })
     },
     onError: error => {
-      toast.error("Couldn't merge", { description: error.message })
+      gitErrorToast("Couldn't merge", error, asIs, (title, description) =>
+        toast.error(title, { description })
+      )
     },
   })
 }

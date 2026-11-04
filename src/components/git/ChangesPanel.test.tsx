@@ -121,6 +121,26 @@ describe('ChangesPanel', () => {
     )
   })
 
+  it('treats an image next to the entries as an image, not an entry', async () => {
+    withStatus({
+      ...CLEAN,
+      files: [
+        { path: ABOUT, oldPath: null, change: 'modified' },
+        {
+          path: 'src/content/pages/about-photo.jpg',
+          oldPath: null,
+          change: 'untracked',
+        },
+      ],
+    })
+    renderWithProviders(<ChangesPanel />)
+    await vi.waitFor(() =>
+      expect(screen.getByLabelText('Describe your changes')).toHaveValue(
+        'Update About me and images'
+      )
+    )
+  })
+
   it('shows a conflict once, in the panel, with titles and "GitHub"', async () => {
     withStatus({ ...CLEAN, behind: 1 })
     vi.mocked(commands.gitSync).mockResolvedValue(
