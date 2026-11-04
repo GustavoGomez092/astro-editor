@@ -7,6 +7,7 @@
 import { FieldType, type SchemaField } from '../schema'
 import { setNestedValue } from '../object-utils'
 import { slugFromTitle } from '../slug'
+import { collectionDisplayName } from '../collection-name'
 
 const PUBLISHED_DATE_FIELDS = new Set(['pubdate', 'date', 'publisheddate'])
 
@@ -27,7 +28,8 @@ const singularize = (word: string): string => {
 
 /** The title a new entry gets when the writer doesn't give one: "New Article". */
 export function newFileTitlePlaceholder(collectionName: string): string {
-  const singular = singularize(collectionName)
+  // "sketch-strip" reads "New Sketch strip", the same words the sidebar uses
+  const singular = singularize(collectionDisplayName(collectionName))
   return `New ${singular.charAt(0).toUpperCase() + singular.slice(1)}`
 }
 

@@ -214,6 +214,7 @@ describe('newFileName', () => {
 describe('newFileTitlePlaceholder', () => {
   it('names the entry after the collection, in the singular', () => {
     expect(newFileTitlePlaceholder('testimonials')).toBe('New Testimonial')
+    expect(newFileTitlePlaceholder('sketch-strip')).toBe('New Sketch strip')
     expect(newFileTitlePlaceholder('stories')).toBe('New Story')
   })
 })
