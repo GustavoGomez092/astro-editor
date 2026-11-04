@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Settings, Folder, Layers, Wrench } from 'lucide-react'
+import { Settings, Folder, Layers, Wrench, CloudUpload } from 'lucide-react'
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -28,16 +28,18 @@ import { GeneralPane } from './panes/GeneralPane'
 import { ProjectSettingsPane } from './panes/ProjectSettingsPane'
 import { CollectionSettingsPane } from './panes/CollectionSettingsPane'
 import { DebugPane } from './panes/DebugPane'
+import { GitHubPane } from './panes/GitHubPane'
 import { usePreferences } from '../../hooks/usePreferences'
+import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
 
 interface PreferencesDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
 }
 
-type PreferencePane = 'general' | 'project' | 'collections' | 'debug'
+type PreferencePane = 'general' | 'project' | 'collections' | 'github' | 'debug'
 
-const getNavigationItems = (hasProject: boolean) =>
+const getNavigationItems = (hasProject: boolean, publishingTools: boolean) =>
   [
     {
       id: 'general' as const,
@@ -58,6 +60,12 @@ const getNavigationItems = (hasProject: boolean) =>
       available: hasProject,
     },
     {
+      id: 'github' as const,
+      name: 'GitHub',
+      icon: CloudUpload,
+      available: publishingTools,
+    },
+    {
       id: 'debug' as const,
       name: 'Advanced',
       icon: Wrench,
@@ -73,6 +81,8 @@ const getPaneTitle = (pane: PreferencePane): string => {
       return 'Project Settings'
     case 'collections':
       return 'Collections'
+    case 'github':
+      return 'GitHub'
     case 'debug':
       return 'Advanced'
     default:
@@ -86,20 +96,21 @@ export const PreferencesDialog: React.FC<PreferencesDialogProps> = ({
 }) => {
   const [activePane, setActivePane] = useState<PreferencePane>('general')
   const { hasProject } = usePreferences()
-  const navigationItems = getNavigationItems(hasProject)
+  const publishingTools = useShowPublishingTools()
+  const navigationItems = getNavigationItems(hasProject, publishingTools)
 
   // Reset to general pane if current pane becomes unavailable.
   // Depend on primitives (not the recreated-each-render navigationItems array)
   // and recompute availability inside.
   React.useEffect(() => {
-    const isAvailable = getNavigationItems(hasProject).some(
+    const isAvailable = getNavigationItems(hasProject, publishingTools).some(
       item => item.id === activePane
     )
     if (!isAvailable) {
       // oxlint-disable-next-line react-hooks/set-state-in-effect
       setActivePane('general')
     }
-  }, [hasProject, activePane])
+  }, [hasProject, publishingTools, activePane])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -156,6 +167,7 @@ export const PreferencesDialog: React.FC<PreferencesDialogProps> = ({
                 {activePane === 'general' && <GeneralPane />}
                 {activePane === 'project' && <ProjectSettingsPane />}
                 {activePane === 'collections' && <CollectionSettingsPane />}
+                {activePane === 'github' && <GitHubPane />}
                 {activePane === 'debug' && <DebugPane />}
               </div>
             </div>

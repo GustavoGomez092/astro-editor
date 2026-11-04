@@ -5,7 +5,8 @@ import { queryKeys } from '@/lib/query-keys'
 import { useShowPublishingTools } from './settings/useShowPublishingTools'
 
 /**
- * Keeps the git status current. Mount once (Layout). The status is reloaded
+ * Keeps the git status (and an open diff) current. Mount once (Layout). The
+ * status is reloaded
  * when a project file changes and when the window regains focus, and every
  * five minutes while it's focused. `loadGitStatus` decides whether a reload
  * also fetches from GitHub (at most every five minutes).
@@ -19,6 +20,10 @@ export function useGitStatusRefresh(projectPath: string | null) {
     const refresh = () => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.gitStatus(projectPath),
+      })
+      // An open diff of a changed file
+      void queryClient.invalidateQueries({
+        queryKey: [...queryKeys.git(projectPath), 'diff', 'workingTree'],
       })
     }
     const tick = () => {

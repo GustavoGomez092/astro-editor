@@ -1,0 +1,318 @@
+import React from 'react'
+import {
+  AlertTriangle,
+  CircleCheck,
+  CloudUpload,
+  ExternalLink,
+  FolderGit2,
+  GitBranch,
+  GitMerge,
+  History,
+  RefreshCw,
+  X,
+} from 'lucide-react'
+import { openUrl } from '@tauri-apps/plugin-opener'
+import type { GitStatus } from '@/lib/bindings'
+import { syncSummary } from '@/lib/git/changes'
+import { cn } from '@/lib/utils'
+import { Button } from '../ui/button'
+import { Spinner } from '../ui/spinner'
+import { AutoExpandingTextarea } from '../ui/auto-expanding-textarea'
+import { ChangedFileRow } from './ChangedFileRow'
+
+/** A sync or publish that needs the writer's attention, kept until dismissed. */
+export interface GitNotice {
+  message: string
+  /** Where to sort it out: the repository on GitHub */
+  url: string | null
+}
+
+export interface ChangesViewProps {
+  status: GitStatus | undefined
+  loading: boolean
+  error: string | null
+  onRetry: () => void
+  /** "GitHub" when origin is on github.com */
+  remoteName: string
+  /** Origin is on GitHub and the writer isn't signed in */
+  needsSignIn: boolean
+  onSignIn: () => void
+  /** The branch menu, built by the caller */
+  branchMenu: React.ReactNode
+  onShowHistory: () => void
+  onSync: () => void
+  syncing: boolean
+  /** Show "Bring in changes from {defaultBranch}" */
+  behindDefault: boolean
+  onBringIn: () => void
+  bringingIn: boolean
+  /** The pull request card or Open pull request button, if it applies */
+  pullRequest: React.ReactNode
+  notice: GitNotice | null
+  onDismissNotice: () => void
+  selectedPath: string | null
+  onSelectFile: (path: string) => void
+  /** Entry titles of changed content files, by repository-relative path */
+  titles?: Map<string, string>
+  message: string
+  onMessageChange: (message: string) => void
+  onPublish: () => void
+  publishing: boolean
+}
+
+/**
+ * The Changes tab: the branch, where it stands against GitHub, Sync, the
+ * changed files (each opens its diff), a message and Publish. Presentational;
+ * `ChangesPanel` supplies the data.
+ */
+export function ChangesView(props: ChangesViewProps) {
+  const { status, loading, error } = props
+
+  if (loading && !status) {
+    return (
+      <Centered>
+        <Spinner /> Checking for changes…
+      </Centered>
+    )
+  }
+  if (error && !status) {
+    return (
+      <Centered>
+        <p className="text-sm text-foreground">
+          Couldn't read this project's changes.
+        </p>
+        <p className="text-xs">{error}</p>
+        <Button variant="outline" size="sm" onClick={props.onRetry}>
+          Try again
+        </Button>
+      </Centered>
+    )
+  }
+  if (!status) return null
+  if (!status.isRepo) {
+    return (
+      <Centered>
+        <FolderGit2 className="size-5 text-icon" />
+        <p className="text-sm">This project isn't a git repository.</p>
+      </Centered>
+    )
+  }
+  return <RepoChanges {...props} status={status} />
+}
+
+function Centered({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
+      {children}
+    </div>
+  )
+}
+
+function RepoChanges({
+  status,
+  remoteName,
+  needsSignIn,
+  onSignIn,
+  branchMenu,
+  onShowHistory,
+  onSync,
+  syncing,
+  behindDefault,
+  onBringIn,
+  bringingIn,
+  pullRequest,
+  notice,
+  onDismissNotice,
+  selectedPath,
+  onSelectFile,
+  titles,
+  message,
+  onMessageChange,
+  onPublish,
+  publishing,
+}: ChangesViewProps & { status: GitStatus }) {
+  const fileCount = status.files.length
+  const nothingToPublish =
+    fileCount === 0 && status.ahead === 0 && status.upstream !== null
+  const canPublish =
+    !nothingToPublish &&
+    !publishing &&
+    !status.detached &&
+    (fileCount === 0 || message.trim() !== '')
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="border-b bg-muted/30 px-2 pt-2 pb-2.5">
+        <div className="flex items-center gap-1">
+          <div className="min-w-0 flex-1">{branchMenu}</div>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
+            title="History"
+            aria-label="History"
+            onClick={onShowHistory}
+          >
+            <History className="size-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 gap-1.5 px-2 text-icon"
+            disabled={syncing}
+            onClick={needsSignIn ? onSignIn : onSync}
+            title={`Check ${remoteName} for new changes`}
+          >
+            <RefreshCw className={cn('size-3.5', syncing && 'animate-spin')} />
+            Sync
+          </Button>
+        </div>
+        {!needsSignIn && !status.detached && (
+          <p className="px-2 pt-1 text-xs text-muted-foreground">
+            {syncSummary(status, remoteName)}
+          </p>
+        )}
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3">
+        {notice && (
+          <Callout tone="warning" onDismiss={onDismissNotice}>
+            <p>{notice.message}</p>
+            {notice.url && (
+              <button
+                type="button"
+                className="inline-flex items-center gap-1 text-xs font-medium underline underline-offset-2"
+                onClick={() => void openUrl(notice.url!)}
+              >
+                Open on GitHub <ExternalLink className="size-3" />
+              </button>
+            )}
+          </Callout>
+        )}
+
+        {needsSignIn && (
+          <Callout>
+            <p>Sign in with GitHub to sync and publish.</p>
+            <Button size="sm" onClick={onSignIn}>
+              Sign in with GitHub
+            </Button>
+          </Callout>
+        )}
+
+        {status.detached && (
+          <Callout tone="warning">
+            <p>
+              You're looking at an older version, not a branch. Switch to a
+              branch to publish.
+            </p>
+          </Callout>
+        )}
+
+        {behindDefault && status.defaultBranch && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="w-full"
+            disabled={bringingIn}
+            onClick={onBringIn}
+          >
+            {bringingIn ? <Spinner /> : <GitMerge />}
+            Bring in changes from {status.defaultBranch}
+          </Button>
+        )}
+
+        {pullRequest}
+
+        <div className="space-y-1">
+          <div className="flex items-center justify-between px-1 text-xs font-medium text-muted-foreground">
+            <span>Changed files</span>
+            {fileCount > 0 && <span>{fileCount}</span>}
+          </div>
+          {fileCount === 0 ? (
+            <p className="flex items-center gap-2 px-1 py-2 text-sm text-muted-foreground">
+              <CircleCheck className="size-4 text-git-add" />
+              No changes since the last publish.
+            </p>
+          ) : (
+            <div className="-mx-1">
+              {status.files.map(file => (
+                <ChangedFileRow
+                  key={file.path}
+                  file={file}
+                  title={titles?.get(file.path)}
+                  selected={file.path === selectedPath}
+                  onSelect={onSelectFile}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-2 border-t p-3">
+        {fileCount > 0 && (
+          <AutoExpandingTextarea
+            aria-label="Describe your changes"
+            placeholder="Describe your changes"
+            value={message}
+            onChange={event => onMessageChange(event.target.value)}
+            minRows={2}
+            maxRows={6}
+            className="bg-background text-sm"
+          />
+        )}
+        <Button
+          className="w-full"
+          disabled={!canPublish}
+          onClick={needsSignIn ? onSignIn : onPublish}
+        >
+          {publishing ? <Spinner /> : <CloudUpload />}
+          {publishing ? 'Publishing…' : 'Publish'}
+        </Button>
+        {status.branch && (
+          <p className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+            <GitBranch className="size-3" />
+            {status.branch}
+          </p>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function Callout({
+  tone = 'neutral',
+  onDismiss,
+  children,
+}: {
+  tone?: 'neutral' | 'warning'
+  onDismiss?: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <div
+      role={tone === 'warning' ? 'alert' : undefined}
+      className={cn(
+        'relative flex gap-2 rounded-lg border p-3 text-sm',
+        tone === 'warning'
+          ? 'border-draft/30 bg-draft-bg text-foreground'
+          : 'bg-muted/40 text-foreground'
+      )}
+    >
+      {tone === 'warning' && (
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-draft" />
+      )}
+      <div className="min-w-0 flex-1 space-y-2">{children}</div>
+      {onDismiss && (
+        <button
+          type="button"
+          className="-mt-1 -mr-1 size-6 shrink-0 rounded text-muted-foreground hover:bg-accent hover:text-foreground"
+          onClick={onDismiss}
+          aria-label="Dismiss"
+        >
+          <X className="mx-auto size-3.5" />
+        </button>
+      )}
+    </div>
+  )
+}

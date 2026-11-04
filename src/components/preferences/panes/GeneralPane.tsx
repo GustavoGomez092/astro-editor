@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import {
   Field,
   FieldLabel,
@@ -188,6 +189,30 @@ export const GeneralPane: React.FC = () => {
               File type used when creating new files across all projects
             </FieldDescription>
           </FieldContent>
+        </Field>
+
+        <Field>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex-1">
+              <FieldLabel htmlFor={`${id}-publishing-tools`}>
+                Show preview and publishing tools
+              </FieldLabel>
+              <FieldDescription>
+                Adds Publish and a Changes tab for projects kept in git, so you
+                can see what changed, publish it to GitHub and review its
+                history.
+              </FieldDescription>
+            </div>
+            <Switch
+              id={`${id}-publishing-tools`}
+              checked={globalSettings?.general?.showPublishingTools ?? false}
+              onCheckedChange={checked =>
+                void updateGlobal({
+                  general: { showPublishingTools: checked },
+                })
+              }
+            />
+          </div>
         </Field>
       </SettingsSection>
 

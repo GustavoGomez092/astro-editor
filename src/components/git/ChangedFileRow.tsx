@@ -3,21 +3,26 @@ import type { ChangedFile } from '@/lib/bindings'
 import { FileChangeIcon, fileChangeLabel } from './FileChangeIcon'
 
 /**
- * One changed file in a list: its change icon, file name and folder. Clicking
- * it opens the file's diff.
+ * One changed file in a list: its change icon and its entry title, or its
+ * file name and folder; the full path is in the tooltip. Clicking it opens the
+ * file's diff.
  */
 export function ChangedFileRow({
   file,
+  title,
   selected,
   onSelect,
 }: {
   file: ChangedFile
+  /** The entry's title, when the file is a content entry */
+  title?: string
   selected?: boolean
   onSelect?: (path: string) => void
 }) {
   const slash = file.path.lastIndexOf('/')
   const name = file.path.slice(slash + 1)
   const dir = slash === -1 ? '' : file.path.slice(0, slash)
+  const folder = dir.slice(dir.lastIndexOf('/') + 1)
   return (
     <button
       type="button"
@@ -32,15 +37,15 @@ export function ChangedFileRow({
       <FileChangeIcon change={file.change} />
       <span
         className={cn(
-          'shrink-0 truncate text-foreground',
+          'min-w-0 truncate text-foreground',
           file.change === 'deleted' && 'text-muted-foreground line-through'
         )}
       >
-        {name}
+        {title ?? name}
       </span>
-      <span className="min-w-0 truncate text-xs text-muted-foreground">
-        {dir}
-      </span>
+      {!title && folder && (
+        <span className="shrink-0 text-xs text-muted-foreground">{folder}</span>
+      )}
     </button>
   )
 }

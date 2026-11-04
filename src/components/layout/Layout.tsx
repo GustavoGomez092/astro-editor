@@ -28,6 +28,10 @@ import { useCreateFile } from '../../hooks/useCreateFile'
 import { useDeepLink } from '../../hooks/useDeepLink'
 import { useSquareCornersEffect } from '../../hooks/useSquareCornersEffect'
 import { useExternalLinkHandler } from '../../hooks/useExternalLinkHandler'
+import { useGitStatusRefresh } from '../../hooks/useGitStatusRefresh'
+import { useShowPublishingTools } from '../../hooks/settings/useShowPublishingTools'
+import { useGitStore } from '../../store/gitStore'
+import { SignInSheet } from '../git/SignInSheet'
 import { useEditorStore } from '../../store/editorStore'
 import { focusEditor } from '../../lib/focus-utils'
 import { commands } from '../../lib/bindings'
@@ -59,6 +63,8 @@ export const Layout: React.FC = () => {
   )
 
   const [preferencesOpen, setPreferencesOpen] = useState(false)
+  const projectPath = useProjectStore(state => state.projectPath)
+  const publishingTools = useShowPublishingTools()
 
   // Panel refs for imperative collapse/expand control
   const leftPanelRef = useRef<PanelImperativeHandle>(null)
@@ -142,6 +148,12 @@ export const Layout: React.FC = () => {
 
   // Enable file change detection
   useFileChangeHandler()
+
+  // Git panel: keep the status current; a new project starts on Files
+  useGitStatusRefresh(projectPath)
+  useEffect(() => {
+    useGitStore.getState().reset()
+  }, [projectPath])
 
   // Sync stored theme preference with theme provider on app load
   useEffect(() => {
@@ -260,6 +272,7 @@ export const Layout: React.FC = () => {
         open={preferencesOpen}
         onOpenChange={handleSetPreferencesOpen}
       />
+      {publishingTools && <SignInSheet />}
       <Toaster />
       {import.meta.env.DEV && <AgentBridge />}
     </div>

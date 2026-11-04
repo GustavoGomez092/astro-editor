@@ -52,6 +52,7 @@ export interface AppCommand {
     | 'ide'
     | 'settings'
     | 'highlight'
+    | 'publishing'
     | 'help'
   execute: (context: CommandContext) => void | Promise<void>
   isAvailable: (context: CommandContext) => boolean

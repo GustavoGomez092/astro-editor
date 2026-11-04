@@ -104,5 +104,10 @@ export interface GlobalSettings {
     }
     editorBaseFontSize?: number // 1-30, default 18
   }
+  advanced?: {
+    // OAuth app client ID for GitHub sign-in, for builds compiled without one.
+    // Read by Rust (github::auth::resolve_client_id); null uses the built-in ID
+    githubClientId?: string | null
+  }
   version: number
 }

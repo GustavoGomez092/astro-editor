@@ -1,12 +1,25 @@
-import { useState } from 'react'
+import React, { useState } from 'react'
+import { GitPullRequest } from 'lucide-react'
 import photo from '../../test/dummy-astro-project/src/assets/articles/styleguide-image.jpg'
 import { CommitGraph } from '../components/git/CommitGraph'
 import { CommitDetails } from '../components/git/CommitDetails'
 import { DiffView } from '../components/git/DiffView'
+import {
+  ChangesView,
+  type ChangesViewProps,
+} from '../components/git/ChangesView'
+import { BranchMenu } from '../components/git/BranchMenu'
+import { PullRequestCard } from '../components/git/PullRequestCard'
+import { SignInDialog } from '../components/git/SignInSheet'
+import { OpenPullRequestDialog } from '../components/git/OpenPullRequestDialog'
+import { Button } from '../components/ui/button'
 import type {
+  BranchInfo,
   CommitDetails as Details,
   FileDiff,
+  GitStatus,
   GraphCommit,
+  PullRequest,
 } from '../lib/bindings'
 
 /** Fixed, so relative dates don't change between shots. */
@@ -191,5 +204,226 @@ export function GitDiffSection() {
         </div>
       </div>
     </div>
+  )
+}
+
+const noop = () => {}
+
+const STATUS: GitStatus = {
+  isRepo: true,
+  branch: 'staging',
+  defaultBranch: 'main',
+  upstream: 'origin/staging',
+  ahead: 0,
+  behind: 0,
+  files: [
+    { path: 'src/content/pages/about.md', oldPath: null, change: 'modified' },
+    { path: 'src/content/work/harbour.md', oldPath: null, change: 'added' },
+    {
+      path: 'src/assets/harbour-cover.jpg',
+      oldPath: null,
+      change: 'untracked',
+    },
+    { path: 'src/content/work/old-site.md', oldPath: null, change: 'deleted' },
+  ],
+  detached: false,
+}
+
+const BRANCHES: BranchInfo[] = [
+  {
+    name: 'staging',
+    isRemote: false,
+    isHead: true,
+    upstream: 'origin/staging',
+    ahead: 0,
+    behind: 0,
+    lastCommitTime: 2,
+  },
+  {
+    name: 'main',
+    isRemote: false,
+    isHead: false,
+    upstream: 'origin/main',
+    ahead: 0,
+    behind: 0,
+    lastCommitTime: 1,
+  },
+]
+
+const PULL_REQUEST: PullRequest = {
+  number: 14,
+  title: 'Harbour case study',
+  head: 'staging',
+  base: 'main',
+  state: 'open',
+  draft: false,
+  htmlUrl: 'https://github.com/kevinrobinson/site/pull/14',
+  mergeable: true,
+  checks: 'success',
+}
+
+function Panel({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="text-xs text-muted-foreground">{label}</div>
+      <div className="h-[640px] w-[300px] overflow-hidden rounded-lg border bg-background">
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function View(props: Partial<ChangesViewProps> & { status: GitStatus }) {
+  return (
+    <ChangesView
+      loading={false}
+      error={null}
+      onRetry={noop}
+      remoteName="GitHub"
+      needsSignIn={false}
+      onSignIn={noop}
+      branchMenu={
+        <BranchMenu
+          current={props.status.branch}
+          branches={BRANCHES}
+          pullRequests={[PULL_REQUEST]}
+          onSwitch={noop}
+          onNewBranch={noop}
+        />
+      }
+      onShowHistory={noop}
+      onSync={noop}
+      syncing={false}
+      behindDefault={false}
+      onBringIn={noop}
+      bringingIn={false}
+      pullRequest={null}
+      notice={null}
+      onDismissNotice={noop}
+      selectedPath={null}
+      onSelectFile={noop}
+      message=""
+      onMessageChange={noop}
+      onPublish={noop}
+      publishing={false}
+      {...props}
+    />
+  )
+}
+
+/** The Changes tab in the states a writer meets. */
+export function GitChangesSection() {
+  return (
+    <div className="flex gap-5">
+      <Panel label="Changes, with an open pull request">
+        <View
+          status={{ ...STATUS, ahead: 1 }}
+          selectedPath="src/content/pages/about.md"
+          message="Update About, Harbour identity, harbour-cover and 1 more"
+          pullRequest={<PullRequestCard pr={PULL_REQUEST} onMerge={noop} />}
+        />
+      </Panel>
+      <Panel label="Clean">
+        <View
+          status={{
+            ...STATUS,
+            branch: 'main',
+            upstream: 'origin/main',
+            files: [],
+          }}
+        />
+      </Panel>
+      <Panel label="Behind, after a conflict">
+        <View
+          status={{ ...STATUS, behind: 3, files: STATUS.files.slice(0, 1) }}
+          behindDefault
+          message="Update About"
+          notice={{
+            message:
+              "Your changes and the changes on GitHub both edited about.md. Publish isn't possible until that's sorted out.",
+            url: 'https://github.com/kevinrobinson/site',
+          }}
+        />
+      </Panel>
+      <Panel label="Not signed in">
+        <View
+          status={{ ...STATUS, files: STATUS.files.slice(0, 2) }}
+          needsSignIn
+          message="Update About, Harbour identity"
+        />
+      </Panel>
+    </div>
+  )
+}
+
+/** Not a repository, and the Open pull request button. */
+export function GitChangesMoreSection() {
+  return (
+    <div className="flex gap-5">
+      <Panel label="Not a git repository">
+        <View status={{ ...STATUS, isRepo: false, files: [] }} />
+      </Panel>
+      <Panel label="Feature branch, no pull request yet">
+        <View
+          status={{ ...STATUS, files: [], ahead: 0 }}
+          pullRequest={
+            <Button variant="outline" size="sm" className="w-full">
+              <GitPullRequest /> Open pull request
+            </Button>
+          }
+        />
+      </Panel>
+      <Panel label="Draft that can't merge, checks running">
+        <div className="p-3">
+          <PullRequestCard
+            pr={{
+              ...PULL_REQUEST,
+              draft: true,
+              mergeable: false,
+              checks: 'pending',
+            }}
+            onMerge={noop}
+          />
+        </div>
+      </Panel>
+    </div>
+  )
+}
+
+/** The sign-in sheet while it waits for approval on GitHub. */
+export function GitSignInSection() {
+  return (
+    <SignInDialog
+      signIn={{
+        open: true,
+        step: 'waiting',
+        code: {
+          userCode: 'WDJB-MJHT',
+          verificationUri: 'https://github.com/login/device',
+          expiresIn: 900,
+          interval: 5,
+        },
+        error: null,
+      }}
+    />
+  )
+}
+
+/** Opening a pull request from staging into main. */
+export function GitOpenPullRequestSection() {
+  return (
+    <OpenPullRequestDialog
+      open
+      onOpenChange={noop}
+      branch="harbour-case-study"
+      defaultBranch="main"
+      onSubmit={noop}
+    />
   )
 }
