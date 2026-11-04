@@ -15,6 +15,7 @@ import { openUrl } from '@tauri-apps/plugin-opener'
 import type { GitStatus, SyncOutcome } from '@/lib/bindings'
 import {
   bringInBlocker,
+  checkedLabel,
   publishBlocker,
   syncBlocker,
   syncSummary,
@@ -22,6 +23,7 @@ import {
   type GitAction,
 } from '@/lib/git/changes'
 import { cn } from '@/lib/utils'
+import { useNow } from '../../hooks/useNow'
 import { Button } from '../ui/button'
 import { Spinner } from '../ui/spinner'
 import { AutoExpandingTextarea } from '../ui/auto-expanding-textarea'
@@ -45,8 +47,8 @@ export interface ChangesViewProps {
   loading: boolean
   error: string | null
   onRetry: () => void
-  /** When GitHub last answered: "Checked 3 min ago" */
-  checked?: string | null
+  /** When GitHub last answered, for "Checked 3 min ago" */
+  checkedAt?: number | null
   /** "GitHub" when origin is on github.com */
   remoteName: string
   /** Origin is on GitHub and the writer isn't signed in */
@@ -126,6 +128,19 @@ export function ChangesView(props: ChangesViewProps) {
   return <RepoChanges {...props} status={status} />
 }
 
+/**
+ * "Checked 3 min ago". Its own component, so the clock ticking every 30
+ * seconds re-renders only this line.
+ */
+function CheckedLabel({ checkedAt }: { checkedAt: number }) {
+  const now = useNow(30 * 1000)
+  return (
+    <p className="px-2 text-xs text-muted-foreground">
+      {checkedLabel(checkedAt, now)}
+    </p>
+  )
+}
+
 function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
@@ -136,7 +151,7 @@ function Centered({ children }: { children: React.ReactNode }) {
 
 function RepoChanges({
   status,
-  checked,
+  checkedAt,
   remoteName,
   needsSignIn,
   onSignIn,
@@ -202,8 +217,8 @@ function RepoChanges({
             {syncSummary(status, remoteName)}
           </p>
         )}
-        {!needsSignIn && checked && (
-          <p className="px-2 text-xs text-muted-foreground">{checked}</p>
+        {!needsSignIn && checkedAt != null && (
+          <CheckedLabel checkedAt={checkedAt} />
         )}
       </div>
 

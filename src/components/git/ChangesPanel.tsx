@@ -9,7 +9,6 @@ import type {
 } from '@/lib/bindings'
 import {
   bringInBlocker,
-  checkedLabel,
   gitStateSignature,
   publishBlocker,
   publishMessage,
@@ -34,7 +33,6 @@ import { useGitStore } from '../../store/gitStore'
 import { useUIStore } from '../../store/uiStore'
 import { useEditorStore } from '../../store/editorStore'
 import { useGitBusy } from '../../hooks/useGitBusy'
-import { useNow } from '../../hooks/useNow'
 import { useGitStatusQuery } from '../../hooks/queries/useGitStatusQuery'
 import { useGitHubAuthQuery } from '../../hooks/queries/useGitHubAuthQuery'
 import { useGitHubRepoInfoQuery } from '../../hooks/queries/useGitHubRepoInfoQuery'
@@ -230,9 +228,6 @@ export function ChangesPanel() {
   const checkedAt = useGitStore(state =>
     projectPath ? (state.checkedAt[projectPath] ?? null) : null
   )
-  const now = useNow(30 * 1000)
-  const lastChecked =
-    checkedAt !== null && signedIn ? checkedLabel(checkedAt, now) : null
 
   const [openingPullRequest, setOpeningPullRequest] = useState(false)
   const selectedDiffPath = useGitStore(state => state.selectedDiffPath)
@@ -519,7 +514,7 @@ export function ChangesPanel() {
         loading={statusQuery.isPending}
         error={statusQuery.error?.message ?? null}
         onRetry={() => void statusQuery.refetch()}
-        checked={lastChecked}
+        checkedAt={signedIn ? checkedAt : null}
         remoteName={remoteName}
         needsSignIn={needsSignIn}
         onSignIn={() => void startGitHubSignIn()}
