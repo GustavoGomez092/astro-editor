@@ -20,6 +20,7 @@ import { useTheme } from '../../../lib/theme-provider'
 import { SettingsSection } from '../SettingsSection'
 import { PreferencesTextInput } from '../PreferencesTextInput'
 import { DocsLink } from '../DocsLink'
+import { GrammarSettings } from './GrammarSettings'
 import { DOCS_URLS } from '../../../lib/docs-urls'
 import {
   DEFAULT_GLOBAL_SETTINGS,
@@ -345,6 +346,8 @@ export const GeneralPane: React.FC = () => {
           </FieldContent>
         </Field>
       </SettingsSection>
+
+      <GrammarSettings />
     </div>
   )
 }
