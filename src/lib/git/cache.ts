@@ -18,8 +18,8 @@ export function refreshGit(
 
 /**
  * A background fetch moved remote branches: show its status, and reload what
- * depends on them (branches, the default-branch counts, history, pull
- * requests).
+ * depends on them (branches, the default-branch counts, conflicts, history,
+ * pull requests).
  */
 export function applyFetchedStatus(
   queryClient: QueryClient,
@@ -34,6 +34,7 @@ export function applyFetchedStatus(
     queryKeys.gitBranches(projectPath),
     queryKeys.gitBehindDefault(projectPath),
     queryKeys.gitAheadOfDefault(projectPath),
+    queryKeys.gitConflicts(projectPath),
     [...queryKeys.git(projectPath), 'log'],
     queryKeys.pullRequests(projectPath),
   ]) {
