@@ -5,13 +5,16 @@ import { projectRegistryManager } from '../project-registry'
 import { queryClient } from '../query-client'
 import { queryKeys } from '../query-keys'
 import { refreshProjectPreview } from './previews'
+import { reopenLastEntry } from './last-entry'
+import { waitForProjectReady } from './ready'
 import { useProjectStore } from '../../store/projectStore'
 import { saveUnsavedEdits } from '../quit'
 import { toast } from '../toast'
 
 /**
- * Opens a site's editor. Unsaved edits in the open site are saved first, and
- * if that fails the site stays open so nothing is lost
+ * Opens a site's editor, back at the entry it had open last (if that file is
+ * still there). Unsaved edits in the open site are saved first, and if that
+ * fails the site stays open so nothing is lost
  */
 export async function openSite(path: string): Promise<void> {
   if (!(await saveUnsavedEdits())) {
@@ -19,6 +22,8 @@ export async function openSite(path: string): Promise<void> {
     return
   }
   useProjectStore.getState().setProject(path)
+  // setProject finishes on its own; the entry opens once the site is ready
+  if (await waitForProjectReady(path)) await reopenLastEntry(path)
 }
 
 /**

@@ -20,6 +20,8 @@ export interface ProjectMetadata {
   path: string // Current full path
   lastOpened: string // ISO timestamp
   created: string // ISO timestamp
+  /** The entry last open in this project, relative to the project folder */
+  lastFile?: string
 }
 
 export interface ProjectSettings {

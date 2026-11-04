@@ -392,6 +392,17 @@ export class ProjectRegistryManager {
     await setProjectDataAside(projectId)
   }
 
+  /** Remembers the entry open in a project (relative path), for reopening it */
+  async setLastOpenFile(
+    projectId: string,
+    relativePath: string
+  ): Promise<void> {
+    const project = this.registry?.projects[projectId]
+    if (!this.registry || !project || project.lastFile === relativePath) return
+    project.lastFile = relativePath
+    await saveProjectRegistry(this.registry)
+  }
+
   /**
    * Get the last opened project ID
    */

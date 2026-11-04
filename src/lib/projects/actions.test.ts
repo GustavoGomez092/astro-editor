@@ -4,7 +4,13 @@ import { useProjectStore } from '@/store/projectStore'
 const { saveUnsavedEdits } = vi.hoisted(() => ({
   saveUnsavedEdits: vi.fn(),
 }))
+const { reopenLastEntry, waitForProjectReady } = vi.hoisted(() => ({
+  reopenLastEntry: vi.fn(),
+  waitForProjectReady: vi.fn(),
+}))
 vi.mock('../quit', () => ({ saveUnsavedEdits }))
+vi.mock('./last-entry', () => ({ reopenLastEntry }))
+vi.mock('./ready', () => ({ waitForProjectReady }))
 vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir: vi.fn() }))
 
 import { goHome, openSite } from './actions'
@@ -53,16 +59,36 @@ describe('goHome', () => {
 })
 
 describe('openSite', () => {
-  it('saves first and keeps the open site if that fails', async () => {
-    const setProject = vi.fn()
-    useProjectStore.setState({ setProject })
-    saveUnsavedEdits.mockResolvedValue(false)
+  const setProject = vi.fn()
 
+  beforeEach(() => {
+    setProject.mockClear()
+    reopenLastEntry.mockReset()
+    waitForProjectReady.mockReset().mockResolvedValue(true)
+    useProjectStore.setState({ setProject })
+  })
+
+  it('saves first and keeps the open site if that fails', async () => {
+    saveUnsavedEdits.mockResolvedValue(false)
     await openSite('/Users/k/other')
     expect(setProject).not.toHaveBeenCalled()
+    expect(reopenLastEntry).not.toHaveBeenCalled()
 
     saveUnsavedEdits.mockResolvedValue(true)
     await openSite('/Users/k/other')
     expect(setProject).toHaveBeenCalledWith('/Users/k/other')
+  })
+
+  it('reopens the site’s last entry once the site is ready', async () => {
+    saveUnsavedEdits.mockResolvedValue(true)
+    await openSite('/Users/k/other')
+    expect(reopenLastEntry).toHaveBeenCalledWith('/Users/k/other')
+  })
+
+  it('leaves the collection list when the site never became ready', async () => {
+    saveUnsavedEdits.mockResolvedValue(true)
+    waitForProjectReady.mockResolvedValue(false)
+    await openSite('/Users/k/other')
+    expect(reopenLastEntry).not.toHaveBeenCalled()
   })
 })

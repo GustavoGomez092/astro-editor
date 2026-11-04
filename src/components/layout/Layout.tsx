@@ -28,6 +28,7 @@ import { useSaveOnQuit } from '../../hooks/useSaveOnQuit'
 import { useEditorActions } from '../../hooks/editor/useEditorActions'
 import { useCreateFile } from '../../hooks/useCreateFile'
 import { useDeepLink } from '../../hooks/useDeepLink'
+import { useRememberLastEntry } from '../../hooks/useRememberLastEntry'
 import { useSquareCornersEffect } from '../../hooks/useSquareCornersEffect'
 import { useExternalLinkHandler } from '../../hooks/useExternalLinkHandler'
 import { useGitStatusRefresh } from '../../hooks/useGitStatusRefresh'
@@ -159,6 +160,7 @@ export const Layout: React.FC = () => {
   useSquareCornersEffect()
   useDOMEventListeners(createNewFileWithQuery, handleSetPreferencesOpen)
   useDeepLink(openFileByPath)
+  useRememberLastEntry()
   useExternalLinkHandler()
 
   // Enable query-based file loading
