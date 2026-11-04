@@ -1,12 +1,9 @@
 //! Branches: the list for the branch menu, and switching or creating a branch
 //! without ever overwriting a local edit.
 
-use super::status::{repo_status, to_u32};
-use super::{describe, name_files, BranchInfo, GitStatus};
-use git2::{
-    build::CheckoutBuilder, Branch, BranchType, CheckoutNotificationType, Commit, Repository,
-};
-use std::cell::RefCell;
+use super::status::{repo_status, upstream_and_counts};
+use super::{checkout_safely, describe, name_files, BranchInfo, CheckoutRefused, GitStatus};
+use git2::{Branch, BranchType, Commit, Repository};
 
 /// Local branches (most recently changed first), then remote ones
 pub fn branches(repo: &Repository) -> Result<Vec<BranchInfo>, String> {
@@ -28,7 +25,8 @@ pub fn branches(repo: &Repository) -> Result<Vec<BranchInfo>, String> {
         let last_commit_time = tip.as_ref().map_or(0, |c| c.author().when().seconds());
         let info = match kind {
             BranchType::Local => {
-                let (upstream, ahead, behind) = upstream_counts(repo, &branch);
+                let (upstream, ahead, behind) =
+                    upstream_and_counts(repo, &name).unwrap_or((None, 0, 0));
                 BranchInfo {
                     name,
                     is_remote: false,
@@ -65,18 +63,6 @@ pub fn branches(repo: &Repository) -> Result<Vec<BranchInfo>, String> {
     Ok(locals)
 }
 
-fn upstream_counts(repo: &Repository, branch: &Branch) -> (Option<String>, u32, u32) {
-    let Ok(upstream) = branch.upstream() else {
-        return (None, 0, 0);
-    };
-    let name = upstream.name().ok().flatten().map(String::from);
-    let counts = match (branch.get().target(), upstream.get().target()) {
-        (Some(local), Some(remote)) => repo.graph_ahead_behind(local, remote).unwrap_or((0, 0)),
-        _ => (0, 0),
-    };
-    (name, to_u32(counts.0), to_u32(counts.1))
-}
-
 /// Switch to `name` (a local branch, a remote branch like `origin/feature`, or a
 /// plain name that exists on `origin`), or with `create`, make a new branch at
 /// `HEAD` and switch to it. Uncommitted edits come along; if switching would
@@ -88,7 +74,7 @@ pub fn checkout(repo: &Repository, name: &str, create: bool) -> Result<GitStatus
     }
     if let Ok(branch) = repo.find_branch(name, BranchType::Local) {
         let commit = tip(&branch)?;
-        checkout_safely(repo, &commit)?;
+        checkout_commit(repo, &commit)?;
         set_head(repo, name)?;
         return repo_status(repo);
     }
@@ -113,13 +99,13 @@ pub fn checkout(repo: &Repository, name: &str, create: bool) -> Result<GitStatus
     // A local branch of that name already exists: switch to it
     if let Ok(branch) = repo.find_branch(&local_name, BranchType::Local) {
         let commit = tip(&branch)?;
-        checkout_safely(repo, &commit)?;
+        checkout_commit(repo, &commit)?;
         set_head(repo, &local_name)?;
         return repo_status(repo);
     }
 
     let commit = tip(&remote_branch)?;
-    checkout_safely(repo, &commit)?;
+    checkout_commit(repo, &commit)?;
     let mut local = repo
         .branch(&local_name, &commit, false)
         .map_err(|e| describe("Couldn't create the branch", &e))?;
@@ -160,34 +146,13 @@ fn set_head(repo: &Repository, name: &str) -> Result<(), String> {
         .map_err(|e| describe("Couldn't switch branches", &e))
 }
 
-/// Safe checkout of a commit's tree. libgit2 checks every file before writing any,
-/// so a refusal leaves the working tree untouched.
-fn checkout_safely(repo: &Repository, commit: &Commit) -> Result<(), String> {
-    let conflicts = RefCell::new(Vec::<String>::new());
-    let mut checkout = CheckoutBuilder::new();
-    checkout
-        .safe()
-        .notify_on(CheckoutNotificationType::CONFLICT)
-        .notify(|_, path, _, _, _| {
-            if let Some(path) = path {
-                conflicts
-                    .borrow_mut()
-                    .push(path.to_string_lossy().replace('\\', "/"));
-            }
-            true
-        });
-    let result = repo.checkout_tree(commit.as_object(), Some(&mut checkout));
-    drop(checkout);
-    result.map_err(|e| {
-        let files = conflicts.into_inner();
-        if files.is_empty() {
-            describe("Couldn't switch branches", &e)
-        } else {
-            format!(
-                "Switching would overwrite your edits to {}. Publish them first, then switch.",
-                name_files(&files)
-            )
-        }
+fn checkout_commit(repo: &Repository, commit: &Commit) -> Result<(), String> {
+    checkout_safely(repo, commit.as_object()).map_err(|refused| match refused {
+        CheckoutRefused::Conflicts(files) => format!(
+            "Switching would overwrite your edits to {}. Publish them first, then switch.",
+            name_files(&files)
+        ),
+        CheckoutRefused::Failed(e) => describe("Couldn't switch branches", &e),
     })
 }
 
@@ -236,9 +201,11 @@ mod tests {
         assert_eq!((main.ahead, main.behind), (1, 0));
         assert_eq!(main.last_commit_time, head.author().when().seconds());
 
+        // Not tracked, but on the remote: compared with origin/staging, as Sync does
         let staging = branch_named(&list, "staging");
         assert!(!staging.is_head);
-        assert_eq!(staging.upstream, None);
+        assert_eq!(staging.upstream.as_deref(), Some("origin/staging"));
+        assert_eq!((staging.ahead, staging.behind), (0, 0));
 
         let origin_main = branch_named(&list, "origin/main");
         assert!(origin_main.is_remote);
@@ -349,5 +316,32 @@ mod tests {
         let (_dir, repo) = repo_with_other_branch();
         let e = checkout(&repo, "nope", false).unwrap_err();
         assert!(e.contains("nope"), "{e}");
+    }
+
+    #[test]
+    fn checkout_does_not_overwrite_ignored_file() {
+        let (dir, repo) = init_repo();
+        write(&repo, "a.md", "a\n");
+        let base = commit_all(&repo, "Base");
+        repo.branch("other", &repo.find_commit(base).unwrap(), false)
+            .unwrap();
+        repo.set_head("refs/heads/other").unwrap();
+        write(&repo, ".env", "SECRET=theirs\n");
+        commit_all(&repo, "Track .env on other");
+        repo.set_head("refs/heads/main").unwrap();
+        repo.checkout_head(Some(
+            git2::build::CheckoutBuilder::new()
+                .force()
+                .remove_untracked(true),
+        ))
+        .unwrap();
+        exclude_locally(&repo, ".env");
+        write(&repo, ".env", "SECRET=mine\n");
+
+        let e = checkout(&repo, "other", false).unwrap_err();
+        assert!(e.contains(".env"), "{e}");
+        assert_eq!(read(&repo, ".env"), "SECRET=mine\n");
+        let status = crate::git::status::status(dir.path()).unwrap();
+        assert_eq!(status.branch.as_deref(), Some("main"));
     }
 }

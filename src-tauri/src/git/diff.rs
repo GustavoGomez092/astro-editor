@@ -1,7 +1,7 @@
 //! Read-only diffs for one file: the working tree against `HEAD`, or a commit against
 //! its first parent.
 
-use super::{describe, open_required, DiffHunk, DiffLine, DiffLineKind, FileDiff};
+use super::{describe, DiffHunk, DiffLine, DiffLineKind, FileDiff};
 use git2::{Diff, DiffOptions, Oid, Patch, Repository};
 use std::path::Path;
 
@@ -10,8 +10,7 @@ const IMAGE_EXTENSIONS: &[&str] = &[
 ];
 
 /// Working tree (staged or not, untracked included) against `HEAD`
-pub fn file_diff(project_path: &Path, path: &str) -> Result<FileDiff, String> {
-    let repo = open_required(project_path)?;
+pub fn file_diff(repo: &Repository, path: &str) -> Result<FileDiff, String> {
     // Before the first commit there's no HEAD tree, so everything is added
     let head_tree = repo.head().ok().and_then(|h| h.peel_to_tree().ok());
     let mut opts = path_options(path);
@@ -25,9 +24,8 @@ pub fn file_diff(project_path: &Path, path: &str) -> Result<FileDiff, String> {
 }
 
 /// A commit against its first parent; a root commit against the empty tree
-pub fn commit_file_diff(project_path: &Path, id: &str, path: &str) -> Result<FileDiff, String> {
-    let repo = open_required(project_path)?;
-    let diff = commit_diff(&repo, id, Some(path))?;
+pub fn commit_file_diff(repo: &Repository, id: &str, path: &str) -> Result<FileDiff, String> {
+    let diff = commit_diff(repo, id, Some(path))?;
     to_file_diff(&diff, path)
 }
 
@@ -141,12 +139,12 @@ mod tests {
 
     #[test]
     fn file_diff_text_hunks() {
-        let (dir, repo) = init_repo();
+        let (_dir, repo) = init_repo();
         write(&repo, "post.md", "one\ntwo\nthree\n");
         commit_all(&repo, "Initial commit");
         write(&repo, "post.md", "one\n2\nthree\nfour\n");
 
-        let diff = file_diff(dir.path(), "post.md").unwrap();
+        let diff = file_diff(&repo, "post.md").unwrap();
         assert_eq!(diff.path, "post.md");
         assert!(!diff.binary);
         assert!(!diff.is_image);
@@ -171,12 +169,12 @@ mod tests {
 
     #[test]
     fn file_diff_untracked_file_is_all_added() {
-        let (dir, repo) = init_repo();
+        let (_dir, repo) = init_repo();
         write(&repo, "a.md", "a\n");
         commit_all(&repo, "Initial commit");
         write(&repo, "new.md", "hello\nworld\n");
 
-        let diff = file_diff(dir.path(), "new.md").unwrap();
+        let diff = file_diff(&repo, "new.md").unwrap();
         assert_eq!(diff.hunks.len(), 1);
         assert_eq!(
             diff.hunks[0].lines,
@@ -189,12 +187,12 @@ mod tests {
 
     #[test]
     fn file_diff_deleted_file_is_all_removed() {
-        let (dir, repo) = init_repo();
+        let (_dir, repo) = init_repo();
         write(&repo, "gone.md", "bye\n");
         commit_all(&repo, "Initial commit");
         remove(&repo, "gone.md");
 
-        let diff = file_diff(dir.path(), "gone.md").unwrap();
+        let diff = file_diff(&repo, "gone.md").unwrap();
         assert_eq!(
             diff.hunks[0].lines,
             vec![line(DiffLineKind::Del, "bye", Some(1), None)]
@@ -203,7 +201,7 @@ mod tests {
 
     #[test]
     fn file_diff_binary_image() {
-        let (dir, repo) = init_repo();
+        let (_dir, repo) = init_repo();
         let png_header: &[u8] = &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0];
         write_bytes(&repo, "images/cover.png", png_header);
         commit_all(&repo, "Initial commit");
@@ -211,7 +209,7 @@ mod tests {
         changed.extend_from_slice(&[1, 0, 2, 0]);
         write_bytes(&repo, "images/cover.png", &changed);
 
-        let diff = file_diff(dir.path(), "images/cover.png").unwrap();
+        let diff = file_diff(&repo, "images/cover.png").unwrap();
         assert!(diff.binary);
         assert!(diff.is_image);
         assert!(diff.hunks.is_empty());
@@ -220,18 +218,19 @@ mod tests {
     #[test]
     fn file_diff_outside_a_repo_is_an_error() {
         let dir = tempfile::TempDir::new().unwrap();
-        assert!(file_diff(dir.path(), "a.md").is_err());
+        let e = crate::git::with_repo(dir.path(), |repo| file_diff(repo, "a.md")).unwrap_err();
+        assert_eq!(e, "This folder isn't a git repository");
     }
 
     #[test]
     fn commit_file_diff_against_first_parent() {
-        let (dir, repo) = init_repo();
+        let (_dir, repo) = init_repo();
         write(&repo, "post.md", "one\n");
         commit_all(&repo, "First");
         write(&repo, "post.md", "one\ntwo\n");
         let second = commit_all(&repo, "Second");
 
-        let diff = commit_file_diff(dir.path(), &second.to_string(), "post.md").unwrap();
+        let diff = commit_file_diff(&repo, &second.to_string(), "post.md").unwrap();
         assert_eq!(
             diff.hunks[0].lines,
             vec![
@@ -243,11 +242,11 @@ mod tests {
 
     #[test]
     fn commit_file_diff_root_commit_against_empty_tree() {
-        let (dir, repo) = init_repo();
+        let (_dir, repo) = init_repo();
         write(&repo, "post.md", "one\n");
         let root = commit_all(&repo, "First");
 
-        let diff = commit_file_diff(dir.path(), &root.to_string(), "post.md").unwrap();
+        let diff = commit_file_diff(&repo, &root.to_string(), "post.md").unwrap();
         assert_eq!(
             diff.hunks[0].lines,
             vec![line(DiffLineKind::Add, "one", None, Some(1))]

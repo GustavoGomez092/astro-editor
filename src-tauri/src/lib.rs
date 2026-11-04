@@ -138,6 +138,7 @@ pub fn run() {
 
             // GitHub sign-in: the token lives in the Keychain under this app's identifier
             github::auth::init(&app.config().identifier);
+            git::init_network_timeouts();
 
             #[cfg(target_os = "macos")]
             commands::quit::install_terminate_hook(app.handle());

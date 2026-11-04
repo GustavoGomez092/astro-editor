@@ -7,7 +7,7 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use std::future::Future;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
@@ -17,6 +17,8 @@ pub trait TokenStore: Send + Sync {
     fn set(&self, token: &str) -> Result<(), String>;
     fn delete(&self) -> Result<(), String>;
 }
+
+pub type SharedStore = Arc<dyn TokenStore>;
 
 /// The signed-in GitHub user, as `/user` returns it
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -97,7 +99,7 @@ pub async fn request_device_code(
 pub async fn poll_for_sign_in<S, F>(
     client: &GitHubClient,
     client_id: &str,
-    store: &dyn TokenStore,
+    store: &SharedStore,
     pending: &PendingDevice,
     mut sleep: S,
     cancelled: impl Fn() -> bool,
@@ -147,7 +149,8 @@ where
     if cancelled() {
         return Err("Sign-in was cancelled.".to_string());
     }
-    store.set(&token)?;
+    let saved = token.clone();
+    on_store(store, move |store| store.set(&saved)).await?;
     fetch_user(client, &token).await
 }
 
@@ -158,7 +161,7 @@ pub async fn fetch_user(client: &GitHubClient, token: &str) -> Result<GitHubUser
 /// Sign-in state for the app: the token store, the cached profile, and the device
 /// code being polled. Polling stops when the writer signs out or starts again.
 pub struct Auth {
-    store: Box<dyn TokenStore>,
+    store: SharedStore,
     client: GitHubClient,
     user: Mutex<Option<GitHubUser>>,
     /// The client ID and device code from the last `device_start`
@@ -173,7 +176,7 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 }
 
 impl Auth {
-    pub fn new(store: Box<dyn TokenStore>, client: GitHubClient) -> Self {
+    pub fn new(store: SharedStore, client: GitHubClient) -> Self {
         Self {
             store,
             client,
@@ -188,7 +191,8 @@ impl Auth {
         &self.client
     }
 
-    /// The token, for git network operations and API calls
+    /// The token, for git network operations and API calls. The first read may ask
+    /// the Keychain, so call this from a blocking thread.
     pub fn token(&self) -> Option<String> {
         self.store.get().ok().flatten()
     }
@@ -201,7 +205,7 @@ impl Auth {
     /// Reads the token and, once, the profile. A revoked token signs out; when
     /// GitHub can't be reached the writer stays signed in (without a profile).
     pub async fn status(&self) -> Result<GitHubAuthStatus, String> {
-        let Some(token) = self.store.get()? else {
+        let Some(token) = on_store(&self.store, |store| store.get()).await? else {
             *lock(&self.user) = None;
             return Ok(GitHubAuthStatus::signed_out());
         };
@@ -216,7 +220,7 @@ impl Auth {
             }
             Err(e) if e.status == Some(StatusCode::UNAUTHORIZED) => {
                 log::info!("Astro Editor [GITHUB] Saved token was rejected; signing out");
-                self.store.delete()?;
+                on_store(&self.store, |store| store.delete()).await?;
                 Ok(GitHubAuthStatus::signed_out())
             }
             Err(_) => Ok(GitHubAuthStatus {
@@ -244,7 +248,7 @@ impl Auth {
         let result = poll_for_sign_in(
             &self.client,
             &client_id,
-            self.store.as_ref(),
+            &self.store,
             &pending,
             |interval| async move {
                 tokio::select! {
@@ -265,11 +269,11 @@ impl Auth {
         Ok(status)
     }
 
-    pub fn sign_out(&self) -> Result<(), String> {
+    pub async fn sign_out(&self) -> Result<(), String> {
         self.cancel_poll();
         *lock(&self.pending) = None;
         *lock(&self.user) = None;
-        self.store.delete()
+        on_store(&self.store, |store| store.delete()).await
     }
 
     fn cancel_poll(&self) {
@@ -297,19 +301,16 @@ pub fn resolve_client_id(global_settings: Option<&str>, compiled: Option<&str>) 
 }
 
 /// The token in the OS credential store (the Keychain on macOS), under the service
-/// `<app identifier>.github` and account `token`. Cached after the first read so the
-/// Keychain isn't asked on every git operation.
+/// `<app identifier>.github` and account `token`. Every call may block (and on a
+/// build the Keychain doesn't trust yet, show a password prompt), so it's wrapped in
+/// a [`CachedStore`] and only called from blocking threads.
 pub struct KeychainStore {
     service: String,
-    cache: Mutex<Option<Option<String>>>,
 }
 
 impl KeychainStore {
     pub fn new(service: String) -> Self {
-        Self {
-            service,
-            cache: Mutex::new(None),
-        }
+        Self { service }
     }
 
     fn entry(&self) -> Result<keyring::Entry, String> {
@@ -320,42 +321,89 @@ impl KeychainStore {
 
 impl TokenStore for KeychainStore {
     fn get(&self) -> Result<Option<String>, String> {
-        if let Some(cached) = lock(&self.cache).clone() {
-            return Ok(cached);
+        match self.entry()?.get_password() {
+            Ok(token) => Ok(Some(token)),
+            Err(keyring::Error::NoEntry) => Ok(None),
+            Err(e) => Err(format!(
+                "Couldn't read the GitHub sign-in from the Keychain: {e}"
+            )),
         }
-        let token = match self.entry()?.get_password() {
-            Ok(token) => Some(token),
-            Err(keyring::Error::NoEntry) => None,
-            Err(e) => {
-                return Err(format!(
-                    "Couldn't read the GitHub sign-in from the Keychain: {e}"
-                ))
-            }
-        };
-        *lock(&self.cache) = Some(token.clone());
-        Ok(token)
     }
 
     fn set(&self, token: &str) -> Result<(), String> {
         self.entry()?
             .set_password(token)
-            .map_err(|e| format!("Couldn't save the GitHub sign-in to the Keychain: {e}"))?;
-        *lock(&self.cache) = Some(Some(token.to_string()));
-        Ok(())
+            .map_err(|e| format!("Couldn't save the GitHub sign-in to the Keychain: {e}"))
     }
 
     fn delete(&self) -> Result<(), String> {
         match self.entry()?.delete_credential() {
-            Ok(()) | Err(keyring::Error::NoEntry) => {}
-            Err(e) => {
-                return Err(format!(
-                    "Couldn't remove the GitHub sign-in from the Keychain: {e}"
-                ))
-            }
+            Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
+            Err(e) => Err(format!(
+                "Couldn't remove the GitHub sign-in from the Keychain: {e}"
+            )),
         }
-        *lock(&self.cache) = Some(None);
+    }
+}
+
+/// Caches a store's token in memory. The first read holds the lock while it asks
+/// the store, so callers racing to read it wait for that one read instead of each
+/// asking the Keychain (and each showing a prompt).
+pub struct CachedStore<S> {
+    inner: S,
+    cache: Mutex<Option<Option<String>>>,
+}
+
+impl<S: TokenStore> CachedStore<S> {
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            cache: Mutex::new(None),
+        }
+    }
+
+    #[cfg(test)]
+    fn inner(&self) -> &S {
+        &self.inner
+    }
+}
+
+impl<S: TokenStore> TokenStore for CachedStore<S> {
+    fn get(&self) -> Result<Option<String>, String> {
+        let mut cache = lock(&self.cache);
+        if let Some(cached) = cache.as_ref() {
+            return Ok(cached.clone());
+        }
+        let token = self.inner.get()?;
+        *cache = Some(token.clone());
+        Ok(token)
+    }
+
+    fn set(&self, token: &str) -> Result<(), String> {
+        let mut cache = lock(&self.cache);
+        self.inner.set(token)?;
+        *cache = Some(Some(token.to_string()));
         Ok(())
     }
+
+    fn delete(&self) -> Result<(), String> {
+        let mut cache = lock(&self.cache);
+        self.inner.delete()?;
+        *cache = Some(None);
+        Ok(())
+    }
+}
+
+/// Run a store call on a blocking thread, off the async runtime
+async fn on_store<T, F>(store: &SharedStore, call: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&dyn TokenStore) -> Result<T, String> + Send + 'static,
+{
+    let store = store.clone();
+    tokio::task::spawn_blocking(move || call(store.as_ref()))
+        .await
+        .map_err(|e| format!("Reading the GitHub sign-in stopped unexpectedly: {e}"))?
 }
 
 static AUTH: OnceLock<Auth> = OnceLock::new();
@@ -363,8 +411,8 @@ static AUTH: OnceLock<Auth> = OnceLock::new();
 /// Set up sign-in with the Keychain service for this app's identifier. Called once
 /// from `setup` in `lib.rs`.
 pub fn init(identifier: &str) {
-    let store = KeychainStore::new(format!("{identifier}.github"));
-    let _ = AUTH.set(Auth::new(Box::new(store), GitHubClient::new()));
+    let store = CachedStore::new(KeychainStore::new(format!("{identifier}.github")));
+    let _ = AUTH.set(Auth::new(Arc::new(store), GitHubClient::new()));
 }
 
 pub fn auth() -> Result<&'static Auth, String> {
@@ -372,7 +420,8 @@ pub fn auth() -> Result<&'static Auth, String> {
         .ok_or_else(|| "GitHub sign-in isn't ready yet. Try again in a moment.".to_string())
 }
 
-/// The signed-in token, for other modules (git network operations, the API)
+/// The signed-in token, for other modules (git network operations, the API). The
+/// first read may ask the Keychain, so call this from a blocking thread.
 pub fn token() -> Option<String> {
     AUTH.get()?.token()
 }
@@ -399,7 +448,6 @@ impl TokenStore for MemoryStore {
 mod tests {
     use super::*;
     use mockito::Matcher;
-    use std::sync::Arc;
 
     const GRANT: &str = "urn:ietf:params:oauth:grant-type:device_code";
 
@@ -481,7 +529,7 @@ mod tests {
             .create_async()
             .await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let store = MemoryStore(Mutex::new(None));
+        let store: SharedStore = Arc::new(MemoryStore(Mutex::new(None)));
         let sleeps = Arc::new(Mutex::new(Vec::new()));
         let recorded = sleeps.clone();
 
@@ -526,7 +574,7 @@ mod tests {
             .create_async()
             .await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let store = MemoryStore(Mutex::new(None));
+        let store: SharedStore = Arc::new(MemoryStore(Mutex::new(None)));
 
         let e = poll_for_sign_in(
             &client,
@@ -549,7 +597,7 @@ mod tests {
     async fn device_poll_stops_when_the_code_has_expired_locally() {
         let server = mockito::Server::new_async().await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let store = MemoryStore(Mutex::new(None));
+        let store: SharedStore = Arc::new(MemoryStore(Mutex::new(None)));
         let e = poll_for_sign_in(
             &client,
             "client-abc",
@@ -571,7 +619,7 @@ mod tests {
             .create_async()
             .await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let store = MemoryStore(Mutex::new(None));
+        let store: SharedStore = Arc::new(MemoryStore(Mutex::new(None)));
         let e = poll_for_sign_in(
             &client,
             "client-abc",
@@ -589,7 +637,7 @@ mod tests {
     async fn device_poll_can_be_cancelled() {
         let server = mockito::Server::new_async().await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let store = MemoryStore(Mutex::new(None));
+        let store: SharedStore = Arc::new(MemoryStore(Mutex::new(None)));
         let e = poll_for_sign_in(
             &client,
             "client-abc",
@@ -605,7 +653,7 @@ mod tests {
 
     fn auth_with(server: &mockito::Server, token: Option<&str>) -> Auth {
         Auth::new(
-            Box::new(MemoryStore(Mutex::new(token.map(String::from)))),
+            Arc::new(MemoryStore(Mutex::new(token.map(String::from)))),
             GitHubClient::with_base_urls(&server.url(), &server.url()),
         )
     }
@@ -652,7 +700,7 @@ mod tests {
     #[tokio::test]
     async fn auth_status_offline_keeps_the_sign_in() {
         let auth = Auth::new(
-            Box::new(MemoryStore(Mutex::new(Some("gho_saved".to_string())))),
+            Arc::new(MemoryStore(Mutex::new(Some("gho_saved".to_string())))),
             GitHubClient::with_base_urls("http://127.0.0.1:9", "http://127.0.0.1:9"),
         );
         let status = auth.status().await.unwrap();
@@ -674,7 +722,7 @@ mod tests {
         let polling = auth.clone();
         let poll = tokio::spawn(async move { polling.device_poll().await });
         tokio::time::sleep(Duration::from_millis(50)).await;
-        auth.sign_out().unwrap();
+        auth.sign_out().await.unwrap();
 
         let result = tokio::time::timeout(Duration::from_secs(2), poll)
             .await
@@ -715,5 +763,74 @@ mod tests {
         );
         assert_eq!(resolve_client_id(None, Some("")), None);
         assert_eq!(resolve_client_id(None, None), None);
+    }
+
+    /// A slow store that counts reads, standing in for the Keychain
+    struct SlowStore {
+        reads: std::sync::atomic::AtomicUsize,
+        delay: Duration,
+        token: Option<String>,
+    }
+
+    impl TokenStore for SlowStore {
+        fn get(&self) -> Result<Option<String>, String> {
+            self.reads.fetch_add(1, Ordering::SeqCst);
+            std::thread::sleep(self.delay);
+            Ok(self.token.clone())
+        }
+        fn set(&self, _token: &str) -> Result<(), String> {
+            Ok(())
+        }
+        fn delete(&self) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn slow(delay_ms: u64, token: Option<&str>) -> SlowStore {
+        SlowStore {
+            reads: std::sync::atomic::AtomicUsize::new(0),
+            delay: Duration::from_millis(delay_ms),
+            token: token.map(String::from),
+        }
+    }
+
+    #[test]
+    fn cached_store_reads_the_keychain_once() {
+        let store = Arc::new(CachedStore::new(slow(50, Some("gho_saved"))));
+        let readers: Vec<_> = (0..4)
+            .map(|_| {
+                let store = store.clone();
+                std::thread::spawn(move || store.get().unwrap())
+            })
+            .collect();
+        for reader in readers {
+            assert_eq!(reader.join().unwrap().as_deref(), Some("gho_saved"));
+        }
+        assert_eq!(store.inner().reads.load(Ordering::SeqCst), 1);
+
+        store.set("gho_new").unwrap();
+        assert_eq!(store.get().unwrap().as_deref(), Some("gho_new"));
+        store.delete().unwrap();
+        assert_eq!(store.get().unwrap(), None);
+        assert_eq!(store.inner().reads.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn keychain_access_does_not_block_the_async_runtime() {
+        let server = mockito::Server::new_async().await;
+        let auth = Auth::new(
+            Arc::new(slow(300, None)),
+            GitHubClient::with_base_urls(&server.url(), &server.url()),
+        );
+        let started = Instant::now();
+        let (status, ticked_at) = tokio::join!(auth.status(), async {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            started.elapsed()
+        });
+        assert!(!status.unwrap().signed_in);
+        assert!(
+            ticked_at < Duration::from_millis(200),
+            "the runtime was blocked for {ticked_at:?}"
+        );
     }
 }

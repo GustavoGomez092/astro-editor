@@ -1,5 +1,8 @@
 //! Git commands for the Git panel. Each one runs its libgit2 work on a blocking
-//! thread so the UI never waits on disk or network. The logic lives in `crate::git`.
+//! thread so the UI never waits on disk or network, and holds the repository's lock
+//! (`git::with_repo`) so commands on one repository never interleave. The token is
+//! read inside the blocking work too, since the first read may ask the Keychain.
+//! The logic lives in `crate::git`.
 
 use crate::git::{
     self, BranchInfo, CloneProgress, CommitDetails, FileDiff, GitStatus, GraphCommit,
@@ -42,24 +45,36 @@ async fn author_fallback(project_path: &str) -> Option<GitHubUser> {
 #[tauri::command]
 #[specta::specta]
 pub async fn git_status(project_path: String) -> Result<GitStatus, String> {
-    blocking(move || git::status::status(&PathBuf::from(project_path))).await
+    blocking(move || {
+        let path = PathBuf::from(project_path);
+        if git::open(&path)?.is_none() {
+            return git::status::status(&path);
+        }
+        git::with_repo(&path, git::status::repo_status)
+    })
+    .await
 }
 
 /// Working tree vs `HEAD` for one file
 #[tauri::command]
 #[specta::specta]
 pub async fn git_file_diff(project_path: String, path: String) -> Result<FileDiff, String> {
-    blocking(move || git::diff::file_diff(&PathBuf::from(project_path), &path)).await
+    blocking(move || {
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::diff::file_diff(repo, &path)
+        })
+    })
+    .await
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn git_fetch(project_path: String) -> Result<GitStatus, String> {
-    let token = auth::token();
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::remote::fetch(&repo, token.as_deref())?;
-        git::status::repo_status(&repo)
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::remote::fetch(repo, auth::token().as_deref())?;
+            git::status::repo_status(repo)
+        })
     })
     .await
 }
@@ -67,11 +82,11 @@ pub async fn git_fetch(project_path: String) -> Result<GitStatus, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn git_sync(project_path: String) -> Result<SyncResult, String> {
-    let token = auth::token();
     let user = author_fallback(&project_path).await;
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::sync::sync(&repo, token.as_deref(), user.as_ref())
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::sync::sync(repo, auth::token().as_deref(), user.as_ref())
+        })
     })
     .await
 }
@@ -80,11 +95,11 @@ pub async fn git_sync(project_path: String) -> Result<SyncResult, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn git_publish(project_path: String, message: String) -> Result<PublishResult, String> {
-    let token = auth::token();
     let user = author_fallback(&project_path).await;
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::sync::publish(&repo, &message, token.as_deref(), user.as_ref())
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::sync::publish(repo, &message, auth::token().as_deref(), user.as_ref())
+        })
     })
     .await
 }
@@ -92,11 +107,11 @@ pub async fn git_publish(project_path: String, message: String) -> Result<Publis
 #[tauri::command]
 #[specta::specta]
 pub async fn git_push(project_path: String) -> Result<GitStatus, String> {
-    let token = auth::token();
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::remote::push_current_branch(&repo, token.as_deref())?;
-        git::status::repo_status(&repo)
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::remote::push_current_branch(repo, auth::token().as_deref())?;
+            git::status::repo_status(repo)
+        })
     })
     .await
 }
@@ -104,11 +119,7 @@ pub async fn git_push(project_path: String) -> Result<GitStatus, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn git_branches(project_path: String) -> Result<Vec<BranchInfo>, String> {
-    blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::branches::branches(&repo)
-    })
-    .await
+    blocking(move || git::with_repo(&PathBuf::from(project_path), git::branches::branches)).await
 }
 
 /// Safe checkout; never discards changes
@@ -120,8 +131,9 @@ pub async fn git_checkout(
     create: bool,
 ) -> Result<GitStatus, String> {
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::branches::checkout(&repo, &name, create)
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::branches::checkout(repo, &name, create)
+        })
     })
     .await
 }
@@ -131,8 +143,9 @@ pub async fn git_checkout(
 #[specta::specta]
 pub async fn git_log_graph(project_path: String, limit: u32) -> Result<Vec<GraphCommit>, String> {
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::log::log_graph(&repo, limit)
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::log::log_graph(repo, limit)
+        })
     })
     .await
 }
@@ -141,8 +154,9 @@ pub async fn git_log_graph(project_path: String, limit: u32) -> Result<Vec<Graph
 #[specta::specta]
 pub async fn git_commit_details(project_path: String, id: String) -> Result<CommitDetails, String> {
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::log::commit_details(&repo, &id)
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::log::commit_details(repo, &id)
+        })
     })
     .await
 }
@@ -155,18 +169,23 @@ pub async fn git_commit_file_diff(
     id: String,
     path: String,
 ) -> Result<FileDiff, String> {
-    blocking(move || git::diff::commit_file_diff(&PathBuf::from(project_path), &id, &path)).await
+    blocking(move || {
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::diff::commit_file_diff(repo, &id, &path)
+        })
+    })
+    .await
 }
 
 /// "Bring in changes from main": merge the default branch into the current one
 #[tauri::command]
 #[specta::specta]
 pub async fn git_merge_default_branch(project_path: String) -> Result<SyncResult, String> {
-    let token = auth::token();
     let user = author_fallback(&project_path).await;
     blocking(move || {
-        let repo = git::open_required(&PathBuf::from(project_path))?;
-        git::sync::merge_default_branch(&repo, token.as_deref(), user.as_ref())
+        git::with_repo(&PathBuf::from(project_path), |repo| {
+            git::sync::merge_default_branch(repo, auth::token().as_deref(), user.as_ref())
+        })
     })
     .await
 }
@@ -179,8 +198,8 @@ pub async fn git_clone(
     clone_url: String,
     parent_dir: String,
 ) -> Result<String, String> {
-    let token = auth::token();
     blocking(move || {
+        let token = auth::token();
         let path = git::clone::clone_into(
             &clone_url,
             &PathBuf::from(parent_dir),

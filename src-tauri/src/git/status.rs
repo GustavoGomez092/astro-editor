@@ -1,7 +1,7 @@
 //! The Git panel's status: branch, upstream, ahead/behind and changed files.
 
 use super::{describe, open, ChangedFile, FileChange, GitStatus};
-use git2::{BranchType, DiffDelta, Repository, Status, StatusOptions};
+use git2::{BranchType, DiffDelta, Oid, Repository, Status, StatusOptions};
 use std::path::Path;
 
 pub fn status(project_path: &Path) -> Result<GitStatus, String> {
@@ -76,26 +76,43 @@ pub(crate) fn to_u32(n: usize) -> u32 {
     u32::try_from(n).unwrap_or(u32::MAX)
 }
 
-/// A local branch's upstream (short name) and how far ahead and behind it is
+/// The branch's upstream (short name and tip), or `origin/<branch>` when that exists
+/// but isn't tracked yet. Status, Sync and Publish all compare against this.
+pub(crate) fn upstream_of(repo: &Repository, branch: &str) -> Option<(String, Oid)> {
+    if let Ok(local) = repo.find_branch(branch, BranchType::Local) {
+        if let Ok(upstream) = local.upstream() {
+            let name = upstream.name().ok().flatten()?.to_string();
+            return Some((name, upstream.get().target()?));
+        }
+    }
+    let name = format!("origin/{branch}");
+    let oid = repo
+        .find_branch(&name, BranchType::Remote)
+        .ok()?
+        .get()
+        .target()?;
+    Some((name, oid))
+}
+
+/// A local branch's upstream (see [`upstream_of`]) and how far ahead and behind it is
 pub(crate) fn upstream_and_counts(
     repo: &Repository,
     branch: &str,
 ) -> Result<(Option<String>, u32, u32), String> {
-    let Ok(local) = repo.find_branch(branch, BranchType::Local) else {
-        // No commits yet
+    let Some((name, upstream)) = upstream_of(repo, branch) else {
         return Ok((None, 0, 0));
     };
-    let Ok(upstream) = local.upstream() else {
-        return Ok((None, 0, 0));
-    };
-    let name = upstream.name().ok().flatten().map(String::from);
-    let (ahead, behind) = match (local.get().target(), upstream.get().target()) {
-        (Some(l), Some(u)) => repo
-            .graph_ahead_behind(l, u)
+    let local = repo
+        .find_branch(branch, BranchType::Local)
+        .ok()
+        .and_then(|b| b.get().target());
+    let (ahead, behind) = match local {
+        Some(local) => repo
+            .graph_ahead_behind(local, upstream)
             .map_err(|e| describe("Couldn't compare with the upstream branch", &e))?,
-        _ => (0, 0),
+        None => (0, 0),
     };
-    Ok((name, to_u32(ahead), to_u32(behind)))
+    Ok((Some(name), to_u32(ahead), to_u32(behind)))
 }
 
 fn delta_path(delta: &DiffDelta, new: bool) -> Option<String> {
@@ -312,5 +329,21 @@ mod tests {
         let status = status(dir.path()).unwrap();
         assert!(status.detached);
         assert_eq!(status.branch, None);
+    }
+
+    #[test]
+    fn status_uses_the_origin_branch_when_no_upstream_is_configured() {
+        let setup = repo_with_remote();
+        let head = setup.local.head().unwrap().peel_to_commit().unwrap();
+        setup.local.branch("staging", &head, false).unwrap();
+        // On the remote, but not tracked: what Sync and Publish compare against
+        push(&setup.local, "staging");
+        setup.local.set_head("refs/heads/staging").unwrap();
+        write(&setup.local, "draft.md", "draft\n");
+        commit_all(&setup.local, "Draft");
+
+        let status = status(setup.local_dir.path()).unwrap();
+        assert_eq!(status.upstream.as_deref(), Some("origin/staging"));
+        assert_eq!((status.ahead, status.behind), (1, 0));
     }
 }

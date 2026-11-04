@@ -6,10 +6,13 @@
 //! Checkouts and fast-forwards use libgit2's safe checkout, and a merge that conflicts
 //! is aborted with the repository restored. See `docs/developer/git-and-github.md`.
 
-use git2::{ErrorCode, Repository};
+use git2::{build::CheckoutBuilder, CheckoutNotificationType, ErrorCode, Repository};
 use serde::{Deserialize, Serialize};
 use specta::Type;
-use std::path::Path;
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 /// How a file differs from `HEAD`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -200,6 +203,79 @@ pub(crate) fn open_required(project_path: &Path) -> Result<Repository, String> {
     open(project_path)?.ok_or_else(|| NOT_A_REPO.to_string())
 }
 
+/// libgit2's network timeouts, so a stalled connection can't hang Publish.
+/// Called once at startup.
+pub fn init_network_timeouts() {
+    // SAFETY: these set process-wide libgit2 options; called before any git work
+    // starts (and in tests, with the same values every time)
+    unsafe {
+        let _ = git2::opts::set_server_connect_timeout_in_milliseconds(15_000);
+        let _ = git2::opts::set_server_timeout_in_milliseconds(60_000);
+    }
+}
+
+static REPO_LOCKS: OnceLock<Mutex<HashMap<PathBuf, Arc<Mutex<()>>>>> = OnceLock::new();
+
+/// One lock per repository (keyed by its `.git` folder), held for the whole of each
+/// git command so a timed sync can't interleave with a publish
+pub(crate) fn repo_lock(git_dir: &Path) -> Arc<Mutex<()>> {
+    let locks = REPO_LOCKS.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut locks = locks.lock().unwrap_or_else(|e| e.into_inner());
+    locks.entry(git_dir.to_path_buf()).or_default().clone()
+}
+
+/// Open the project's repository and run `work` while holding its lock
+pub(crate) fn with_repo<T>(
+    project_path: &Path,
+    work: impl FnOnce(&Repository) -> Result<T, String>,
+) -> Result<T, String> {
+    let repo = open_required(project_path)?;
+    let lock = repo_lock(repo.path());
+    let _guard = lock.lock().unwrap_or_else(|e| e.into_inner());
+    work(&repo)
+}
+
+/// Why a safe checkout didn't happen
+pub(crate) enum CheckoutRefused {
+    /// These files have local changes, or are ignored files, that it would overwrite
+    Conflicts(Vec<String>),
+    Failed(git2::Error),
+}
+
+/// libgit2's safe checkout, which also refuses to overwrite ignored files (a local
+/// `.env`, say). libgit2 checks every file before writing any, so a refusal leaves
+/// the working tree untouched.
+pub(crate) fn checkout_safely(
+    repo: &Repository,
+    target: &git2::Object,
+) -> Result<(), CheckoutRefused> {
+    let conflicts = RefCell::new(Vec::<String>::new());
+    let mut checkout = CheckoutBuilder::new();
+    checkout
+        .safe()
+        .overwrite_ignored(false)
+        .notify_on(CheckoutNotificationType::CONFLICT)
+        .notify(|_, path, _, _, _| {
+            if let Some(path) = path {
+                conflicts
+                    .borrow_mut()
+                    .push(path.to_string_lossy().replace('\\', "/"));
+            }
+            true
+        });
+    let result = repo.checkout_tree(target, Some(&mut checkout));
+    drop(checkout);
+    result.map_err(|e| {
+        ::log::warn!("Astro Editor [GIT] Safe checkout refused: {}", e.message());
+        let files = conflicts.into_inner();
+        if files.is_empty() {
+            CheckoutRefused::Failed(e)
+        } else {
+            CheckoutRefused::Conflicts(files)
+        }
+    })
+}
+
 /// Plain-language text for a libgit2 error, prefixed with what was being done
 pub(crate) fn describe(action: &str, e: &git2::Error) -> String {
     format!("{action}: {}", e.message())
@@ -212,5 +288,34 @@ pub(crate) fn name_files(files: &[String]) -> String {
         [one] => one.clone(),
         [a, b] => format!("{a} and {b}"),
         [a, b, rest @ ..] => format!("{a}, {b} and {} more", rest.len()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn network_timeouts_are_set() {
+        init_network_timeouts();
+        unsafe {
+            assert_eq!(
+                git2::opts::get_server_connect_timeout_in_milliseconds().unwrap(),
+                15_000
+            );
+            assert_eq!(
+                git2::opts::get_server_timeout_in_milliseconds().unwrap(),
+                60_000
+            );
+        }
+    }
+
+    #[test]
+    fn one_lock_per_repository() {
+        let a = repo_lock(Path::new("/tmp/a/.git"));
+        let again = repo_lock(Path::new("/tmp/a/.git"));
+        let b = repo_lock(Path::new("/tmp/b/.git"));
+        assert!(std::sync::Arc::ptr_eq(&a, &again));
+        assert!(!std::sync::Arc::ptr_eq(&a, &b));
     }
 }

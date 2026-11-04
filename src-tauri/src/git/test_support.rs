@@ -196,3 +196,10 @@ pub fn remote_tip(remote_dir: &Path, branch: &str) -> Option<Oid> {
 pub fn head_id(repo: &Repository) -> Oid {
     repo.head().unwrap().target().unwrap()
 }
+
+/// Ignore `path` on this computer only (`.git/info/exclude`)
+pub fn exclude_locally(repo: &Repository, path: &str) {
+    let info = repo.path().join("info");
+    fs::create_dir_all(&info).unwrap();
+    fs::write(info.join("exclude"), format!("{path}\n")).unwrap();
+}

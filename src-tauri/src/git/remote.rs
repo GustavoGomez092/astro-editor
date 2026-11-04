@@ -1,8 +1,10 @@
 //! Fetch and push against `origin`. For github.com over HTTPS the signed-in token is
-//! sent as `x-access-token`; other hosts use git's credential helper.
+//! sent as `x-access-token`; other hosts use git's credential helper. A github.com
+//! SSH origin is reached over HTTPS instead (git2 is built without SSH).
 
-use super::status::{current_branch_name, upstream_and_counts};
+use super::status::current_branch_name;
 use crate::github::http::NO_ACCESS;
+use crate::github::repos::parse_github_remote;
 use git2::{
     BranchType, Cred, CredentialType, ErrorClass, ErrorCode, FetchOptions, FetchPrune, PushOptions,
     RemoteCallbacks, Repository,
@@ -13,10 +15,8 @@ const SIGN_IN_NEEDED: &str = "Sign in with GitHub to sync this repository.";
 
 /// Whether a remote URL is github.com over HTTPS, where the token can be used
 pub(crate) fn is_github_https(url: &str) -> bool {
-    let Some(rest) = url
-        .strip_prefix("https://")
-        .or_else(|| url.strip_prefix("http://"))
-    else {
+    // HTTPS only: over plain HTTP the token would go out in the clear
+    let Some(rest) = url.strip_prefix("https://") else {
         return false;
     };
     let authority = rest.split('/').next().unwrap_or("");
@@ -98,6 +98,46 @@ pub(crate) fn network_error(e: &git2::Error, url: &str, token: Option<&str>) -> 
     }
 }
 
+const SSH_UNSUPPORTED: &str = "This repository's remote uses SSH, which the app can't use. Only HTTPS remotes (and GitHub SSH remotes) are supported. Change the remote to its HTTPS address.";
+
+/// An scp-like (`git@host:path`) or `ssh://` URL
+fn is_ssh(url: &str) -> bool {
+    if url.starts_with("ssh://") || url.starts_with("git+ssh://") {
+        return true;
+    }
+    if url.contains("://") {
+        return false;
+    }
+    // `host:path` or `user@host:path`, but not a Windows drive (`C:\…`)
+    matches!(url.split_once(':'), Some((host, _)) if host.len() > 1 && !host.contains(['/', '\\']))
+}
+
+/// The SSH-free address to fetch from and push to instead of `origin`'s URL:
+/// a github.com SSH origin is reached over HTTPS with the token (the config isn't
+/// changed). `None` means use `origin` as it is. Other SSH hosts are refused.
+pub(crate) fn https_override(url: &str) -> Result<Option<String>, String> {
+    if !is_ssh(url) {
+        return Ok(None);
+    }
+    match parse_github_remote(url) {
+        Some((owner, repo)) => Ok(Some(format!("https://github.com/{owner}/{repo}.git"))),
+        None => Err(SSH_UNSUPPORTED.to_string()),
+    }
+}
+
+/// The message for a push the remote refused, from push_update_reference's status
+fn rejection_message(reason: &str, place: &str) -> String {
+    let lower = reason.to_ascii_lowercase();
+    if lower.contains("non-fast-forward")
+        || lower.contains("non-fastforward")
+        || lower.contains("fetch first")
+    {
+        format!("{place} has changes that aren't on this computer yet. Sync, then publish again.")
+    } else {
+        format!("{place} refused the update: {reason}")
+    }
+}
+
 fn origin_url(repo: &Repository) -> Result<String, String> {
     let remote = repo
         .find_remote("origin")
@@ -109,19 +149,55 @@ pub(crate) fn has_origin(repo: &Repository) -> bool {
     repo.find_remote("origin").is_ok()
 }
 
+/// `origin`, or an anonymous remote at `over` (never saved to the config), and the
+/// URL to describe errors with
+fn remote_for<'r>(
+    repo: &'r Repository,
+    over: Option<&str>,
+) -> Result<(git2::Remote<'r>, String), String> {
+    match over {
+        Some(url) => {
+            let remote = repo
+                .remote_anonymous(url)
+                .map_err(|e| super::describe("Couldn't read the remote", &e))?;
+            Ok((remote, url.to_string()))
+        }
+        None => {
+            let url = origin_url(repo)?;
+            let remote = repo
+                .find_remote("origin")
+                .map_err(|e| super::describe("Couldn't read the remote", &e))?;
+            Ok((remote, url))
+        }
+    }
+}
+
 /// Fetch `origin` (all branches, pruning deleted ones), and record `origin/HEAD` if
 /// the repository doesn't know it yet
 pub fn fetch(repo: &Repository, token: Option<&str>) -> Result<(), String> {
-    let url = origin_url(repo)?;
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| super::describe("Couldn't read the remote", &e))?;
+    let over = https_override(&origin_url(repo)?)?;
+    fetch_from(repo, over.as_deref(), token)
+}
+
+pub(crate) fn fetch_from(
+    repo: &Repository,
+    over: Option<&str>,
+    token: Option<&str>,
+) -> Result<(), String> {
+    let (mut remote, url) = remote_for(repo, over)?;
     let mut options = FetchOptions::new();
     options
         .remote_callbacks(callbacks(repo.config().ok(), token))
         .prune(FetchPrune::On);
+    // An anonymous remote has no configured refspecs, so name them, so that
+    // origin/* is updated just as a fetch of origin would
+    let refspecs: &[&str] = if over.is_some() {
+        &["+refs/heads/*:refs/remotes/origin/*"]
+    } else {
+        &[]
+    };
     remote
-        .fetch::<&str>(&[], Some(&mut options), None)
+        .fetch(refspecs, Some(&mut options), None)
         .map_err(|e| network_error(&e, &url, token))?;
 
     if repo.find_reference("refs/remotes/origin/HEAD").is_err() {
@@ -144,14 +220,25 @@ pub fn fetch(repo: &Repository, token: Option<&str>) -> Result<(), String> {
 
 /// Push the current branch to `origin`, setting its upstream if it has none
 pub fn push_current_branch(repo: &Repository, token: Option<&str>) -> Result<(), String> {
+    let over = https_override(&origin_url(repo)?)?;
+    push_to(repo, over.as_deref(), token)
+}
+
+pub(crate) fn push_to(
+    repo: &Repository,
+    over: Option<&str>,
+    token: Option<&str>,
+) -> Result<(), String> {
     let Some(branch) = current_branch_name(repo).filter(|_| !repo.head_detached().unwrap_or(false))
     else {
         return Err("You're not on a branch. Switch to a branch before publishing.".to_string());
     };
-    let url = origin_url(repo)?;
-    let mut remote = repo
-        .find_remote("origin")
-        .map_err(|e| super::describe("Couldn't read the remote", &e))?;
+    let (mut remote, url) = remote_for(repo, over)?;
+    let place = if is_github_https(&url) {
+        "GitHub"
+    } else {
+        "The remote"
+    };
 
     let rejection = RefCell::new(None::<String>);
     let mut push_callbacks = callbacks(repo.config().ok(), token);
@@ -167,31 +254,27 @@ pub fn push_current_branch(repo: &Repository, token: Option<&str>) -> Result<(),
     let pushed = remote.push(&[refspec.as_str()], Some(&mut options));
     drop(options);
 
+    // A remote's refusal comes through push_update_reference; libgit2's own local
+    // transport reports a non-fast-forward as an error instead
     let rejected = rejection.into_inner().or_else(|| match &pushed {
-        Err(e) if e.message().contains("fast-forward") || e.message().contains("fastforward") => {
-            Some(e.message().to_string())
-        }
+        Err(e) if e.code() == ErrorCode::NotFastForward => Some("non-fast-forward".to_string()),
         _ => None,
     });
     if let Some(reason) = rejected {
         log::warn!("Astro Editor [GIT] Push rejected: {reason}");
-        return Err(
-            "GitHub has changes that aren't on this computer yet. Sync, then publish again."
-                .to_string(),
-        );
+        return Err(rejection_message(&reason, place));
     }
     pushed.map_err(|e| network_error(&e, &url, token))?;
 
     // Record what the remote now has, and track it if this is the first push
-    let local = repo
+    let mut local = repo
         .find_branch(&branch, BranchType::Local)
         .map_err(|e| super::describe("Couldn't read the branch", &e))?;
     if let Some(oid) = local.get().target() {
         repo.reference(&format!("refs/remotes/origin/{branch}"), oid, true, "push")
             .map_err(|e| super::describe("Couldn't record the push", &e))?;
     }
-    if upstream_and_counts(repo, &branch)?.0.is_none() {
-        let mut local = local;
+    if local.upstream().is_err() {
         local
             .set_upstream(Some(&format!("origin/{branch}")))
             .map_err(|e| super::describe("Couldn't set the branch's upstream", &e))?;
@@ -202,6 +285,9 @@ pub fn push_current_branch(repo: &Repository, token: Option<&str>) -> Result<(),
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::test_support::{
+        commit_all, push_from_elsewhere, remote_tip, repo_with_remote, write,
+    };
 
     #[test]
     fn github_https_urls_are_recognised() {
@@ -216,5 +302,109 @@ mod tests {
             "https://github.com.evil.example/owner/repo"
         ));
         assert!(!is_github_https("/tmp/remote"));
+        // Plain HTTP would send the token in the clear
+        assert!(!is_github_https("http://github.com/owner/repo.git"));
+    }
+
+    #[test]
+    fn github_ssh_origins_are_reached_over_https() {
+        assert_eq!(
+            https_override("git@github.com:kevin/site.git")
+                .unwrap()
+                .as_deref(),
+            Some("https://github.com/kevin/site.git")
+        );
+        assert_eq!(
+            https_override("ssh://git@github.com/kevin/site")
+                .unwrap()
+                .as_deref(),
+            Some("https://github.com/kevin/site.git")
+        );
+        assert_eq!(
+            https_override("https://github.com/kevin/site.git").unwrap(),
+            None
+        );
+        assert_eq!(https_override("/tmp/remote").unwrap(), None);
+        assert_eq!(https_override("file:///tmp/remote").unwrap(), None);
+    }
+
+    #[test]
+    fn other_ssh_hosts_are_refused_plainly() {
+        for url in [
+            "git@gitlab.com:kevin/site.git",
+            "ssh://git@example.com/site.git",
+        ] {
+            let e = https_override(url).unwrap_err();
+            assert!(e.contains("HTTPS"), "{e}");
+        }
+        let setup = repo_with_remote();
+        setup
+            .local
+            .remote_set_url("origin", "git@gitlab.com:kevin/site.git")
+            .unwrap();
+        let e = fetch(&setup.local, None).unwrap_err();
+        assert!(e.contains("HTTPS"), "{e}");
+        let e = push_current_branch(&setup.local, None).unwrap_err();
+        assert!(e.contains("HTTPS"), "{e}");
+    }
+
+    #[test]
+    fn fetch_and_push_through_an_https_override_keep_origin_config() {
+        let setup = repo_with_remote();
+        let ssh = "git@github.com:kevin/site.git";
+        setup.local.remote_set_url("origin", ssh).unwrap();
+        let remote_url = setup.remote_dir.path().to_str().unwrap().to_string();
+        let theirs = push_from_elsewhere(setup.remote_dir.path(), "main", "news.md", "news\n");
+
+        fetch_from(&setup.local, Some(&remote_url), None).unwrap();
+        assert_eq!(
+            setup
+                .local
+                .find_reference("refs/remotes/origin/main")
+                .unwrap()
+                .target(),
+            Some(theirs)
+        );
+
+        let head = setup.local.head().unwrap().peel_to_commit().unwrap();
+        setup.local.branch("draft", &head, false).unwrap();
+        setup.local.set_head("refs/heads/draft").unwrap();
+        write(&setup.local, "draft.md", "draft\n");
+        let draft = commit_all(&setup.local, "Draft");
+        push_to(&setup.local, Some(&remote_url), None).unwrap();
+        assert_eq!(remote_tip(setup.remote_dir.path(), "draft"), Some(draft));
+        let status = crate::git::status::repo_status(&setup.local).unwrap();
+        assert_eq!(status.upstream.as_deref(), Some("origin/draft"));
+
+        let config = setup.local.config().unwrap().snapshot().unwrap();
+        assert_eq!(config.get_str("remote.origin.url").unwrap(), ssh);
+    }
+
+    #[test]
+    fn push_rejections_say_why() {
+        for reason in [
+            "non-fast-forward",
+            "fetch first",
+            "cannot push non-fastforwardable reference",
+        ] {
+            assert_eq!(
+                rejection_message(reason, "GitHub"),
+                "GitHub has changes that aren't on this computer yet. Sync, then publish again."
+            );
+        }
+        assert_eq!(
+            rejection_message("protected branch hook declined", "GitHub"),
+            "GitHub refused the update: protected branch hook declined"
+        );
+    }
+
+    #[test]
+    fn a_non_fast_forward_push_is_refused_with_the_sync_message() {
+        let setup = repo_with_remote();
+        push_from_elsewhere(setup.remote_dir.path(), "main", "news.md", "news\n");
+        write(&setup.local, "mine.md", "mine\n");
+        commit_all(&setup.local, "Mine");
+        let e = push_current_branch(&setup.local, None).unwrap_err();
+        assert!(e.contains("Sync, then publish again"), "{e}");
     }
 }

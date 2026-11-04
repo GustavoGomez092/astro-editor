@@ -9,9 +9,12 @@ use crate::github::{DeviceCode, GitHubAuthStatus, PullRequest, RepoInfo, RepoSum
 use std::path::PathBuf;
 use tauri::{AppHandle, Manager};
 
-fn signed_in_token() -> Result<String, String> {
-    auth()?
-        .token()
+/// The token, read on a blocking thread (the first read may ask the Keychain)
+async fn signed_in_token() -> Result<String, String> {
+    let auth = auth()?;
+    tokio::task::spawn_blocking(move || auth.token())
+        .await
+        .map_err(|e| format!("Reading the GitHub sign-in stopped unexpectedly: {e}"))?
         .ok_or_else(|| "Sign in with GitHub first.".to_string())
 }
 
@@ -28,7 +31,7 @@ async fn github_repo(project_path: String) -> Result<(RepoInfo, String), String>
     let info = repo_info_for(project_path)
         .await?
         .ok_or_else(|| "This project isn't connected to a GitHub repository.".to_string())?;
-    Ok((info, signed_in_token()?))
+    Ok((info, signed_in_token().await?))
 }
 
 /// The OAuth App client ID: Preferences → Advanced, else the one compiled in
@@ -69,7 +72,7 @@ pub async fn github_device_poll() -> Result<GitHubAuthStatus, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn github_sign_out() -> Result<(), String> {
-    auth()?.sign_out()
+    auth()?.sign_out().await
 }
 
 /// `None` when `origin` isn't a github.com remote
@@ -126,6 +129,6 @@ pub async fn github_merge_pull_request(
 #[tauri::command]
 #[specta::specta]
 pub async fn github_list_repos() -> Result<Vec<RepoSummary>, String> {
-    let token = signed_in_token()?;
+    let token = signed_in_token().await?;
     repos::list_repos(auth()?.client(), &token).await
 }

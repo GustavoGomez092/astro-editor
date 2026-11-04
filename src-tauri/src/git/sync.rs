@@ -4,14 +4,14 @@
 //! checked out with libgit2's safe checkout, and merges happen in memory first, so a
 //! conflict leaves the repository exactly as it was.
 
-use super::remote::{fetch, has_origin, is_github_https, push_current_branch};
-use super::status::{changed_files, current_branch_name, default_branch, repo_status};
-use super::{describe, name_files, PublishResult, SyncOutcome, SyncResult};
-use crate::github::auth::GitHubUser;
-use git2::{
-    build::CheckoutBuilder, BranchType, IndexAddOption, Oid, Repository, RepositoryState,
-    Signature, Tree,
+use super::remote::{fetch, has_origin, push_current_branch};
+use super::status::{changed_files, current_branch_name, default_branch, repo_status, upstream_of};
+use super::{
+    checkout_safely, describe, name_files, CheckoutRefused, PublishResult, SyncOutcome, SyncResult,
 };
+use crate::github::auth::GitHubUser;
+use crate::github::repos::parse_github_remote;
+use git2::{BranchType, IndexAddOption, Oid, Repository, RepositoryState, Signature, Tree};
 use std::collections::HashSet;
 
 const DETACHED: &str = "You're not on a branch. Switch to a branch first.";
@@ -222,26 +222,9 @@ fn remote_label(repo: &Repository) -> String {
     let github = repo
         .find_remote("origin")
         .ok()
-        .and_then(|r| r.url().map(is_github_https))
+        .and_then(|r| r.url().map(|url| parse_github_remote(url).is_some()))
         .unwrap_or(false);
     if github { "GitHub" } else { "the remote" }.to_string()
-}
-
-/// The branch's upstream, or `origin/<branch>` if it exists but isn't tracked yet
-fn upstream_of(repo: &Repository, branch: &str) -> Option<(String, Oid)> {
-    if let Ok(local) = repo.find_branch(branch, BranchType::Local) {
-        if let Ok(upstream) = local.upstream() {
-            let name = upstream.name().ok().flatten()?.to_string();
-            return Some((name, upstream.get().target()?));
-        }
-    }
-    let name = format!("origin/{branch}");
-    let oid = repo
-        .find_branch(&name, BranchType::Remote)
-        .ok()?
-        .get()
-        .target()?;
-    Some((name, oid))
 }
 
 /// Stage everything (deletions included) and commit it. With nothing new to commit,
@@ -333,17 +316,27 @@ fn paths_between(repo: &Repository, from: Option<Oid>, to: Oid) -> Result<HashSe
     Ok(paths)
 }
 
-/// Check out `tree` safely: fails rather than overwrite a local change
-fn checkout_safely(repo: &Repository, tree: &Tree) -> Result<(), git2::Error> {
-    let mut checkout = CheckoutBuilder::new();
-    checkout.safe();
-    repo.checkout_tree(tree.as_object(), Some(&mut checkout))
-}
-
-fn move_branch(repo: &Repository, branch: &str, to: Oid, why: &str) -> Result<(), String> {
-    repo.reference(&format!("refs/heads/{branch}"), to, true, why)
-        .map(|_| ())
-        .map_err(|e| describe("Couldn't update the branch", &e))
+/// Point `branch` at `to`, but only if it's still at `expected` (or doesn't exist
+/// yet, when `expected` is `None`), so a commit made meanwhile is never dropped
+fn move_branch(
+    repo: &Repository,
+    branch: &str,
+    to: Oid,
+    expected: Option<Oid>,
+    why: &str,
+) -> Result<(), String> {
+    let name = format!("refs/heads/{branch}");
+    let result = match expected {
+        Some(expected) => repo.reference_matching(&name, to, true, expected, why),
+        None => repo.reference(&name, to, false, why),
+    };
+    result.map(|_| ()).map_err(|e| {
+        log::warn!(
+            "Astro Editor [GIT] Branch moved underneath us: {}",
+            e.message()
+        );
+        format!("{branch} changed while this was running, so nothing was moved. Try again.")
+    })
 }
 
 /// Bring the commit `incoming` (named `incoming_name`, from `label`) into `branch`,
@@ -406,11 +399,12 @@ fn integrate(
         if !touched.is_empty() {
             return Ok(blocked(&touched));
         }
-        if let Err(e) = checkout_safely(repo, &incoming_tree) {
-            log::warn!("Astro Editor [GIT] Safe checkout refused: {}", e.message());
-            return Ok(blocked(&[]));
+        match checkout_safely(repo, incoming_tree.as_object()) {
+            Ok(()) => {}
+            Err(CheckoutRefused::Conflicts(files)) => return Ok(blocked(&files)),
+            Err(CheckoutRefused::Failed(_)) => return Ok(blocked(&[])),
         }
-        move_branch(repo, branch, incoming, "fast-forward")?;
+        move_branch(repo, branch, incoming, local, "fast-forward")?;
         return Ok(Integration::new(
             SyncOutcome::FastForwarded,
             format!("Brought in {} from {label}.", plural(behind, "change")),
@@ -465,15 +459,17 @@ fn integrate(
             &[&local_commit, &incoming_commit],
         )
         .map_err(|e| describe("Couldn't save the combined changes", &e))?;
-    if let Err(e) = checkout_safely(repo, &tree) {
-        log::warn!("Astro Editor [GIT] Safe checkout refused: {}", e.message());
+    if let Err(refused) = checkout_safely(repo, tree.as_object()) {
+        let what = match refused {
+            CheckoutRefused::Conflicts(files) => name_files(&files),
+            CheckoutRefused::Failed(_) => "a file on this computer".to_string(),
+        };
         return Ok(Integration::new(
             SyncOutcome::BlockedByLocalChanges,
-            "A file on this computer would have been overwritten, so nothing was changed."
-                .to_string(),
+            format!("Combining the changes would overwrite {what}, so nothing was changed."),
         ));
     }
-    move_branch(repo, branch, merge, "merge")?;
+    move_branch(repo, branch, merge, local, "merge")?;
     Ok(Integration::new(
         SyncOutcome::Merged,
         format!(
@@ -753,5 +749,35 @@ mod tests {
         assert_eq!(sig.email(), Some("ada@example.com"));
 
         assert!(identity_from(None, None, None).is_err());
+    }
+
+    #[test]
+    fn sync_does_not_overwrite_ignored_file() {
+        let setup = repo_with_remote();
+        exclude_locally(&setup.local, ".env");
+        write(&setup.local, ".env", "SECRET=mine\n");
+        let before = head_id(&setup.local);
+        push_from_elsewhere(setup.remote_dir.path(), "main", ".env", "SECRET=theirs\n");
+
+        let result = sync(&setup.local, None, None).unwrap();
+        assert_eq!(result.outcome, SyncOutcome::BlockedByLocalChanges);
+        assert!(result.message.contains(".env"), "{}", result.message);
+        assert_eq!(read(&setup.local, ".env"), "SECRET=mine\n");
+        assert_eq!(head_id(&setup.local), before);
+    }
+
+    #[test]
+    fn move_branch_refuses_when_the_branch_moved() {
+        let (_dir, repo) = init_repo();
+        write(&repo, "a.md", "1\n");
+        let first = commit_all(&repo, "First");
+        write(&repo, "a.md", "2\n");
+        // Another operation committed while we were working from `first`
+        let second = commit_all(&repo, "Second");
+
+        assert!(move_branch(&repo, "main", first, Some(first), "test").is_err());
+        assert_eq!(head_id(&repo), second);
+        move_branch(&repo, "main", first, Some(second), "test").unwrap();
+        assert_eq!(head_id(&repo), first);
     }
 }
