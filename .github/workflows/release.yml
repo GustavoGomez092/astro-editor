@@ -31,6 +31,14 @@ on:
         description: 'Release tag to build and publish, e.g. v1.0.20-plus.1 (created on the selected ref if missing)'
         required: true
         type: string
+      runner:
+        description: 'macOS runner. Use macos-15-intel when Apple Silicon runners are queueing; both build the universal app.'
+        required: false
+        default: macos-15
+        type: choice
+        options:
+          - macos-15
+          - macos-15-intel
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,7 +49,7 @@ jobs:
   release:
     permissions:
       contents: write
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner || 'macos-15' }}
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
