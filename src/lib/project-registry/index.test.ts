@@ -171,4 +171,42 @@ describe('Project Registry System', () => {
       'test-project'
     )
   })
+
+  it('keeps the Dev command override until it is cleared', async () => {
+    const { invoke } = await import('@tauri-apps/api/core')
+    vi.mocked(invoke).mockImplementation(command => {
+      if (command === 'get_app_data_dir')
+        return Promise.resolve('/mock/app/data')
+      if (command === 'read_file_content')
+        return Promise.resolve(JSON.stringify({ name: 'site' }))
+      if (command === 'read_app_data_file')
+        return Promise.reject(new Error('File not found'))
+      return Promise.resolve(undefined)
+    })
+    await manager.initialize()
+    const projectId = await manager.registerProject('/Users/test/site')
+
+    await manager.updateProjectSettings(projectId, {
+      devCommand: 'npm run start',
+    })
+    expect((await manager.getEffectiveSettings(projectId)).devCommand).toBe(
+      'npm run start'
+    )
+
+    await manager.updateProjectSettings(projectId, { devCommand: null })
+    expect(
+      (await manager.getEffectiveSettings(projectId)).devCommand
+    ).toBeUndefined()
+    const saved = mockInvoke.mock.calls
+      .filter(([command]) => command === 'write_app_data_file')
+      .map(([, args]) => (args as { content: string }).content)
+      .at(-1)
+    expect(saved).not.toContain('devCommand')
+  })
+
+  it('hides the preview and publishing tools by default', async () => {
+    setupInitializationMocks(mockInvoke)
+    await manager.initialize()
+    expect(manager.getGlobalSettings().general.showPublishingTools).toBe(false)
+  })
 })

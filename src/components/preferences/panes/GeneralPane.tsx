@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/select'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { Switch } from '@/components/ui/switch'
 import {
   Field,
   FieldLabel,
@@ -188,6 +189,27 @@ export const GeneralPane: React.FC = () => {
               File type used when creating new files across all projects
             </FieldDescription>
           </FieldContent>
+        </Field>
+
+        <Field>
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <FieldLabel htmlFor={`${id}-publishing-tools`}>
+                Show preview and publishing tools
+              </FieldLabel>
+              <FieldDescription>
+                Adds a Preview button to the title bar, which runs your
+                project&apos;s dev server and opens the site in your browser.
+              </FieldDescription>
+            </div>
+            <Switch
+              id={`${id}-publishing-tools`}
+              checked={globalSettings?.general?.showPublishingTools ?? false}
+              onCheckedChange={checked =>
+                void updateGlobal({ general: { showPublishingTools: checked } })
+              }
+            />
+          </div>
         </Field>
       </SettingsSection>
 

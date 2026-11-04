@@ -2,6 +2,7 @@
 mod agent_bridge;
 mod bindings;
 mod commands;
+mod dev_server;
 mod mdx_components;
 mod mdx_esm;
 mod models;
@@ -136,6 +137,14 @@ pub fn run() {
 
             #[cfg(target_os = "macos")]
             commands::quit::install_terminate_hook(app.handle());
+
+            // Dev servers report each state change to the frontend
+            let event_handle = app.handle().clone();
+            app.manage(dev_server::DevServers::new(std::sync::Arc::new(
+                move |_project_path, state| {
+                    let _ = event_handle.emit(commands::dev_server::STATE_EVENT, state);
+                },
+            )));
 
             // Fix PATH environment variable for production builds
             // This ensures shell commands can find executables like 'code', 'cursor', etc.
