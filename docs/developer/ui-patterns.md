@@ -50,6 +50,8 @@ The frontmatter panel and the preferences dialog are built from shadcn's `Field`
 
 - **Label wiring:** give a text control's label `htmlFor`, so clicking the label focuses it. Button-style controls (date, enum, reference and image pickers) instead get a `labelId` on the label and `aria-labelledby` on the button, because `htmlFor` would turn a label click into a button click and open the picker. `FieldWrapper` takes either.
 - **Preference text inputs use `PreferencesTextInput`,** which keeps the value in local state while typing and commits on blur or Enter. Settings are written to disk asynchronously, and committing on every keystroke made the cursor jump.
+- **Field hints don't repeat the schema's description.** `FieldWrapper` builds the line under a field from its constraints and default. A bound is left out when the description already gives every number in it (`.describe('… (0–95)')`), and an empty default (`''`, `[]`, `{}`) isn't shown. "Copy as slug" only appears under the title when the collection has a URL pattern, the one place a slug is used.
+- **Collection names are shown as words** through `collectionDisplayName` (`lib/collection-name.ts`): `sketch-strip` is "Sketch strip". Ids, folder names and settings keep the real name. The sidebar lists collections in the order of the content config; the folder-scan fallback, which has no config to follow, lists them by name.
 - **Multi-line text uses `AutoExpandingTextarea`** (`ui/auto-expanding-textarea.tsx`), because WebKit doesn't support `field-sizing: content` across the macOS versions we support.
 
 ## Notifications

@@ -43,7 +43,8 @@ export const FieldWrapper: React.FC<FieldWrapperProps> = ({
 
   const metadataText = formatMetadata(
     constraints,
-    showDefault ? defaultValue : undefined
+    showDefault ? defaultValue : undefined,
+    description
   )
 
   return (
@@ -65,11 +66,29 @@ export const FieldWrapper: React.FC<FieldWrapperProps> = ({
   )
 }
 
+/** The numbers a description mentions, so a hint doesn't repeat them */
+function numbersIn(text?: string): Set<number> {
+  return new Set((text?.match(/\d+(?:\.\d+)?/g) ?? []).map(Number))
+}
+
+/** An empty default (`''`, `[]`, `{}`) says nothing, so it isn't shown */
+function isEmptyDefault(value: unknown): boolean {
+  if (value === '' || value === null) return true
+  if (Array.isArray(value)) return value.length === 0
+  return typeof value === 'object' && Object.keys(value).length === 0
+}
+
 function formatMetadata(
   constraints?: FieldConstraints,
-  defaultValue?: unknown
+  defaultValue?: unknown,
+  description?: string
 ): string | null {
   const parts: string[] = []
+  // A bounds hint is left out when the description already gives every
+  // number in it ("in % of the section (0–95)")
+  const mentioned = numbersIn(description)
+  const stated = (...bounds: number[]) =>
+    bounds.every(bound => mentioned.has(Math.abs(bound)))
 
   if (constraints) {
     // Numeric constraints. Exclusive bounds (`gt`, `lt`) show as "> 0"
@@ -80,26 +99,26 @@ function formatMetadata(
       !minExclusive &&
       !maxExclusive
     ) {
-      parts.push(`${min}–${max}`)
+      if (!stated(min, max)) parts.push(`${min}–${max}`)
     } else {
-      if (min !== undefined) {
+      if (min !== undefined && !stated(min)) {
         parts.push(minExclusive ? `> ${min}` : `Min: ${min}`)
       }
-      if (max !== undefined) {
+      if (max !== undefined && !stated(max)) {
         parts.push(maxExclusive ? `< ${max}` : `Max: ${max}`)
       }
     }
 
     // String length constraints
-    if (
-      constraints.minLength !== undefined &&
-      constraints.maxLength !== undefined
-    ) {
-      parts.push(`${constraints.minLength}–${constraints.maxLength} characters`)
-    } else if (constraints.minLength !== undefined) {
-      parts.push(`Min ${constraints.minLength} chars`)
-    } else if (constraints.maxLength !== undefined) {
-      parts.push(`Max ${constraints.maxLength} chars`)
+    const { minLength, maxLength } = constraints
+    if (minLength !== undefined && maxLength !== undefined) {
+      if (!stated(minLength, maxLength)) {
+        parts.push(`${minLength}–${maxLength} characters`)
+      }
+    } else if (minLength !== undefined) {
+      if (!stated(minLength)) parts.push(`Min ${minLength} chars`)
+    } else if (maxLength !== undefined) {
+      if (!stated(maxLength)) parts.push(`Max ${maxLength} chars`)
     }
 
     // Array length constraints
@@ -143,7 +162,7 @@ function formatMetadata(
   }
 
   // Default value
-  if (defaultValue !== undefined) {
+  if (defaultValue !== undefined && !isEmptyDefault(defaultValue)) {
     const defaultStr =
       typeof defaultValue === 'string'
         ? defaultValue

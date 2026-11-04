@@ -32,6 +32,7 @@ import { SettingsSection } from '../SettingsSection'
 import { PreferencesTextInput } from '../PreferencesTextInput'
 import { DocsLink } from '../DocsLink'
 import { DOCS_URLS } from '../../../lib/docs-urls'
+import { collectionDisplayName } from '../../../lib/collection-name'
 
 export const CollectionSettingsPane: React.FC = () => {
   const {
@@ -374,7 +375,7 @@ export const CollectionSettingsPane: React.FC = () => {
                       <ChevronRight className="h-4 w-4 text-icon" />
                     )}
                     <span className="font-medium text-heading">
-                      {collection.name}
+                      {collectionDisplayName(collection.name)}
                     </span>
                     {hasOverrides && (
                       <span className="rounded bg-primary/10 px-2 py-0.5 text-xs text-primary">

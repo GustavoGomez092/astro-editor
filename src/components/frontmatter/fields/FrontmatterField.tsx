@@ -1,5 +1,7 @@
 import React from 'react'
 import { useEditorStore } from '../../../store/editorStore'
+import { useProjectStore } from '../../../store/projectStore'
+import { getCollectionSettings } from '../../../lib/project-registry/collection-settings'
 import { useEffectiveSettings } from '../../../hooks/settings/useEffectiveSettings'
 import { FieldType, type SchemaField } from '../../../lib/schema'
 import { StringField } from './StringField'
@@ -29,6 +31,13 @@ export const FrontmatterField: React.FC<FrontmatterFieldProps> = ({
 }) => {
   const fieldValue = useEditorStore(state => state.frontmatter?.[name])
   const { frontmatterMappings } = useEffectiveSettings(collectionName)
+  // A slug is only useful where the collection's URLs are built from one
+  const hasUrlPattern = useProjectStore(
+    state =>
+      !!collectionName &&
+      !!getCollectionSettings(state.currentProjectSettings, collectionName)
+        .urlPattern
+  )
 
   // Determine field properties from SchemaField
   let fieldType: string
@@ -233,7 +242,7 @@ export const FrontmatterField: React.FC<FrontmatterFieldProps> = ({
         maxRows={3}
         required={required}
         field={field}
-        showCopyAsSlug
+        showCopyAsSlug={hasUrlPattern}
       />
     )
   }

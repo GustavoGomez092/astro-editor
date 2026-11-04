@@ -365,4 +365,68 @@ describe('FieldWrapper', () => {
       expect(screen.getByText('Default: default text')).toBeInTheDocument()
     })
   })
+
+  describe('hints the description already gives', () => {
+    const hint = (props: {
+      constraints?: FieldConstraints
+      description?: string
+      defaultValue?: unknown
+    }) => {
+      const { container } = render(
+        <FieldWrapper label="Left" {...props}>
+          <input />
+        </FieldWrapper>
+      )
+      return container.querySelectorAll('[data-slot="field-description"]')
+    }
+
+    it('leaves out a range the description states', () => {
+      const shown = hint({
+        constraints: { min: 0, max: 95 },
+        description: 'Distance from the left edge, in % (0–95).',
+      })
+      expect(shown).toHaveLength(1)
+      expect(screen.queryByText('0–95')).not.toBeInTheDocument()
+    })
+
+    it('keeps a range the description only half states', () => {
+      hint({
+        constraints: { min: 0, max: 95 },
+        description: 'Up to 95% from the left.',
+      })
+      expect(screen.getByText('0–95')).toBeInTheDocument()
+    })
+
+    it('leaves out a length limit the description states', () => {
+      hint({
+        constraints: { maxLength: 200 },
+        description: 'A summary of 200 characters or fewer.',
+      })
+      expect(screen.queryByText('Max 200 chars')).not.toBeInTheDocument()
+    })
+
+    it("doesn't match a number inside a longer one", () => {
+      hint({ constraints: { max: 95 }, description: 'Around 950 px wide.' })
+      expect(screen.getByText('Max: 95')).toBeInTheDocument()
+    })
+  })
+
+  describe('empty defaults', () => {
+    const renderDefault = (defaultValue: unknown) =>
+      render(
+        <FieldWrapper label="Field" defaultValue={defaultValue}>
+          <input />
+        </FieldWrapper>
+      )
+
+    it.each([[''], [[]], [{}]])('hides an empty default (%j)', value => {
+      renderDefault(value)
+      expect(screen.queryByText(/Default:/)).not.toBeInTheDocument()
+    })
+
+    it('shows a default with a value', () => {
+      renderDefault('draft')
+      expect(screen.getByText('Default: draft')).toBeInTheDocument()
+    })
+  })
 })

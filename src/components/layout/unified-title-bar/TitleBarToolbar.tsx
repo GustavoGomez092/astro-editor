@@ -18,6 +18,7 @@ import {
   Pilcrow,
 } from 'lucide-react'
 import { cn } from '../../../lib/utils'
+import { collectionDisplayName } from '../../../lib/collection-name'
 
 interface TitleBarToolbarProps {
   /** Window controls for the left side (e.g., macOS traffic lights) */
@@ -132,7 +133,7 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
             variant="ghost"
             size="sm"
             className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
-            title={`New ${selectedCollection} file`}
+            title={`New ${collectionDisplayName(selectedCollection).toLowerCase()} file`}
           >
             <Plus className="size-4" />
           </Button>
