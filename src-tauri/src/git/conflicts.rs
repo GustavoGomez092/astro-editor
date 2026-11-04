@@ -6,8 +6,9 @@
 //! every conflicted file has a choice. Resolving commits the merge and never
 //! pushes; the next Publish does.
 
+use super::status::changed_files;
 use super::status::{repo_status, upstream_of};
-use super::sync::{combine_message, current_branch, move_branch_or_undo};
+use super::sync::{combine_message, current_branch, move_branch_or_undo, paths_between_trees};
 use super::{
     checkout_safely, describe, name_files, CheckoutRefused, ConflictChoice, ConflictFile,
     ConflictResolution, SyncOutcome, SyncResult,
@@ -184,6 +185,30 @@ pub fn resolve_conflicts(
 
     let tree_id = index.write_tree_to(repo).map_err(index_error)?;
     let tree = repo.find_tree(tree_id).map_err(index_error)?;
+
+    // Safe checkout lets a file through when it already matches what it would
+    // write, so a local edit (or untracked file) on any path the merge changes
+    // is refused here, before anything is written
+    let previous = local.tree().ok();
+    let merge_paths = paths_between_trees(repo, previous.as_ref(), &tree)?;
+    let touched: Vec<String> = changed_files(repo)?
+        .into_iter()
+        .filter(|f| {
+            merge_paths.contains(&f.path)
+                || f.old_path.as_ref().is_some_and(|p| merge_paths.contains(p))
+        })
+        .map(|f| f.path)
+        .collect();
+    if !touched.is_empty() {
+        return Ok(SyncResult {
+            outcome: SyncOutcome::BlockedByLocalChanges,
+            message: format!(
+                "Combining the changes would overwrite your edits to {}, so nothing was changed. Publish or discard them, then try again.",
+                name_files(&touched)
+            ),
+            status: repo_status(repo)?,
+        });
+    }
     let signature = identity()?;
     let merge = repo
         .commit(
@@ -209,7 +234,6 @@ pub fn resolve_conflicts(
             status: repo_status(repo)?,
         });
     }
-    let previous = local.tree().ok();
     move_branch_or_undo(
         repo,
         (&branch, merge, Some(local.id()), "merge"),
@@ -443,6 +467,31 @@ mod tests {
         assert!(!setup.local.workdir().unwrap().join("news.md").exists());
         let status = crate::git::status::repo_status(&setup.local).unwrap();
         assert!(status.files.is_empty(), "{:?}", status.files);
+    }
+
+    #[test]
+    fn refuses_when_a_file_the_merge_changes_is_untracked_here() {
+        let (setup, mine, _) = conflicted();
+        push_from_elsewhere(setup.remote_dir.path(), "main", "news.md", "news\n");
+        fetch(&setup.local);
+        // The same content the merge would write, so a safe checkout lets it by
+        write(&setup.local, "news.md", "news\n");
+        let result = resolve(&setup, &[choose("README.md", ConflictChoice::Mine)]).unwrap();
+        assert_eq!(result.outcome, SyncOutcome::BlockedByLocalChanges);
+        assert!(result.message.contains("news.md"), "{}", result.message);
+        assert_eq!(head_id(&setup.local), mine);
+        assert_eq!(read(&setup.local, "news.md"), "news\n");
+    }
+
+    #[test]
+    fn refuses_when_an_uncommitted_edit_equals_the_chosen_version() {
+        let (setup, mine, _) = conflicted();
+        write(&setup.local, "README.md", "theirs\n");
+        let result = resolve(&setup, &[choose("README.md", ConflictChoice::Theirs)]).unwrap();
+        assert_eq!(result.outcome, SyncOutcome::BlockedByLocalChanges);
+        assert!(result.message.contains("README.md"), "{}", result.message);
+        assert_eq!(head_id(&setup.local), mine);
+        assert_eq!(read(&setup.local, "README.md"), "theirs\n");
     }
 
     #[test]

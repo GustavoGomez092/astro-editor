@@ -398,6 +398,19 @@ pub(crate) fn move_branch_or_undo(
 ) -> Result<(), String> {
     let moved = move_branch(repo, branch, to, expected, why);
     if moved.is_err() {
+        let now = repo
+            .find_reference(&format!("refs/heads/{branch}"))
+            .ok()
+            .and_then(|r| r.target());
+        if now != expected {
+            // Something outside the app (a commit or pull in a terminal) moved
+            // the branch. Its files may be what's on disk now, so forcing the
+            // old ones back would look like edits undoing them
+            log::warn!("Astro Editor [GIT] {branch} was moved outside the app mid-operation");
+            return Err(format!(
+                "{branch} was changed outside the app while this was running, so your files were left as they are. Run Sync again."
+            ));
+        }
         if let Some(previous) = previous {
             super::undo_checkout(repo, written, previous);
         }
@@ -446,8 +459,17 @@ fn paths_between(repo: &Repository, from: Option<Oid>, to: Oid) -> Result<HashSe
     };
     let from_tree = from.map(tree_of).transpose()?;
     let to_tree = tree_of(to)?;
+    paths_between_trees(repo, from_tree.as_ref(), &to_tree)
+}
+
+/// Paths that differ between two trees (either side of a rename)
+pub(crate) fn paths_between_trees(
+    repo: &Repository,
+    from: Option<&Tree>,
+    to: &Tree,
+) -> Result<HashSet<String>, String> {
     let diff = repo
-        .diff_tree_to_tree(from_tree.as_ref(), Some(&to_tree), None)
+        .diff_tree_to_tree(from, Some(to), None)
         .map_err(|e| describe("Couldn't read the incoming changes", &e))?;
     let mut paths = HashSet::new();
     for delta in diff.deltas() {
@@ -672,6 +694,7 @@ mod tests {
     use super::*;
     use crate::git::test_support::*;
     use crate::git::SyncOutcome;
+    use std::path::Path;
 
     #[test]
     fn sync_up_to_date() {
@@ -1214,6 +1237,80 @@ mod tests {
             .map(|f| f.path)
             .collect();
         assert_eq!(files, ["draft.md"]);
+    }
+
+    /// `main` at a commit with a.md "1"; a commit with a.md "2" checked out on
+    /// top of it (not yet on the branch), as integrate leaves things just before
+    /// it moves the branch
+    fn checked_out_but_not_moved() -> (tempfile::TempDir, Repository, Oid, Oid) {
+        let (dir, repo) = init_repo();
+        write(&repo, "a.md", "1\n");
+        let first = commit_all(&repo, "First");
+        write(&repo, "a.md", "2\n");
+        let second = commit_all(&repo, "Second");
+        repo.reference("refs/heads/main", first, true, "test")
+            .unwrap();
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force()))
+            .unwrap();
+        {
+            let second_tree = repo.find_commit(second).unwrap().tree().unwrap();
+            checkout_safely(&repo, second_tree.as_object())
+                .ok()
+                .unwrap();
+        }
+        assert_eq!(read(&repo, "a.md"), "2\n");
+        (dir, repo, first, second)
+    }
+
+    #[test]
+    fn a_branch_moved_outside_the_app_keeps_the_files() {
+        let (_dir, repo, first, second) = checked_out_but_not_moved();
+        // A git commit or pull elsewhere moves main in that moment
+        write(&repo, "other.md", "outside\n");
+        let outside = {
+            let mut index = repo.index().unwrap();
+            index.add_path(Path::new("other.md")).unwrap();
+            let tree = repo.find_tree(index.write_tree().unwrap()).unwrap();
+            let parent = repo.find_commit(first).unwrap();
+            repo.commit(None, &sig(), &sig(), "Outside", &tree, &[&parent])
+                .unwrap()
+        };
+        repo.reference("refs/heads/main", outside, true, "outside")
+            .unwrap();
+
+        let written = repo.find_commit(second).unwrap().tree().unwrap();
+        let previous = repo.find_commit(first).unwrap().tree().unwrap();
+        let e = move_branch_or_undo(
+            &repo,
+            ("main", second, Some(first), "test"),
+            &written,
+            Some(&previous),
+        )
+        .unwrap_err();
+        assert!(e.contains("outside the app"), "{e}");
+        assert!(e.contains("Sync"), "{e}");
+        // Not forced back to the old version
+        assert_eq!(read(&repo, "a.md"), "2\n");
+        assert_eq!(head_id(&repo), outside);
+    }
+
+    #[test]
+    fn a_branch_that_didnt_move_gets_its_files_back() {
+        let (_dir, repo, first, second) = checked_out_but_not_moved();
+        let ref_lock = lock_branch(&repo);
+        let written = repo.find_commit(second).unwrap().tree().unwrap();
+        let previous = repo.find_commit(first).unwrap().tree().unwrap();
+        assert!(move_branch_or_undo(
+            &repo,
+            ("main", second, Some(first), "test"),
+            &written,
+            Some(&previous),
+        )
+        .is_err());
+        std::fs::remove_file(ref_lock).unwrap();
+        assert_eq!(read(&repo, "a.md"), "1\n");
+        assert_eq!(head_id(&repo), first);
+        assert!(repo_status(&repo).unwrap().files.is_empty());
     }
 
     #[test]
