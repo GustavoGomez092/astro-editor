@@ -37,7 +37,7 @@ describe('CollectionSettingsPane', () => {
   it("doesn't mark a collection without overrides", async () => {
     renderWith([])
 
-    expect(await screen.findByText('work')).toBeInTheDocument()
+    expect(await screen.findByText('Work')).toBeInTheDocument()
     expect(screen.queryByText('Custom')).not.toBeInTheDocument()
   })
 })
