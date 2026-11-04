@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useEditorStore } from '../store/editorStore'
 import { useProjectStore } from '../store/projectStore'
 import { useFileContentQuery } from './queries/useFileContentQuery'
+import { nextFrontmatterBaseline } from '../lib/frontmatter-save'
 
 /**
  * Hook that bridges TanStack Query (server state) with Zustand (local editing state)
@@ -36,10 +37,17 @@ export function useEditorFileContent() {
     }
 
     // Safe to update - file is saved and matches disk
+    const { frontmatterBaseline, lastWrittenFrontmatter } =
+      useEditorStore.getState()
     useEditorStore.setState({
       editorContent: data.content,
       frontmatter: data.frontmatter,
       rawFrontmatter: data.raw_frontmatter,
+      frontmatterBaseline: nextFrontmatterBaseline(
+        frontmatterBaseline,
+        { values: data.frontmatter, raw: data.raw_frontmatter },
+        lastWrittenFrontmatter
+      ),
       imports: data.imports,
       isFrontmatterDirty: false, // Reset when loading from disk
     })

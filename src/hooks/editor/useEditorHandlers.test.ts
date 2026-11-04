@@ -51,6 +51,8 @@ interface MockEditorState {
   showFieldErrors: Mock
   saveFailures: number
   noteSaveFailed: Mock
+  frontmatterBaseline: null
+  lastWrittenFrontmatter: null
 }
 
 describe('useEditorHandlers', () => {
@@ -83,6 +85,8 @@ describe('useEditorHandlers', () => {
       showFieldErrors: vi.fn(),
       saveFailures: 0,
       noteSaveFailed: vi.fn(),
+      frontmatterBaseline: null,
+      lastWrittenFrontmatter: null,
       isFrontmatterDirty: false,
     }
 

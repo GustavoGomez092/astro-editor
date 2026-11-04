@@ -13,6 +13,7 @@ import { toast } from '../../lib/toast'
 import { queryKeys } from '../../lib/query-keys'
 import { deserializeCompleteSchema, type SchemaField } from '../../lib/schema'
 import { validateFrontmatter } from '../../lib/frontmatter-validation'
+import { frontmatterToWrite } from '../../lib/frontmatter-save'
 import {
   projectRegistryManager,
   getEffectiveContentDirectory,
@@ -127,6 +128,7 @@ async function saveCurrentFile(
     editorContent,
     frontmatter,
     rawFrontmatter,
+    frontmatterBaseline,
     isDirty,
     isFrontmatterDirty,
     imports,
@@ -153,11 +155,18 @@ async function saveCurrentFile(
   }
 
   try {
-    // Only pass frontmatter object if it was edited, otherwise pass raw to preserve formatting
+    // The values only when they changed; otherwise the text, to keep its
+    // formatting (also when edits ended where they started)
+    const toWrite = frontmatterToWrite({
+      frontmatter,
+      isFrontmatterDirty,
+      rawFrontmatter,
+      frontmatterBaseline,
+    })
     const result = await commands.saveMarkdownContent(
       currentFile.path,
-      isFrontmatterDirty ? (frontmatter as Record<string, JsonValue>) : null,
-      isFrontmatterDirty ? null : rawFrontmatter,
+      toWrite.frontmatter as Record<string, JsonValue> | null,
+      toWrite.rawFrontmatter,
       editorContent,
       imports,
       schemaFields ? schemaFields.map(f => f.name) : null,
@@ -185,6 +194,8 @@ async function saveCurrentFile(
         JSON.stringify(currentState.frontmatter) === JSON.stringify(frontmatter)
 
       useEditorStore.setState({
+        // So the reload of this save isn't taken for a change from outside
+        ...(toWrite.frontmatter && { lastWrittenFrontmatter: frontmatter }),
         autoSaveTimeoutId: null,
         isDirty: !contentUnchanged || !frontmatterUnchanged,
         isFrontmatterDirty:

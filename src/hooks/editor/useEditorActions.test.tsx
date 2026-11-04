@@ -262,3 +262,59 @@ describe('useEditorActions.saveFile with fields that need attention', () => {
     expect(useEditorStore.getState().shownFieldErrors).toEqual({})
   })
 })
+
+describe('useEditorActions.saveFile with frontmatter back where it started', () => {
+  const RAW = 'title: "Andrew Dyk"\nfeatured: false'
+
+  beforeEach(() => {
+    globalThis.mockTauri.reset()
+    globalThis.mockTauri.invoke.mockResolvedValue(null)
+    useProjectStore.setState({ projectPath: '/test' })
+    useEditorStore.setState({
+      currentFile: fileEntry('first'),
+      editorContent: 'Body',
+      // featured was switched on and off again
+      frontmatter: { title: 'Andrew Dyk', featured: false },
+      rawFrontmatter: 'title: Andrew Dyk\nfeatured: true',
+      frontmatterBaseline: {
+        values: { title: 'Andrew Dyk', featured: false },
+        raw: RAW,
+      },
+      lastWrittenFrontmatter: null,
+      imports: '',
+      isDirty: true,
+      isFrontmatterDirty: true,
+      autoSaveTimeoutId: null,
+    })
+  })
+
+  const savedArgs = () =>
+    globalThis.mockTauri.invoke.mock.calls.find(
+      ([cmd]) => cmd === 'save_markdown_content'
+    )?.[1] as Record<string, unknown>
+
+  it('writes the original frontmatter text, not the values', async () => {
+    const { saveFile } = renderActions()
+    await saveFile(false)
+    expect(savedArgs()).toMatchObject({
+      frontmatter: null,
+      rawFrontmatter: RAW,
+    })
+  })
+
+  it('writes the values when they changed, and remembers them', async () => {
+    useEditorStore.setState({
+      frontmatter: { title: 'Andrew Dyk', featured: true },
+    })
+    const { saveFile } = renderActions()
+    await saveFile(false)
+    expect(savedArgs()).toMatchObject({
+      frontmatter: { title: 'Andrew Dyk', featured: true },
+      rawFrontmatter: null,
+    })
+    expect(useEditorStore.getState().lastWrittenFrontmatter).toEqual({
+      title: 'Andrew Dyk',
+      featured: true,
+    })
+  })
+})

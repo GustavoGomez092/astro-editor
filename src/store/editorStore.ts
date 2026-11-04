@@ -3,6 +3,7 @@ import { warn as logWarn } from '@tauri-apps/plugin-log'
 import { useProjectStore } from './projectStore'
 import { setNestedValue, deleteNestedValue } from '../lib/object-utils'
 import type { FileEntry } from '@/types'
+import type { FrontmatterBaseline } from '../lib/frontmatter-save'
 
 const MAX_AUTO_SAVE_DELAY_MS = 10000 // Maximum time between auto-saves (10 seconds)
 
@@ -14,6 +15,11 @@ interface EditorState {
   editorContent: string // Content without frontmatter and imports
   frontmatter: Record<string, unknown> // Current frontmatter being edited
   rawFrontmatter: string // Original frontmatter string from disk
+  // The frontmatter as it was when the file opened (or last changed outside
+  // the app), and the values our last save wrote: a save whose values are
+  // back to the baseline writes its text unchanged (lib/frontmatter-save.ts)
+  frontmatterBaseline: FrontmatterBaseline | null
+  lastWrittenFrontmatter: Record<string, unknown> | null
   imports: string // MDX imports (hidden from editor)
 
   // Status state
@@ -68,6 +74,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   editorContent: '',
   frontmatter: {},
   rawFrontmatter: '',
+  frontmatterBaseline: null,
+  lastWrittenFrontmatter: null,
   imports: '',
   isDirty: false,
   isFrontmatterDirty: false,
@@ -110,6 +118,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       editorContent: '',
       frontmatter: {},
       rawFrontmatter: '',
+      frontmatterBaseline: null,
+      lastWrittenFrontmatter: null,
       imports: '',
       currentFile: file,
       isDirty: false,
@@ -137,6 +147,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       editorContent: '',
       frontmatter: {},
       rawFrontmatter: '',
+      frontmatterBaseline: null,
+      lastWrittenFrontmatter: null,
       imports: '',
       isDirty: false,
       isFrontmatterDirty: false,
