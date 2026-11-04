@@ -5,6 +5,7 @@ import { AutoExpandingTextarea } from '../../ui/auto-expanding-textarea'
 import { valueToString } from '../utils'
 import { CopyAsSlugLink } from './CopyAsSlugLink'
 import { FieldWrapper } from './FieldWrapper'
+import { FormInUseContext } from '../form-in-use'
 import type { FieldProps } from '../../../types/common'
 import type { SchemaField } from '../../../lib/schema'
 
@@ -32,7 +33,11 @@ export const TextareaField: React.FC<TextareaFieldProps> = ({
     state => state.updateFrontmatterField
   )
   const generatedId = React.useId()
-  const id = name === 'title' ? 'frontmatter-title-field' : generatedId
+  // The fixed id lets focusNewFile find the title, so only the copy of the
+  // form in use has it
+  const formInUse = React.use(FormInUseContext)
+  const id =
+    name === 'title' && formInUse ? 'frontmatter-title-field' : generatedId
 
   return (
     <FieldWrapper

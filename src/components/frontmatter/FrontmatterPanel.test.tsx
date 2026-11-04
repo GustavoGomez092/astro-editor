@@ -467,41 +467,111 @@ describe('FrontmatterPanel Component', () => {
 
   describe('placement', () => {
     // A collection without body text is edited in the main area, so its form
-    // shows there and the sidebar steps aside
+    // shows there and the sidebar's copy steps aside. Both copies stay
+    // rendered; the one not in use is hidden and inert
     const openEntry = (bodyHidden: boolean) => {
       vi.mocked(useBodyEditorHidden).mockReturnValue(bodyHidden)
+      mockCollectionsQuery([
+        {
+          name: 'posts',
+          path: '/project/posts',
+          complete_schema: JSON.stringify({
+            collectionName: 'posts',
+            fields: [
+              {
+                name: 'title',
+                label: 'Title',
+                fieldType: 'string',
+                required: true,
+              },
+              {
+                name: 'extra',
+                label: 'Extra',
+                fieldType: 'object',
+                required: false,
+              },
+            ],
+          }),
+        },
+      ])
       useEditorStore.setState({
         currentFile: createMockFile(),
-        frontmatter: { title: 'Hero' },
+        frontmatter: { title: 'Hero', extra: { a: 1 } },
       })
     }
-
-    it('shows the fields in the sidebar when the body editor shows', () => {
-      openEntry(false)
-      renderWithProviders(<FrontmatterPanel />)
-      expect(screen.getByDisplayValue('Hero')).toBeInTheDocument()
-    })
-
-    it('shows nothing in the sidebar when the body editor is hidden', () => {
-      openEntry(true)
-      const { container } = renderWithProviders(<FrontmatterPanel />)
-      expect(screen.queryByDisplayValue('Hero')).toBeNull()
-      expect(container.querySelector('[data-frontmatter-panel]')).toBeNull()
-    })
-
-    it('shows the fields in the main area when the body editor is hidden', () => {
-      openEntry(true)
-      renderWithProviders(<FrontmatterPanel placement="main" />)
-      expect(screen.getByDisplayValue('Hero')).toBeInTheDocument()
-    })
-
-    it('shows nothing in the main area when the body editor shows', () => {
-      openEntry(false)
-      const { container } = renderWithProviders(
+    const copy = (container: HTMLElement, placement: 'sidebar' | 'main') =>
+      container.querySelector<HTMLElement>(
+        `[data-frontmatter-copy="${placement}"]`
+      )!
+    // A new element each time, or rerender skips rendering it again
+    const bothCopies = () => (
+      <>
+        <FrontmatterPanel />
         <FrontmatterPanel placement="main" />
-      )
-      expect(screen.queryByDisplayValue('Hero')).toBeNull()
-      expect(container.querySelector('[data-frontmatter-panel]')).toBeNull()
+      </>
+    )
+
+    it.each([
+      [false, 'sidebar', 'main'],
+      [true, 'main', 'sidebar'],
+    ] as const)(
+      'with the body editor hidden: %s, shows the %s copy and hides the %s one',
+      (bodyHidden, shown, hidden) => {
+        openEntry(bodyHidden)
+        const { container } = renderWithProviders(bothCopies())
+
+        expect(copy(container, shown)).not.toHaveClass('hidden')
+        expect(copy(container, shown)).not.toHaveAttribute('inert')
+        expect(copy(container, hidden)).toHaveClass('hidden')
+        expect(copy(container, hidden)).toHaveAttribute('inert')
+        // Only the copy in use is where focusNewFile looks, and has the
+        // title field's fixed id
+        expect(
+          container.querySelectorAll('[data-frontmatter-panel]')
+        ).toHaveLength(1)
+        expect(copy(container, shown)).toHaveAttribute(
+          'data-frontmatter-panel',
+          shown
+        )
+        expect(
+          container.querySelectorAll('#frontmatter-title-field')
+        ).toHaveLength(1)
+        expect(
+          copy(container, shown).querySelector('#frontmatter-title-field')
+        ).not.toBeNull()
+      }
+    )
+
+    it("keeps a field's draft when the form moves away and back", () => {
+      openEntry(false)
+      const { container, rerender } = renderWithProviders(bothCopies())
+      const sidebarYaml = () =>
+        copy(container, 'sidebar').querySelector<HTMLTextAreaElement>(
+          'textarea.font-mono'
+        )!
+      fireEvent.change(sidebarYaml(), { target: { value: '{ "a": ' } })
+
+      vi.mocked(useBodyEditorHidden).mockReturnValue(true)
+      rerender(bothCopies())
+      expect(copy(container, 'sidebar')).toHaveClass('hidden')
+
+      vi.mocked(useBodyEditorHidden).mockReturnValue(false)
+      rerender(bothCopies())
+      expect(copy(container, 'sidebar')).not.toHaveClass('hidden')
+      expect(sidebarYaml()).toHaveValue('{ "a": ')
+    })
+
+    it('has the shown copy measure its text boxes again', () => {
+      openEntry(false)
+      const { rerender } = renderWithProviders(bothCopies())
+      const onResize = vi.fn()
+      window.addEventListener('resize', onResize)
+
+      vi.mocked(useBodyEditorHidden).mockReturnValue(true)
+      rerender(bothCopies())
+
+      window.removeEventListener('resize', onResize)
+      expect(onResize).toHaveBeenCalled()
     })
   })
 })
