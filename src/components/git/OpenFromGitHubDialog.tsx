@@ -11,6 +11,12 @@ import {
   shortenMiddle,
 } from '@/lib/git/clone'
 import {
+  loadShowAll,
+  saveShowAll,
+  visibleRepos,
+  type SiteStatus,
+} from '@/lib/git/astro-sites'
+import {
   isAstroSite,
   markSitePrepared,
   prepareSite,
@@ -24,6 +30,7 @@ import { useGitStore } from '../../store/gitStore'
 import { useProjectStore } from '../../store/projectStore'
 import { useGitHubAuthQuery } from '../../hooks/queries/useGitHubAuthQuery'
 import {
+  useAstroSiteStatus,
   useGitHubReposQuery,
   useSitesFolderQuery,
 } from '../../hooks/queries/useGitHubReposQuery'
@@ -38,6 +45,7 @@ import {
 } from '../ui/dialog'
 import { Input } from '../ui/input'
 import { Spinner } from '../ui/spinner'
+import { Switch } from '../ui/switch'
 
 /** What to clone: a repository from the list, or a pasted link. */
 interface Choice {
@@ -91,6 +99,13 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
   const signedIn = auth.data?.signedIn ?? false
   const repos = useGitHubReposQuery(signedIn)
   const defaultFolder = useSitesFolderQuery().data ?? null
+  // Astro sites only, unless the writer chose to see everything (remembered)
+  const [showAll, setShowAll] = useState(loadShowAll)
+  const changeShowAll = (value: boolean) => {
+    setShowAll(value)
+    saveShowAll(value)
+  }
+  const statusOf = useAstroSiteStatus(repos.data ?? [], signedIn)
 
   const [search, setSearch] = useState('')
   const [chosen, setChosen] = useState<Choice | null>(null)
@@ -118,8 +133,24 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         cloneUrl: pastedUrl,
       }
     : null
-  const matches = filterRepos(repos.data ?? [], pasted ? '' : search)
+  const matches = filterRepos(
+    visibleRepos(repos.data ?? [], statusOf, showAll, chosen?.cloneUrl ?? null),
+    pasted ? '' : search
+  )
   const selection = chosen ?? pasted
+  const stillChecking = (repos.data ?? []).some(r => statusOf(r) === 'checking')
+  // Said aloud when the check finishes or the switch changes, so the list
+  // changing isn't a surprise. Not affected by the search box or the pick.
+  const listed = visibleRepos(repos.data ?? [], statusOf, showAll)
+  const unchecked = listed.filter(r => statusOf(r) === 'unknown').length
+  const listStatus =
+    repos.data && !stillChecking
+      ? showAll
+        ? `Showing all ${listed.length} repositories`
+        : `Showing ${listed.length} Astro ${listed.length === 1 ? 'site' : 'sites'}${
+            unchecked > 0 ? ` (${unchecked} couldn't be checked)` : ''
+          }`
+      : ''
   const destination =
     parentDir && selection
       ? `${parentDir}/${folderNameFrom(selection.cloneUrl)}`
@@ -242,6 +273,27 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         autoFocus
       />
 
+      <div className="flex items-center gap-2 text-sm">
+        <Switch
+          id="show-all-repos"
+          checked={showAll}
+          onCheckedChange={changeShowAll}
+          aria-label="Show all repositories"
+        />
+        <label htmlFor="show-all-repos" className="cursor-pointer">
+          Show all repositories
+        </label>
+        {!showAll && (
+          <span className="text-xs text-muted-foreground">
+            Showing Astro sites only
+          </span>
+        )}
+      </div>
+
+      <p role="status" aria-live="polite" className="sr-only">
+        {listStatus}
+      </p>
+
       <div
         className="h-64 overflow-y-auto rounded-md border p-1"
         role="listbox"
@@ -267,14 +319,33 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         ) : repos.error ? (
           <p className="p-3 text-sm text-foreground">{repos.error.message}</p>
         ) : matches.length === 0 && !pasted ? (
-          <p className="p-3 text-sm text-muted-foreground">
-            {search ? 'No repositories match.' : 'No repositories yet.'}
-          </p>
+          <div className="space-y-2 p-3 text-sm text-muted-foreground">
+            <p>
+              {showAll
+                ? search
+                  ? 'No repositories match.'
+                  : 'No repositories yet.'
+                : search
+                  ? 'No Astro sites match.'
+                  : 'None of your repositories look like Astro sites.'}
+            </p>
+            {!showAll && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => changeShowAll(true)}
+              >
+                Show all repositories
+              </Button>
+            )}
+          </div>
         ) : (
           matches.map(repo => (
             <RepoRow
               key={repo.fullName}
               repo={repo}
+              status={showAll ? 'astro' : statusOf(repo)}
               selected={chosen?.cloneUrl === repo.cloneUrl}
               disabled={cloning}
               onSelect={() =>
@@ -393,11 +464,13 @@ function RepoOption({
 
 function RepoRow({
   repo,
+  status,
   selected,
   disabled,
   onSelect,
 }: {
   repo: RepoSummary
+  status: SiteStatus
   selected: boolean
   disabled?: boolean
   onSelect: () => void
@@ -406,7 +479,14 @@ function RepoRow({
     <RepoOption selected={selected} disabled={disabled} onSelect={onSelect}>
       <span className="min-w-0 truncate">
         <span className="text-muted-foreground">{repo.owner}/</span>
-        <span className="font-medium text-foreground">{repo.name}</span>
+        <span
+          className={cn(
+            'font-medium',
+            status === 'checking' ? 'text-muted-foreground' : 'text-foreground'
+          )}
+        >
+          {repo.name}
+        </span>
       </span>
       {repo.private && (
         <Lock
@@ -415,7 +495,11 @@ function RepoRow({
         />
       )}
       <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-        {formatRelativeTime(new Date(repo.updatedAt))}
+        {status === 'checking'
+          ? 'Checking…'
+          : status === 'unknown'
+            ? "Couldn't check"
+            : formatRelativeTime(new Date(repo.updatedAt))}
       </span>
     </RepoOption>
   )

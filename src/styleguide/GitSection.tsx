@@ -15,6 +15,8 @@ import { OpenPullRequestDialog } from '../components/git/OpenPullRequestDialog'
 import { Button } from '../components/ui/button'
 import { OpenFromGitHubDialog } from '../components/git/OpenFromGitHubDialog'
 import { queryClient } from '../lib/query-client'
+import { saveChecks } from '../lib/git/astro-sites'
+import { astroSitesKey } from '../hooks/queries/useGitHubReposQuery'
 import { queryKeys } from '../lib/query-keys'
 import { useGitStore } from '../store/gitStore'
 import type {
@@ -498,6 +500,7 @@ const REPOS: RepoSummary[] = [
   updatedAt: new Date(
     Date.now() - (hoursAgo as number) * HOUR * 1000
   ).toISOString(),
+  pushedAt: null,
 }))
 
 // The dialog reads these from the query cache and the store, as in the app.
@@ -510,6 +513,44 @@ queryClient.setQueryData(queryKeys.githubAuth, {
 })
 queryClient.setQueryData(queryKeys.githubRepos, REPOS)
 queryClient.setQueryData(['sitesFolder'], '/Users/kevin/Sites')
+
+// Which repositories are Astro sites: ?astro=checking (answers still coming),
+// ?astro=none (no Astro sites at all); otherwise a mix, with one that couldn't
+// be checked. Seeds the saved answers, as the app would have after a check
+const astroMode = new URLSearchParams(window.location.search).get('astro')
+const [siteRepo, portfolioRepo, harbourRepo, specimensRepo] = REPOS as [
+  RepoSummary,
+  RepoSummary,
+  RepoSummary,
+  RepoSummary,
+]
+if (astroMode === 'checking') {
+  saveChecks([siteRepo], new Map([[siteRepo.fullName, 'astro']]))
+  // Never answers, so the rest stay "Checking…"
+  void queryClient.prefetchQuery({
+    queryKey: astroSitesKey(REPOS),
+    queryFn: () => new Promise<never>(() => {}),
+  })
+} else if (astroMode === 'none') {
+  saveChecks(
+    REPOS,
+    new Map(REPOS.map(repo => [repo.fullName, 'notAstro' as const]))
+  )
+} else {
+  saveChecks(
+    [siteRepo, portfolioRepo, harbourRepo],
+    new Map([
+      [siteRepo.fullName, 'astro' as const],
+      [portfolioRepo.fullName, 'notAstro' as const],
+      [harbourRepo.fullName, 'astro' as const],
+    ])
+  )
+  // The last one has no saved answer and its check fails
+  queryClient.setQueryData(
+    astroSitesKey(REPOS),
+    new Map([[specimensRepo.fullName, 'unknown' as const]])
+  )
+}
 if (
   new URLSearchParams(window.location.search).get('section') ===
   'git-open-from-github'

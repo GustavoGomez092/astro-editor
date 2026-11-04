@@ -18,6 +18,8 @@ const UNREACHABLE: &str = "Couldn't reach GitHub. Check your internet connection
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiError {
     pub status: Option<StatusCode>,
+    /// Seconds GitHub asked us to wait (the `Retry-After` header), when it did
+    pub retry_after: Option<u64>,
     pub message: String,
 }
 
@@ -112,6 +114,22 @@ impl GitHubClient {
         send_json(self.api_request(Method::POST, token, path).json(body)).await
     }
 
+    /// A GraphQL query. GitHub answers 200 even when part of the query failed, so
+    /// the caller reads `errors` and the nulls in `data` itself.
+    pub async fn graphql<T: DeserializeOwned>(
+        &self,
+        token: &str,
+        query: &str,
+        variables: &serde_json::Value,
+    ) -> Result<T, ApiError> {
+        let body = serde_json::json!({ "query": query, "variables": variables });
+        send_json(
+            self.api_request(Method::POST, token, "/graphql")
+                .json(&body),
+        )
+        .await
+    }
+
     pub async fn put<B: Serialize, T: DeserializeOwned>(
         &self,
         token: &str,
@@ -132,6 +150,7 @@ fn unexpected_response(e: reqwest::Error) -> ApiError {
     log::warn!("Astro Editor [GITHUB] Unexpected response: {e}");
     ApiError {
         status: None,
+        retry_after: None,
         message: "GitHub sent a response the app didn't understand.".to_string(),
     }
 }
@@ -141,6 +160,7 @@ async fn send(request: RequestBuilder) -> Result<reqwest::Response, ApiError> {
         log::warn!("Astro Editor [GITHUB] Request failed: {e}");
         ApiError {
             status: None,
+            retry_after: None,
             message: UNREACHABLE.to_string(),
         }
     })?;
@@ -148,6 +168,11 @@ async fn send(request: RequestBuilder) -> Result<reqwest::Response, ApiError> {
     if status.is_success() {
         return Ok(response);
     }
+    let retry_after = response
+        .headers()
+        .get("retry-after")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse::<u64>().ok());
     // A validation failure's useful text is in `errors[].message`, e.g.
     // "A pull request already exists for owner:branch."
     let detail = response
@@ -176,6 +201,7 @@ async fn send(request: RequestBuilder) -> Result<reqwest::Response, ApiError> {
     };
     Err(ApiError {
         status: Some(status),
+        retry_after,
         message,
     })
 }

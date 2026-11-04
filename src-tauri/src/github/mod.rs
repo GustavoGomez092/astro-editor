@@ -91,8 +91,30 @@ pub struct RepoSummary {
     pub clone_url: String,
     /// ISO 8601, as GitHub returns it
     pub updated_at: String,
+    /// ISO 8601: when the last commit was pushed. Changes only with a push, which
+    /// is what the "is it an Astro site" cache is keyed on.
+    pub pushed_at: Option<String>,
 }
 
+/// Whether a repository looks like an Astro site
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AstroCheck {
+    Astro,
+    NotAstro,
+    /// Empty, unreadable with this sign-in, or GitHub couldn't answer for it
+    Unknown,
+}
+
+/// One repository's answer
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct RepoAstroCheck {
+    pub full_name: String,
+    pub check: AstroCheck,
+}
+
+pub mod astro_check;
 pub mod auth;
 pub mod http;
 pub mod pulls;
