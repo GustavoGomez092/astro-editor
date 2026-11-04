@@ -109,6 +109,30 @@ describe('publishMessage', () => {
       'Update About'
     )
   })
+
+  it('drops the end punctuation of each title it names', () => {
+    expect(
+      publishMessage(
+        [
+          'Clarity',
+          'Good ideas. Clear thinking. Better execution.',
+          'Andrew Dyk',
+          'Why now?',
+          'Hello!',
+          'Coming soon…',
+          'Notes;',
+        ].map(t => entry(t))
+      )
+    ).toBe(
+      'Update Clarity, Good ideas. Clear thinking. Better execution, Andrew Dyk and 4 more'
+    )
+    expect(publishMessage([entry('Why now?'), entry('Hello!', 'added')])).toBe(
+      'Add Hello, update Why now'
+    )
+    expect(publishMessage([entry('Coming soon…'), entry('Notes;')])).toBe(
+      'Update Coming soon, Notes'
+    )
+  })
 })
 
 describe('entryTitle', () => {

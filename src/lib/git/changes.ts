@@ -37,6 +37,13 @@ const capitalize = (text: string) =>
   text.charAt(0).toUpperCase() + text.slice(1)
 
 /**
+ * A title as it reads inside the message: without its closing full stop (or
+ * ?, !, …, ;, :, ,), which would otherwise run into the commas between titles
+ */
+const inMessage = (title: string) =>
+  title.replace(/[\s.!?…;:,]+$/u, '') || title
+
+/**
  * The pre-filled Publish message, in the writer's words: entry titles only
  * (never file names), with Add, Update or Remove as fits, at most three names
  * then "and N more". Images and other assets aren't named: they're mentioned
@@ -63,9 +70,11 @@ export function publishMessage(items: MessageItem[]): string {
   const seen = new Set<string>()
   const named: { verb: Verb; title: string }[] = []
   for (const entry of entries) {
-    if (!entry.title || seen.has(entry.title)) continue
-    seen.add(entry.title)
-    named.push({ verb: verbFor(entry.change), title: entry.title })
+    if (!entry.title) continue
+    const title = inMessage(entry.title)
+    if (seen.has(title)) continue
+    seen.add(title)
+    named.push({ verb: verbFor(entry.change), title })
   }
   const unnamed = entries.filter(entry => !entry.title)
   const shown = named.slice(0, MAX_NAMED)
