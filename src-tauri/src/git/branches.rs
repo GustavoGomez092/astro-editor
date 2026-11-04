@@ -149,7 +149,7 @@ fn set_head(repo: &Repository, name: &str) -> Result<(), String> {
 fn checkout_commit(repo: &Repository, commit: &Commit) -> Result<(), String> {
     checkout_safely(repo, commit.as_object()).map_err(|refused| match refused {
         CheckoutRefused::Conflicts(files) => format!(
-            "Switching would overwrite your edits to {}. Publish them first, then switch.",
+            "Switching would overwrite your edits to {}, so you're still on this branch. Publish them first, then switch.",
             name_files(&files)
         ),
         CheckoutRefused::Failed(e) => describe("Couldn't switch branches", &e),
@@ -278,6 +278,7 @@ mod tests {
 
         let e = checkout(&repo, "other", false).unwrap_err();
         assert!(e.contains("a.md"), "{e}");
+        assert!(!e.contains("a.md."), "{e}");
         assert_eq!(read(&repo, "a.md"), "my unsaved words\n");
         let status = crate::git::status::status(dir.path()).unwrap();
         assert_eq!(status.branch.as_deref(), Some("main"));
