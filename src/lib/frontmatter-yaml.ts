@@ -3,7 +3,12 @@
 // order), so a one-field edit shows up as a change to the whole frontmatter.
 // Here only the keys whose values changed are rewritten, each in the style it
 // already had; everything else keeps its exact text. When the text can't be
-// edited safely the result is null, and the values are written as before.
+// edited safely the result says why, and the values are written as before.
+//
+// Two readers matter: the app's (serde_norway, in Rust), whose values fill the
+// form, and the site's (Astro reads frontmatter with this `yaml` package,
+// core schema plus timestamps and merge keys). The edit is checked against
+// both; Rust checks the text again with its own parser before writing it.
 
 import {
   Document,
@@ -28,6 +33,9 @@ type QuoteType = 'QUOTE_DOUBLE' | 'QUOTE_SINGLE'
 /** Deep equality for parsed YAML values; key order doesn't matter. */
 export function sameValues(a: unknown, b: unknown): boolean {
   if (a === b) return true
+  if (a instanceof Date || b instanceof Date) {
+    return a instanceof Date && b instanceof Date && a.getTime() === b.getTime()
+  }
   if (Array.isArray(a) || Array.isArray(b)) {
     return (
       Array.isArray(a) &&
@@ -51,33 +59,53 @@ function isObject(value: unknown): value is Values {
 const isBlock = (type: Scalar['type']) =>
   type === 'BLOCK_LITERAL' || type === 'BLOCK_FOLDED'
 
-/** The frontmatter text, parsed. It ends with a newline, `added` if it didn't. */
+/**
+ * The frontmatter text, parsed. It ends with a newline, `added` if it didn't.
+ * `map` is null when it holds only comments. `values` is what the app reads.
+ */
 interface Source {
   text: string
   added: boolean
   doc: Document.Parsed
-  map: YAMLMap
+  map: YAMLMap | null
+  values: Values
+  /** What `yaml` reads, with the final newline the app doesn't see */
+  plain: Values
+}
+
+/** A document's values, or null when they can't be read (an alias with no anchor) */
+function toValues(doc: Document): unknown {
+  try {
+    return doc.toJS() as unknown
+  } catch {
+    return null
+  }
 }
 
 function parseSource(raw: string): Source | null {
   const added = !raw.endsWith('\n')
   const text = added ? `${raw}\n` : raw
   const doc = parseDocument(text)
-  if (doc.errors.length > 0 || !isMap(doc.contents) || doc.contents.flow) {
-    return null
+  if (doc.errors.length > 0) return null
+  if (doc.contents === null) {
+    return { text, added, doc, map: null, values: {}, plain: {} }
   }
-  return { text, added, doc, map: doc.contents }
+  if (!isMap(doc.contents) || doc.contents.flow) return null
+  const values = toValues(doc)
+  const plain = toValues(doc)
+  if (!isObject(values) || !isObject(plain)) return null
+  const source = { text, added, doc, map: doc.contents, values, plain }
+  appReading(source)
+  return source
 }
 
 /**
- * The values, as the app reads them. Its parser reads the frontmatter without
- * the line break before the closing `---`, so a `|` or `>` block that ends
- * the text has no final newline.
+ * Adjusts the values to how the app reads them. Its parser reads the
+ * frontmatter without the line break before the closing `---`, so a `|` or
+ * `>` block that ends the text has no final newline.
  */
-function readValues(source: Source): Values {
-  const values = source.doc.toJS() as Values
-  if (!source.added) return values
-
+function appReading(source: Source): void {
+  if (!source.added || !source.map) return
   const path: (string | number)[] = []
   let node: unknown = source.map
   for (;;) {
@@ -103,22 +131,36 @@ function readValues(source: Source): Values {
     !node.value.endsWith('\n') ||
     /^[|>]\S*[+-]/.test(source.text.slice(node.range[0]))
   ) {
-    return values
+    return
   }
-  let parent: unknown = values
+  let parent: unknown = source.values
   for (const key of path.slice(0, -1)) {
     parent = (parent as Record<string | number, unknown>)[key]
   }
   const last = path[path.length - 1]!
   const container = parent as Record<string | number, unknown>
   container[last] = (container[last] as string).slice(0, -1)
-  return values
 }
 
-/** The values in frontmatter text, or null when it isn't a YAML mapping. */
+/**
+ * The values in frontmatter text as the app reads them, or null when it
+ * isn't a YAML mapping. Empty text, or only comments, is `{}`.
+ */
 export function parseFrontmatterValues(raw: string): Values | null {
-  const source = parseSource(raw)
-  return source ? readValues(source) : null
+  return parseSource(raw)?.values ?? null
+}
+
+/** The values as the site reads them, or null when it can't */
+function siteReading(text: string): Values | null {
+  const doc = parseDocument(text, {
+    customTags: ['timestamp'],
+    merge: true,
+    schema: 'core',
+  })
+  if (doc.errors.length > 0) return null
+  if (doc.contents === null) return {}
+  const values = toValues(doc)
+  return isObject(values) ? values : null
 }
 
 interface Splice {
@@ -156,14 +198,15 @@ function makeContext(source: Source, fields: SchemaField[]): Context {
 
   let indent = 2
   let indentSeq = false
-  const nestedMap = map.items.find(
+  const items = map?.items ?? []
+  const nestedMap = items.find(
     pair => isMap(pair.value) && !pair.value.flow && pair.value.items.length
   )
   if (nestedMap) {
     const child = (nestedMap.value as YAMLMap).items[0]!.key as Node
     indent = column(text, child.range![0]) - column(text, keyStart(nestedMap))
   }
-  const nestedSeq = map.items.find(
+  const nestedSeq = items.find(
     pair => isSeq(pair.value) && !pair.value.flow && pair.value.items.length
   )
   if (nestedSeq) {
@@ -235,7 +278,7 @@ function isDateField(ctx: Context, path: string): boolean {
 }
 
 const readsAsDate = (text: string) =>
-  parseDocument(text, { version: '1.1' }).toJS() instanceof Date
+  toValues(parseDocument(text, { version: '1.1' })) instanceof Date
 
 /**
  * Whether a YAML reader would read this text, unquoted, as the same text.
@@ -246,7 +289,13 @@ function readsAsText(value: string, dateAllowed: boolean): boolean {
   for (const version of ['1.2', '1.1'] as const) {
     const doc = parseDocument(value, { version })
     if (doc.errors.length > 0) return false
-    const read: unknown = doc.toJS()
+    // `*Featured*` reads as an alias with no anchor, which throws
+    let read: unknown
+    try {
+      read = doc.toJS()
+    } catch {
+      return false
+    }
     if (read === value) continue
     if (version === '1.1' && dateAllowed && read instanceof Date) continue
     return false
@@ -266,12 +315,43 @@ function datesAllowed(ctx: Context, path: string, old?: Node | null): boolean {
   )
 }
 
+/**
+ * Characters only a double-quoted string can hold, as escapes: controls, a
+ * carriage return, and the line breaks YAML 1.1 has that 1.2 doesn't (U+0085,
+ * U+2028, U+2029, which come with text pasted from layout apps). The app's
+ * parser can't read those unescaped.
+ */
+function needsEscapes(value: string): boolean {
+  for (const char of value) {
+    const code = char.codePointAt(0)!
+    if (code === 0x09 || code === 0x0a) continue
+    if (
+      code < 0x20 ||
+      (code >= 0x7f && code <= 0x9f) ||
+      code === 0x2028 ||
+      code === 0x2029 ||
+      code === 0xfeff
+    ) {
+      return true
+    }
+  }
+  return false
+}
+
+/** `yaml` writes these unescaped even in double quotes */
+const escapeLineBreaks = (text: string) =>
+  text
+    .replace(/\u0085/g, '\\N')
+    .replace(/\u2028/g, '\\L')
+    .replace(/\u2029/g, '\\P')
+
 function stringType(
   value: string,
   hint: Scalar['type'],
   dateAllowed: boolean,
   ctx: Context
 ): ScalarType {
+  if (needsEscapes(value)) return 'QUOTE_DOUBLE'
   if (hint && hint !== 'PLAIN') return hint
   if (value.includes('\n')) return 'BLOCK_LITERAL'
   return readsAsText(value, dateAllowed) ? 'PLAIN' : ctx.quote
@@ -323,7 +403,7 @@ function renderPair(
   const doc = new Document({ [key]: null })
   ;(doc.contents as YAMLMap).items[0]!.value = node
   const options = indent ? { ...ctx.options, indent } : ctx.options
-  return doc.toString(options).replace(/\n$/, '')
+  return escapeLineBreaks(doc.toString(options)).replace(/\n$/, '')
 }
 
 /** What follows `key:` for this value: ` text`, or lines for a block */
@@ -334,7 +414,7 @@ const renderValue = (node: Node, ctx: Context, indent?: number) =>
 function renderItem(node: Node, dash: number, ctx: Context): string {
   const doc = new Document([null])
   ;(doc.contents as YAMLSeq).items[0] = node
-  const text = doc.toString(ctx.options).replace(/\n$/, '')
+  const text = escapeLineBreaks(doc.toString(ctx.options)).replace(/\n$/, '')
   return `${' '.repeat(dash)}${indentLines(text, dash)}\n`
 }
 
@@ -412,12 +492,24 @@ function replaceValue(
     return [{ start, end, text: start === end ? rendered : rendered.slice(1) }]
   }
   const colon = text.indexOf(':', (pair.key as Node).range![1]) + 1
-  // A one-line value's comment would end up inside the block: it goes too
+  // The comment after a one-line value, or on a block's first line, moves to
+  // the key's line (left after the value, it would be inside the block)
   const end =
     isCollection || block ? node.range[1] : lineEnd(text, node.range[2]) - 1
+  const comment = block
+    ? /^[|>][^\s#]*[ \t]+(#.*)$/m.exec(text.slice(node.range[0]))?.[1]
+    : isCollection
+      ? undefined
+      : /^\s*(#.*?)\s*$/.exec(text.slice(node.range[1], end))?.[1]
+  const lines = rendered.split('\n')
+  if (comment) lines[0] = `${lines[0]} ${comment}`
   const newline = text[end - 1] === '\n' ? '\n' : ''
   return [
-    { start: colon, end, text: indentLines(rendered, keyColumn) + newline },
+    {
+      start: colon,
+      end,
+      text: indentLines(lines.join('\n'), keyColumn) + newline,
+    },
   ]
 }
 
@@ -523,22 +615,42 @@ function patchMap(
         position = lineStart(text, keyStart(after.pair))
       } else position = afterPair(last)
     }
-    const childPath = pathOf(key)
-    const node = buildNode(
-      newValues[key],
-      childPath,
-      undefined,
-      isDateField(ctx, childPath),
-      ctx
-    )
-    const lines = indentLines(renderPair(key, node, ctx), keyColumn)
     splices.push({
       start: position,
       end: position,
-      text: `${' '.repeat(keyColumn)}${lines}\n`,
+      text: newKeyText(key, newValues[key], pathOf(key), keyColumn, ctx),
     })
   }
   return splices
+}
+
+/** A new `key: value`, in the file's style, at a column, ending in a newline */
+function newKeyText(
+  key: string,
+  value: unknown,
+  path: string,
+  keyColumn: number,
+  ctx: Context
+): string {
+  const node = buildNode(value, path, undefined, isDateField(ctx, path), ctx)
+  const lines = indentLines(renderPair(key, node, ctx), keyColumn)
+  return `${' '.repeat(keyColumn)}${lines}\n`
+}
+
+/** New keys for frontmatter with only comments, after them, in schema order */
+function addToEmpty(values: Values, ctx: Context): Splice[] {
+  const rank = (key: string) => {
+    const index = orderIndex(ctx, key)
+    return index === -1 ? Infinity : index
+  }
+  const end = ctx.text.length
+  return Object.keys(values)
+    .sort((a, b) => rank(a) - rank(b))
+    .map(key => ({
+      start: end,
+      end,
+      text: newKeyText(key, values[key], key, 0, ctx),
+    }))
 }
 
 /** Pairs of indices of items both lists share, in order (longest common subsequence) */
@@ -578,7 +690,14 @@ function patchSeq(
   path: string,
   ctx: Context
 ): Splice[] | null {
-  if (seq.flow || newItems.length === 0 || seq.items.length === 0) return null
+  if (
+    seq.flow ||
+    newItems.length === 0 ||
+    seq.items.length === 0 ||
+    seq.items.length !== oldItems.length
+  ) {
+    return null
+  }
   const { text } = ctx
   const items = seq.items as Node[]
   const dashes: number[] = []
@@ -675,45 +794,178 @@ function applySplices(text: string, splices: Splice[]): string {
   return result
 }
 
+const NOT_SAME = Symbol('not the same')
+
 /**
- * Whether the text reads as the values, as the app reads it or as the site
- * does (with the line break before `---`, which only differs for a `|` block
- * left at the end, like one above a removed last key). Empty text, or only
- * comments, is `{}`.
+ * What the app reads now for a value whose text didn't change: what it read
+ * before, unless the `yaml` reading moved, which only happens when a block
+ * stops or starts ending the text and gains or loses its last newline.
  */
-function readsAs(text: string, values: Values): boolean {
-  const doc = parseDocument(`${text}\n`)
-  if (doc.errors.length > 0) return false
-  if (doc.contents === null) return Object.keys(values).length === 0
-  const app = parseFrontmatterValues(text)
-  return (
-    (app !== null && sameValues(app, values)) || sameValues(doc.toJS(), values)
-  )
+function carried(app: unknown, before: unknown, after: unknown): unknown {
+  if (sameValues(before, after)) return app
+  if (typeof app === 'string' && typeof before === 'string') {
+    if (after === `${before}\n`) return `${app}\n`
+    if (`${after as string}\n` === before && app.endsWith('\n')) {
+      return app.slice(0, -1)
+    }
+  }
+  if (
+    Array.isArray(app) &&
+    Array.isArray(before) &&
+    Array.isArray(after) &&
+    app.length === before.length &&
+    before.length === after.length
+  ) {
+    const items = app.map((item, i) => carried(item, before[i], after[i]))
+    return items.includes(NOT_SAME) ? NOT_SAME : items
+  }
+  if (isObject(app) && isObject(before) && isObject(after)) {
+    const keys = Object.keys(app)
+    if (!sameValues(keys.sort(), Object.keys(after).sort())) return NOT_SAME
+    const result: Values = {}
+    for (const key of keys) {
+      result[key] = carried(app[key], before[key], after[key])
+      if (result[key] === NOT_SAME) return NOT_SAME
+    }
+    return result
+  }
+  return NOT_SAME
 }
+
+/**
+ * Whether the site reads a value as the app does. A date field's value is
+ * text in the app and a date on the site.
+ */
+function siteMatches(
+  site: unknown,
+  app: unknown,
+  path: string,
+  ctx: Context
+): boolean {
+  if (site instanceof Date) {
+    const field = ctx.fields.get(path)
+    return (
+      typeof app === 'string' &&
+      (field === undefined || isDateField(ctx, path)) &&
+      sameValues(siteReading(`d: ${app}`)?.d, site)
+    )
+  }
+  if (Array.isArray(site) && Array.isArray(app)) {
+    return (
+      site.length === app.length &&
+      site.every((item, i) => siteMatches(item, app[i], path, ctx))
+    )
+  }
+  if (isObject(site) && isObject(app)) {
+    const keys = Object.keys(site)
+    return (
+      keys.length === Object.keys(app).length &&
+      keys.every(
+        key =>
+          key in app && siteMatches(site[key], app[key], `${path}.${key}`, ctx)
+      )
+    )
+  }
+  return sameValues(site, app)
+}
+
+/**
+ * Checks the edited text key by key. A key the form didn't change must read
+ * as before, for the app and the site; a changed or new key must read as the
+ * form's value; a removed key must be gone. Returns what the app will read,
+ * or why the text won't do.
+ */
+function checkEdit(
+  source: Source,
+  edited: Source,
+  loaded: Values,
+  target: Values,
+  ctx: Context
+): { values: Values } | { failed: string } {
+  const siteBefore = siteReading(source.text)
+  const siteAfter = siteReading(edited.text)
+  if (!siteBefore || !siteAfter) return { failed: 'the site can’t read it' }
+  const before = source.values
+  const after = edited.values
+  const keys = new Set([
+    ...Object.keys(target),
+    ...Object.keys(loaded),
+    ...Object.keys(after),
+    ...Object.keys(siteBefore),
+    ...Object.keys(siteAfter),
+  ])
+  const values: Values = {}
+  for (const key of keys) {
+    const inForm = key in target
+    const wasLoaded = key in loaded
+    const untouched =
+      inForm && wasLoaded && sameValues(target[key], loaded[key])
+    if (untouched) {
+      if (!(key in after)) return { failed: `“${key}” went missing` }
+      const value = carried(loaded[key], before[key], after[key])
+      if (value === NOT_SAME)
+        return { failed: `“${key}” would read differently` }
+      values[key] = value
+    } else if (inForm) {
+      if (!sameValues(after[key], target[key])) {
+        return { failed: `“${key}” wouldn’t read as its new value` }
+      }
+      values[key] = target[key]
+    } else if (wasLoaded && key in after) {
+      return { failed: `“${key}” wasn’t removed` }
+    }
+
+    // The site: unchanged keys (and keys only it sees, from merge keys) read
+    // as before, changed ones as `yaml` reads them, removed ones are gone
+    const siteOk =
+      untouched || (!inForm && !wasLoaded)
+        ? sameValues(siteAfter[key], siteBefore[key])
+        : inForm
+          ? siteMatches(siteAfter[key], edited.plain[key], key, ctx)
+          : !(key in siteAfter)
+    if (!siteOk) return { failed: `the site would read “${key}” differently` }
+  }
+  return { values }
+}
+
+/** The text to write, with what the app will read from it, or why there's none */
+export type FrontmatterEdit =
+  | { text: string; values: Values }
+  | { failed: string }
 
 /**
  * The frontmatter text with the values written into it. Keys whose values
  * didn't change keep their exact text; a changed value keeps its key's style
  * (quotes, `|` blocks) where it can; removed keys go with their lines; new
  * keys go in the schema's field order, in the style the file already uses.
- * Null when the text can't be edited safely (it doesn't parse, isn't a
- * mapping, or the edit wouldn't read back as the values): write the values
- * instead.
+ * `loaded` is what the app read from `raw` (the form's starting point); the
+ * edit compares with it, so keys the app reads differently from `yaml`
+ * (`zip: 01234`) count as unchanged. Fails when the text can't be edited
+ * safely (it doesn't parse, isn't a mapping, there's none yet, or the edit
+ * wouldn't read back right): write the values instead.
  */
 export function editFrontmatterText(
   raw: string,
   values: Values,
-  fields: SchemaField[]
-): string | null {
+  fields: SchemaField[],
+  loaded?: Values | null
+): FrontmatterEdit {
+  if (raw.trim() === '') return { failed: 'there’s no frontmatter yet' }
   const source = parseSource(raw)
-  if (!source) return null
+  if (!source) return { failed: 'it isn’t a YAML mapping' }
   // Only what YAML can hold, as the values were read (no undefined keys)
   const target = JSON.parse(JSON.stringify(values)) as Values
+  const starting = loaded ?? source.values
   const ctx = makeContext(source, fields)
-  const splices = patchMap(source.map, readValues(source), target, '', ctx)
-  if (!splices) return null
+  const splices = source.map
+    ? patchMap(source.map, starting, target, '', ctx)
+    : addToEmpty(target, ctx)
+  if (!splices) return { failed: 'it can’t be edited in place' }
 
   let text = applySplices(source.text, splices)
   if (source.added && text.endsWith('\n')) text = text.slice(0, -1)
-  return readsAs(text, target) ? text : null
+  const edited = parseSource(text)
+  if (!edited) return { failed: 'the edited text doesn’t parse' }
+  const checked = checkEdit(source, edited, starting, target, ctx)
+  return 'failed' in checked ? checked : { text, values: checked.values }
 }

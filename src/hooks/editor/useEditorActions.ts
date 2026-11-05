@@ -91,6 +91,7 @@ async function saveCurrentFile(
     editorContent,
     frontmatter,
     rawFrontmatter,
+    rawFrontmatterValues,
     frontmatterBaseline,
     isDirty,
     isFrontmatterDirty,
@@ -124,6 +125,7 @@ async function saveCurrentFile(
       frontmatter,
       isFrontmatterDirty,
       rawFrontmatter,
+      rawFrontmatterValues,
       frontmatterBaseline,
       fields: schemaFields ?? [],
     })

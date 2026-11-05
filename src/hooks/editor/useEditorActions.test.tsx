@@ -311,13 +311,26 @@ describe('useEditorActions.saveFile with frontmatter back where it started', () 
     const { saveFile } = renderActions()
     await saveFile(false)
     expect(savedArgs()).toMatchObject({
-      frontmatter: null,
+      frontmatter: { title: 'Andrew', featured: true },
       rawFrontmatter: 'title: Andrew\nfeatured: true',
       imports: "import Card from '../components/Card.astro'",
     })
     expect(useEditorStore.getState().lastWrittenFrontmatter).toEqual({
       title: 'Andrew',
       featured: true,
+    })
+  })
+
+  it('compares with the values the app loaded from the text on disk', async () => {
+    useEditorStore.setState({
+      frontmatter: { zip: '01234', title: 'Bye' },
+      rawFrontmatter: 'zip: 01234\ntitle: Hi',
+      rawFrontmatterValues: { zip: '01234', title: 'Hi' },
+    })
+    const { saveFile } = renderActions()
+    await saveFile(false)
+    expect(savedArgs()).toMatchObject({
+      rawFrontmatter: 'zip: 01234\ntitle: Bye',
     })
   })
 

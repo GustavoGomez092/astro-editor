@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vitest'
+import { warn as logWarn } from '@tauri-apps/plugin-log'
+import { describe, expect, it, vi } from 'vitest'
 import { FieldType, type SchemaField } from './schema'
 import { frontmatterToWrite, nextFrontmatterBaseline } from './frontmatter-save'
 import { sameValues } from './frontmatter-yaml'
@@ -48,10 +49,53 @@ describe('frontmatterToWrite', () => {
         frontmatterBaseline: BASELINE,
       })
     ).toEqual({
-      frontmatter: null,
+      // The values too, so Rust can check the text reads as them
+      frontmatter: changed,
       rawFrontmatter: RAW.replace('featured: false', 'featured: true'),
       written: changed,
     })
+  })
+
+  it('compares with the values the app loaded from the text on disk', () => {
+    // The app reads 01234 as text; `yaml` would read it as a number
+    const loaded = { zip: '01234', title: 'Hi' }
+    expect(
+      frontmatterToWrite({
+        frontmatter: { ...loaded, title: 'Bye' },
+        isFrontmatterDirty: true,
+        rawFrontmatter: 'zip: 01234\ntitle: Hi',
+        rawFrontmatterValues: loaded,
+        frontmatterBaseline: null,
+      }).rawFrontmatter
+    ).toBe('zip: 01234\ntitle: Bye')
+  })
+
+  it('writes the values when editing the text fails, and says why in the log', () => {
+    vi.mocked(logWarn).mockClear()
+    const changed = { title: 'Fixed' }
+    expect(
+      frontmatterToWrite({
+        frontmatter: changed,
+        isFrontmatterDirty: true,
+        // An alias with no anchor reads without an error, then throws
+        rawFrontmatter: 'title: Hi\nref: *nowhere',
+        frontmatterBaseline: null,
+      })
+    ).toEqual({ frontmatter: changed, rawFrontmatter: null, written: changed })
+    expect(logWarn).toHaveBeenCalledWith(
+      expect.stringContaining('isn’t a YAML mapping')
+    )
+    expect(vi.mocked(logWarn).mock.calls[0]![0]).not.toContain('Fixed')
+  })
+
+  it('writes *Featured* without failing the save', () => {
+    const result = frontmatterToWrite({
+      frontmatter: { title: '*Featured*' },
+      isFrontmatterDirty: true,
+      rawFrontmatter: 'title: Plain',
+      frontmatterBaseline: null,
+    })
+    expect(result.rawFrontmatter).toBe("title: '*Featured*'")
   })
 
   it('writes the values, as before, when the text on disk is not valid YAML', () => {
@@ -153,7 +197,7 @@ describe('frontmatterToWrite with keys the file never had', () => {
   it('a value that differs from the default is a real change', () => {
     // pinned defaults to true, so false is a choice the writer made
     expect(write({ title: 'Andrew Dyk', pinned: false })).toEqual({
-      frontmatter: null,
+      frontmatter: { title: 'Andrew Dyk', pinned: false },
       rawFrontmatter: 'title: Andrew Dyk\npinned: false',
       written: { title: 'Andrew Dyk', pinned: false },
     })
@@ -165,7 +209,7 @@ describe('frontmatterToWrite with keys the file never had', () => {
   it('leaves out keys the file never had whose value is only the default', () => {
     // Another field changed, so the text is edited rather than restored
     expect(write({ title: 'Andrew', featured: false, tags: [] })).toEqual({
-      frontmatter: null,
+      frontmatter: { title: 'Andrew' },
       rawFrontmatter: 'title: Andrew',
       written: { title: 'Andrew' },
     })

@@ -12,16 +12,28 @@ const field = (name: string, type = FieldType.String): SchemaField => ({
   required: false,
 })
 
+/** The edit's result: the text, or why it can't be done in place */
+function editResult(
+  raw: string,
+  change: (values: Values) => void,
+  fields: SchemaField[] = [],
+  loaded?: Values
+) {
+  const values = structuredClone(loaded ?? parseFrontmatterValues(raw))
+  if (!values) throw new Error('raw does not parse')
+  change(values)
+  return editFrontmatterText(raw, values, fields, loaded)
+}
+
 /** The values the text holds, edited by `change`, written back into it */
 function edit(
   raw: string,
   change: (values: Values) => void,
-  fields: SchemaField[] = []
+  fields: SchemaField[] = [],
+  loaded?: Values
 ): string | null {
-  const values = structuredClone(parseFrontmatterValues(raw))
-  if (!values) throw new Error('raw does not parse')
-  change(values)
-  return editFrontmatterText(raw, values, fields)
+  const result = editResult(raw, change, fields, loaded)
+  return 'text' in result ? result.text : null
 }
 
 /** Whether the text reads back as the values, as YAML 1.2 and as YAML 1.1 */
@@ -240,7 +252,7 @@ describe('editFrontmatterText', () => {
   it('turns a one-line value into a block when it gets more lines', () => {
     const raw = 'title: Hi # note\ndraft: true'
     expect(edit(raw, v => (v.title = 'One\nTwo'))).toBe(
-      'title: |-\n  One\n  Two\ndraft: true'
+      'title: |- # note\n  One\n  Two\ndraft: true'
     )
   })
 
@@ -273,6 +285,13 @@ describe('editFrontmatterText', () => {
     '- not a list',
     '1:30',
     '0x1F',
+    '0b101',
+    '01234',
+    '*Featured*',
+    '*x',
+    '**Bold**',
+    '&anchor',
+    '!important',
     '',
   ])('quotes %j in a plain key so it reads back as that text', value => {
     const edited = edit('title: plain\ndraft: true', v => (v.title = value))
@@ -313,6 +332,75 @@ describe('editFrontmatterText', () => {
     ).toBe('people:\n  - name: "A"\n    role: Boss\n  - name: C')
   })
 
+  it.each([
+    ['a line separator', 'One\u2028Two', '"One\\LTwo"'],
+    ['a paragraph separator', 'One\u2029Two', '"One\\PTwo"'],
+    ['a next-line character', 'One\u0085Two', '"One\\NTwo"'],
+    ['a control character', 'Bell\u0007', '"Bell\\a"'],
+    ['a carriage return', 'One\r\nTwo', '"One\\r\\nTwo"'],
+  ])('writes text with %s double-quoted, with escapes', (_, value, written) => {
+    // The app's YAML parser can't read these characters unescaped
+    for (const raw of ['t: plain', "t: 'single'", 't: |\n  block\nn: 1']) {
+      const edited = edit(raw, v => (v.t = value))
+      expect(edited).toContain(`t: ${written}`)
+      for (const raw of ['\u2028', '\u2029', '\u0085', '\u0007', '\r']) {
+        expect(edited).not.toContain(raw)
+      }
+      expect((parse(edited!) as Values).t).toBe(value)
+    }
+    const listed = edit('tags:\n  - a', v => (v.tags = ['a', value]))
+    expect(listed).toContain(`  - ${written}`)
+  })
+
+  it('returns the values the app will read back', () => {
+    const result = editResult('t: x\nn: 1', v => (v.t = 'new'))
+    expect(result).toEqual({ text: 't: new\nn: 1', values: { t: 'new', n: 1 } })
+  })
+
+  it('compares with the values the app loaded, so keys it reads differently stay as they are', () => {
+    // The app reads these differently from the yaml package
+    const raw = 'zip: 01234\nb: 0b101\nc: +0x1\ntitle: Hi\nd: |+\n  x'
+    const loaded = { zip: '01234', b: 5, c: 1, title: 'Hi', d: 'x' }
+    const result = editResult(raw, v => (v.title = 'Bye'), [], loaded)
+    expect(result).toEqual({
+      text: raw.replace('Hi', 'Bye'),
+      values: { ...loaded, title: 'Bye' },
+    })
+  })
+
+  // Rename to match title adds `slug` like this
+  it('adds a key after a block that ended the text', () => {
+    const fields = ['title', 'intro', 'slug'].map(n => field(n))
+    const raw = 'title: Hi\nintro: |\n  One.'
+    const result = editResult(raw, v => (v.slug = 'hi'), fields)
+    // The site reads `One.\n` either way; the app now reads it that way too
+    expect(result).toEqual({
+      text: 'title: Hi\nintro: |\n  One.\nslug: hi',
+      values: { title: 'Hi', intro: 'One.\n', slug: 'hi' },
+    })
+  })
+
+  it('keeps the comment on a block’s first line when the block changes', () => {
+    const raw = 'intro: | # shown under the title\n  One.\nn: 1'
+    expect(edit(raw, v => (v.intro = 'Two.\n'))).toBe(
+      'intro: | # shown under the title\n  Two.\nn: 1'
+    )
+  })
+
+  it('adds keys to frontmatter that only has comments, keeping them', () => {
+    const edited = edit(
+      '# Hero section\n# Keep it short',
+      v => (v.title = 'Hi')
+    )
+    expect(edited).toBe('# Hero section\n# Keep it short\ntitle: Hi')
+  })
+
+  it('edits files the site reads with merge keys', () => {
+    // The site merges `<<`, the app reads it as a key: both stay as they were
+    const raw = 'base: &b\n  x: 1\nother:\n  <<: *b\n  y: 2\ntitle: Hi'
+    expect(edit(raw, v => (v.title = 'Bye'))).toBe(raw.replace('Hi', 'Bye'))
+  })
+
   it('leaves the text alone when nothing changed', () => {
     expect(edit(HERO, () => {}, HERO_FIELDS)).toBe(HERO)
   })
@@ -327,14 +415,14 @@ describe('editFrontmatterText', () => {
   })
 
   it('gives up on text that is not a YAML mapping', () => {
-    expect(editFrontmatterText('title: [unclosed', { title: 'x' }, [])).toBe(
-      null
-    )
-    expect(editFrontmatterText('', { title: 'x' }, [])).toBeNull()
-    expect(editFrontmatterText('# only a comment', { title: 'x' }, [])).toBe(
-      null
-    )
-    expect(editFrontmatterText('a: 1\na: 2', { a: 3 }, [])).toBeNull()
+    const failed = (raw: string, values: Values) =>
+      'failed' in editFrontmatterText(raw, values, [])
+    expect(failed('title: [unclosed', { title: 'x' })).toBe(true)
+    expect(failed('', { title: 'x' })).toBe(true)
+    expect(failed('- a list', { title: 'x' })).toBe(true)
+    expect(failed('a: 1\na: 2', { a: 3 })).toBe(true)
+    // An alias with no anchor: YAML reads it without an error, then throws
+    expect(failed('a: *nowhere\nb: 1', { a: null, b: 2 })).toBe(true)
   })
 })
 
@@ -345,6 +433,9 @@ describe('parseFrontmatterValues', () => {
       tags: ['a'],
     })
     expect(parseFrontmatterValues('title: [')).toBeNull()
-    expect(parseFrontmatterValues('')).toBeNull()
+    expect(parseFrontmatterValues('- a list')).toBeNull()
+    expect(parseFrontmatterValues('a: *nowhere')).toBeNull()
+    expect(parseFrontmatterValues('')).toEqual({})
+    expect(parseFrontmatterValues('# only a comment')).toEqual({})
   })
 })

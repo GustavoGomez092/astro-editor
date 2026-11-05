@@ -5,10 +5,12 @@
 // (lib/frontmatter-yaml.ts), and when the values are back to what was on
 // disk when the file was opened, that text is written as it was.
 
+import { warn as logWarn } from '@tauri-apps/plugin-log'
 import {
   editFrontmatterText,
   parseFrontmatterValues,
   sameValues,
+  type FrontmatterEdit,
 } from './frontmatter-yaml'
 import { FieldType, type SchemaField } from './schema'
 
@@ -85,25 +87,30 @@ function withoutUnsetKeys(
 }
 
 /**
- * What a save passes for the frontmatter: the text to write, or the values
- * for the app's own writer. The text on disk is kept when the frontmatter
- * wasn't edited, and the baseline's text when the edits ended where they
- * started. Otherwise it's the text on disk with the edits made in place, or,
- * when that text can't be edited (it isn't valid YAML, or there's none yet),
- * the values. A key the file didn't have is left out while its value is
- * only the default. `written` is the values a new text holds, so the reload
- * of this save isn't taken for a change made outside the app.
+ * What a save passes for the frontmatter. The text on disk is kept when the
+ * frontmatter wasn't edited, and the baseline's text when the edits ended
+ * where they started. Otherwise it's the text on disk with the edits made in
+ * place, together with the values the app will read from it, which Rust
+ * checks the text against before writing it. When the text can't be edited
+ * (it isn't valid YAML, or there's none yet) only the values go, for the
+ * app's own writer; that's logged, without the values. A key the file didn't
+ * have is left out while its value is only the default. `written` is the
+ * values a new text holds, so the reload of this save isn't taken for a
+ * change made outside the app.
  */
 export function frontmatterToWrite({
   frontmatter,
   isFrontmatterDirty,
   rawFrontmatter,
+  rawFrontmatterValues = null,
   frontmatterBaseline,
   fields = [],
 }: {
   frontmatter: Values
   isFrontmatterDirty: boolean
   rawFrontmatter: string
+  /** What the app read from `rawFrontmatter` (null when unknown) */
+  rawFrontmatterValues?: Values | null
   frontmatterBaseline: FrontmatterBaseline | null
   /** The collection's schema fields, for their order, types and defaults */
   fields?: SchemaField[]
@@ -128,14 +135,43 @@ export function frontmatterToWrite({
       written: null,
     }
   }
-  const onDisk = parseFrontmatterValues(rawFrontmatter)
-  if (onDisk) {
-    const written = withoutUnsetKeys(frontmatter, onDisk, fields)
-    const text = editFrontmatterText(rawFrontmatter, written, fields)
-    if (text !== null)
-      return { frontmatter: null, rawFrontmatter: text, written }
+  if (rawFrontmatter.trim() !== '') {
+    const edit = editInPlace(
+      frontmatter,
+      rawFrontmatter,
+      rawFrontmatterValues,
+      fields
+    )
+    if ('text' in edit) {
+      return {
+        frontmatter: edit.values,
+        rawFrontmatter: edit.text,
+        written: edit.values,
+      }
+    }
+    void logWarn(
+      `Frontmatter written in full, not edited in place: ${edit.failed}`
+    )
   }
   return { frontmatter, rawFrontmatter: null, written: frontmatter }
+}
+
+/** The in-place edit; a failure to edit is a reason, never a failed save */
+function editInPlace(
+  frontmatter: Values,
+  raw: string,
+  loaded: Values | null,
+  fields: SchemaField[]
+): FrontmatterEdit {
+  try {
+    const onDisk = loaded ?? parseFrontmatterValues(raw) ?? {}
+    const written = withoutUnsetKeys(frontmatter, onDisk, fields)
+    return editFrontmatterText(raw, written, fields, loaded ?? undefined)
+  } catch (error) {
+    return {
+      failed: `editing failed (${error instanceof Error ? error.name : 'error'})`,
+    }
+  }
 }
 
 /**

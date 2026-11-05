@@ -43,6 +43,7 @@ export function useEditorFileContent() {
       editorContent: data.content,
       frontmatter: data.frontmatter,
       rawFrontmatter: data.raw_frontmatter,
+      rawFrontmatterValues: data.frontmatter,
       frontmatterBaseline: nextFrontmatterBaseline(
         frontmatterBaseline,
         { values: data.frontmatter, raw: data.raw_frontmatter },
