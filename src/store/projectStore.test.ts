@@ -201,11 +201,11 @@ describe('projectStore.updateProjectSettings with collection folders', () => {
       .mockResolvedValue(okNull)
     const start = vi
       .spyOn(commands, 'startWatchingProjectWithContentDir')
-      .mockResolvedValue(okNull)
+      .mockResolvedValue({ status: 'ok', data: 1 })
 
     await setWorkFolder('writing/work')
 
-    expect(stop).toHaveBeenCalledWith('/project')
+    expect(stop).toHaveBeenCalledWith('/project', null)
     expect(start).toHaveBeenCalled()
     // oxlint-disable-next-line @typescript-eslint/unbound-method
     expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
@@ -215,9 +215,10 @@ describe('projectStore.updateProjectSettings with collection folders', () => {
 
   it('saves and closes the open file when a collection folder changes', async () => {
     vi.spyOn(commands, 'stopWatchingProject').mockResolvedValue(okNull)
-    vi.spyOn(commands, 'startWatchingProjectWithContentDir').mockResolvedValue(
-      okNull
-    )
+    vi.spyOn(commands, 'startWatchingProjectWithContentDir').mockResolvedValue({
+      status: 'ok',
+      data: 1,
+    })
     const save = vi.fn().mockResolvedValue(undefined)
     const close = vi.fn()
     useEditorStore.setState({

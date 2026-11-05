@@ -40,6 +40,8 @@ interface ProjectState {
   _unlistenWatcherRescan: UnlistenFn | null
   _unlistenWatcherRebuilt: UnlistenFn | null
   _unlistenWatcherError: UnlistenFn | null
+  /** Which watcher start is running (Rust's answer), so a stop can name it */
+  _watcherId: number | null
 
   // Actions
   setProject: (path: string) => void
@@ -57,6 +59,14 @@ interface ProjectState {
   stopFileWatcher: () => Promise<void>
 }
 
+// Counts opens and closes. An open that finds the number changed (a newer open
+// or a close, such as Go Home, came in while it was still loading) stops, so a
+// site never opens by itself after it was left
+let openGeneration = 0
+
+/** Changes whenever a site starts opening or the open site closes */
+export const getOpenGeneration = () => openGeneration
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   // Initial state
   projectPath: null,
@@ -70,12 +80,17 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   _unlistenWatcherRescan: null,
   _unlistenWatcherRebuilt: null,
   _unlistenWatcherError: null,
+  _watcherId: null,
 
   // Actions
   setProject: (path: string) => {
+    const generation = ++openGeneration
+    const cancelled = () => generation !== openGeneration
     void (async () => {
       try {
-        await info(
+        // Log calls aren't awaited: each await is a point where a newer open
+        // or Go Home could slip in, and every one needs a check after it
+        void info(
           `Astro Editor [PROJECT_SETUP] Starting project setup: ${path}`
         )
 
@@ -83,23 +98,26 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         useEditorStore.getState().closeCurrentFile()
 
         // Register the project and get its ID
-        await info(`Astro Editor [PROJECT_SETUP] Registering project: ${path}`)
+        void info(`Astro Editor [PROJECT_SETUP] Registering project: ${path}`)
         const projectId = await projectRegistryManager.registerProject(path)
-        await debug(
+        if (cancelled()) return
+        void debug(
           `Astro Editor [PROJECT_SETUP] Project ID generated: ${projectId}`
         )
 
         // Load project settings
-        await info(
+        void info(
           `Astro Editor [PROJECT_SETUP] Loading project settings for: ${projectId}`
         )
         const projectSettings =
           await projectRegistryManager.getEffectiveSettings(projectId)
+        if (cancelled()) return
 
         // Stop the previous project's watcher and listeners first; starting
         // another doesn't, so they'd keep running and every event would be
         // handled once per project opened
         await get().stopFileWatcher()
+        if (cancelled()) return
 
         // The previous project's dev server would keep running unseen. Stopped
         // only once the new project has loaded, so a failed switch leaves it
@@ -117,10 +135,10 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
         // Project persistence is now handled by the project registry system
 
-        await info(`Astro Editor [PROJECT_SETUP] Starting file watcher`)
+        void info(`Astro Editor [PROJECT_SETUP] Starting file watcher`)
         await get().startFileWatcher()
 
-        await info(
+        void info(
           `Astro Editor [PROJECT_SETUP] Project setup completed successfully: ${projectId}`
         )
       } catch (error) {
@@ -144,8 +162,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   closeProject: async () => {
+    // Also cancels a site that is still opening, when none is open yet
+    openGeneration++
     const { projectPath } = get()
-    if (!projectPath) return
+    if (!projectPath) {
+      // Wakes anything waiting for that site to open (waitForProjectReady)
+      set({})
+      return
+    }
     useEditorStore.getState().closeCurrentFile()
     await get().stopFileWatcher()
     // Left running it would go unseen, as when another project opens
@@ -192,6 +216,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   startFileWatcher: async () => {
     const { projectPath, currentProjectSettings } = get()
     if (!projectPath) return
+    const generation = openGeneration
 
     try {
       // Watch the content directory (or its override) and any collection
@@ -208,6 +233,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       if (result.status === 'error') {
         throw new Error(result.error)
       }
+      const watcherId = result.data
 
       // Listen for file change events
       const unlistenFileChanged = await listen(
@@ -256,8 +282,23 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         })
       })
 
+      // The site closed (or another opened) while this was starting: the
+      // closing found nothing to stop yet, so undo it all here
+      if (generation !== openGeneration) {
+        unlistenFileChanged()
+        unlistenSchemaChanged()
+        unlistenWatcherRescan()
+        unlistenWatcherRebuilt()
+        unlistenWatcherError()
+        // Only this start's watcher: the site may have been opened again
+        // since, and that watcher is the newer one's
+        await commands.stopWatchingProject(projectPath, watcherId)
+        return
+      }
+
       // Store the unlisten functions for cleanup
       set({
+        _watcherId: watcherId,
         _unlistenFileChanged: unlistenFileChanged,
         _unlistenSchemaChanged: unlistenSchemaChanged,
         _unlistenWatcherRescan: unlistenWatcherRescan,
@@ -265,6 +306,8 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         _unlistenWatcherError: unlistenWatcherError,
       })
     } catch (error) {
+      // A site that was left meanwhile has nothing to report
+      if (generation !== openGeneration) return
       const errorMsg = formatErrorForLogging(
         'PROJECT_SETUP',
         'File watcher failed to start',
@@ -286,6 +329,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       _unlistenWatcherRescan,
       _unlistenWatcherRebuilt,
       _unlistenWatcherError,
+      _watcherId,
     } = get()
     if (!projectPath) return
 
@@ -297,6 +341,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       _unlistenWatcherRebuilt?.()
       _unlistenWatcherError?.()
       set({
+        _watcherId: null,
         _unlistenFileChanged: null,
         _unlistenSchemaChanged: null,
         _unlistenWatcherRescan: null,
@@ -304,8 +349,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         _unlistenWatcherError: null,
       })
 
-      const result = await commands.stopWatchingProject(projectPath)
-      if (result.status === 'error') {
+      const result = await commands.stopWatchingProject(
+        projectPath,
+        _watcherId ?? null
+      )
+      // Nothing registered yet means a start is still running and undoes
+      // itself (startFileWatcher): there is nothing to warn about
+      if (result.status === 'error' && _watcherId != null) {
         throw new Error(result.error)
       }
     } catch (error) {

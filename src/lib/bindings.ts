@@ -120,8 +120,14 @@ export const commands = {
 	/**  Scan all markdown/mdx files recursively in a collection directory */
 	scanCollectionFilesRecursive: (collectionPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("scan_collection_files_recursive", { collectionPath, collectionName })),
 	startWatchingProject: (projectPath: string) => typedError<null, string>(__TAURI_INVOKE("start_watching_project", { projectPath })),
-	startWatchingProjectWithContentDir: (projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<null, string>(__TAURI_INVOKE("start_watching_project_with_content_dir", { projectPath, contentDirectory, collectionDirectories })),
-	stopWatchingProject: (projectPath: string) => typedError<null, string>(__TAURI_INVOKE("stop_watching_project", { projectPath })),
+	startWatchingProjectWithContentDir: (projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<number, string>(__TAURI_INVOKE("start_watching_project_with_content_dir", { projectPath, contentDirectory, collectionDirectories })),
+	/**
+	 *  With `watcher_id` (what the start returned) only that instance is stopped: a
+	 *  late stop for a start that was replaced meanwhile (the same site opened
+	 *  again) leaves the newer watcher running. Without it, whatever watches the
+	 *  project is stopped.
+	 */
+	stopWatchingProject: (projectPath: string, watcherId: number | null) => typedError<null, string>(__TAURI_INVOKE("stop_watching_project", { projectPath, watcherId })),
 	/**  Opens the preferences folder in the system's default file manager */
 	openPreferencesFolder: () => typedError<null, string>(__TAURI_INVOKE("open_preferences_folder")),
 	/**  Resets all preferences by deleting the app data directory and restarting the app */

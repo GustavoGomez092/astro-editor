@@ -69,7 +69,10 @@ describe('remembering and reopening the last entry', () => {
     globalThis.mockTauri.reset()
     openFile.mockClear()
     useEditorStore.setState({ openFile })
-    useProjectStore.setState({ currentProjectSettings: null })
+    useProjectStore.setState({
+      currentProjectSettings: null,
+      projectPath: '/s/a',
+    })
     // The registry is mocked globally (src/test/setup.ts)
     // oxlint-disable-next-line @typescript-eslint/unbound-method
     vi.mocked(projectRegistryManager.setLastOpenFile).mockClear()
@@ -131,6 +134,25 @@ describe('remembering and reopening the last entry', () => {
     )
   })
 
+  it('opens nothing when the site was closed while the file was being found', async () => {
+    setRegistry([meta('a', '/s/a', 'src/content/blog/hi.md')])
+    useProjectStore.setState({ projectPath: '/s/a' })
+    globalThis.mockTauri.invoke.mockImplementation(
+      (command: string, args?: unknown) => {
+        if (command === 'resolve_file_entry') {
+          // Home pressed while the lookup runs
+          useProjectStore.setState({ projectPath: null })
+          return Promise.resolve(entry((args as { filePath: string }).filePath))
+        }
+        return Promise.resolve(null)
+      }
+    )
+
+    expect(await reopenLastEntry('/s/a')).toBe(false)
+
+    expect(openFile).not.toHaveBeenCalled()
+  })
+
   it('opens nothing when the file is gone', async () => {
     setRegistry([meta('a', '/s/a', 'src/content/blog/gone.md')])
     globalThis.mockTauri.invoke.mockResolvedValue(null)
@@ -156,8 +178,11 @@ describe('remembering and reopening the last entry', () => {
       meta('b', '/s/b', 'src/content/notes/two.md'),
     ])
 
+    useProjectStore.setState({ projectPath: '/s/a' })
     await reopenLastEntry('/s/a')
+    useProjectStore.setState({ projectPath: '/s/b' })
     await reopenLastEntry('/s/b')
+    useProjectStore.setState({ projectPath: '/s/a' })
     await reopenLastEntry('/s/a')
 
     expect(

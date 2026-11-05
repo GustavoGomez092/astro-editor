@@ -7,7 +7,7 @@ import { queryKeys } from '../query-keys'
 import { refreshProjectPreview } from './previews'
 import { reopenLastEntry } from './last-entry'
 import { waitForProjectReady } from './ready'
-import { useProjectStore } from '../../store/projectStore'
+import { getOpenGeneration, useProjectStore } from '../../store/projectStore'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { flushRememberedEntries, saveUnsavedEdits } from '../quit'
 import { waitForSaves } from '../files/pending-saves'
@@ -54,18 +54,28 @@ async function readyToLeaveSite(): Promise<boolean> {
 export async function openSite(path: string): Promise<boolean> {
   if (openingSite) return false
   openingSite = true
+  // Go Home (or another open) changes this, which cancels this open
+  const generation = getOpenGeneration()
   try {
     if (useProjectStore.getState().projectPath === path) {
       await reopenLastEntry(path)
       return true
     }
     if (!(await readyToLeaveSite())) return false
+    if (generation !== getOpenGeneration()) return false
     useProjectStore.getState().setProject(path)
+    // This open's own generation: if it changes, Go Home or a newer open
+    // cancelled this one, which isn't a failure to report
+    const openedGeneration = getOpenGeneration()
     // setProject finishes on its own; the entry opens once the site is ready
     if (!(await waitForProjectReady(path))) {
-      toast.error("Couldn't open the site")
+      if (openedGeneration === getOpenGeneration()) {
+        toast.error("Couldn't open the site")
+      }
       return false
     }
+    // Home may have been pressed just as it finished loading
+    if (useProjectStore.getState().projectPath !== path) return false
     await reopenLastEntry(path)
     // Home is gone and the editor is in view: put focus in it
     setTimeout(focusSidebar, 100)
@@ -81,7 +91,11 @@ export async function openSite(path: string): Promise<boolean> {
  * writer can stay, or leave anyway
  */
 export async function goHome(): Promise<void> {
-  if (!useProjectStore.getState().projectPath) return
+  if (!useProjectStore.getState().projectPath) {
+    // Nothing open yet, but a site may be on its way: cancel it
+    if (openingSite) await useProjectStore.getState().closeProject()
+    return
+  }
   if (!(await readyToLeaveSite())) return
   await useProjectStore.getState().closeProject()
 }

@@ -133,7 +133,9 @@ fn create_project_watcher(
 #[tauri::command]
 #[specta::specta]
 pub async fn start_watching_project(app: AppHandle, project_path: String) -> Result<(), String> {
-    start_watching_project_with_content_dir(app, project_path, None, None).await
+    start_watching_project_with_content_dir(app, project_path, None, None)
+        .await
+        .map(|_| ())
 }
 
 #[tauri::command]
@@ -143,7 +145,7 @@ pub async fn start_watching_project_with_content_dir(
     project_path: String,
     content_directory: Option<String>,
     collection_directories: Option<HashMap<String, String>>,
-) -> Result<(), String> {
+) -> Result<u32, String> {
     let collection_folders = collection_directories.unwrap_or_default();
     let ProjectWatcher {
         watcher,
@@ -189,7 +191,8 @@ pub async fn start_watching_project_with_content_dir(
         .await;
     });
 
-    Ok(())
+    // Handed back so a stop can name this instance (see `stop_watching_project`)
+    Ok(generation as u32)
 }
 
 /// Where a project's content is, kept to rebuild its watcher
@@ -348,14 +351,34 @@ fn watch_new_schemas_dir(
 
 #[tauri::command]
 #[specta::specta]
-pub async fn stop_watching_project(app: AppHandle, project_path: String) -> Result<(), String> {
+/// With `watcher_id` (what the start returned) only that instance is stopped: a
+/// late stop for a start that was replaced meanwhile (the same site opened
+/// again) leaves the newer watcher running. Without it, whatever watches the
+/// project is stopped.
+pub async fn stop_watching_project(
+    app: AppHandle,
+    project_path: String,
+    watcher_id: Option<u32>,
+) -> Result<(), String> {
     let watcher_map: State<WatcherMap> = app.state();
     let mut watchers = watcher_map.lock().unwrap();
+    remove_watcher(&mut watchers, &project_path, watcher_id)
+}
 
-    if watchers.remove(&project_path).is_some() {
-        Ok(())
-    } else {
-        Err("No watcher found for this project".to_string())
+fn remove_watcher(
+    watchers: &mut HashMap<String, WatcherEntry>,
+    project_path: &str,
+    watcher_id: Option<u32>,
+) -> Result<(), String> {
+    match (watchers.get(project_path), watcher_id) {
+        // That instance is gone already, or was replaced by a newer one
+        (None, Some(_)) => Ok(()),
+        (Some(entry), Some(id)) if entry.generation as u32 != id => Ok(()),
+        (Some(_), _) => {
+            watchers.remove(project_path);
+            Ok(())
+        }
+        (None, None) => Err("No watcher found for this project".to_string()),
     }
 }
 
@@ -516,6 +539,37 @@ pub fn init_watcher_state() -> WatcherMap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(generation: u64) -> WatcherEntry {
+        WatcherEntry {
+            generation,
+            watcher: notify::recommended_watcher(|_| {}).unwrap(),
+        }
+    }
+
+    #[test]
+    fn stopping_names_the_instance_so_a_newer_watcher_survives() {
+        let mut watchers = HashMap::new();
+        watchers.insert("/s/a".to_string(), entry(7));
+
+        // A late stop for the replaced start (6) leaves the newer one (7)
+        assert_eq!(remove_watcher(&mut watchers, "/s/a", Some(6)), Ok(()));
+        assert!(watchers.contains_key("/s/a"));
+
+        // Stopping the right instance, or any (None), removes it
+        assert_eq!(remove_watcher(&mut watchers, "/s/a", Some(7)), Ok(()));
+        assert!(watchers.is_empty());
+        watchers.insert("/s/a".to_string(), entry(8));
+        assert_eq!(remove_watcher(&mut watchers, "/s/a", None), Ok(()));
+        assert!(watchers.is_empty());
+    }
+
+    #[test]
+    fn stopping_what_is_not_there_is_an_error_only_without_an_instance() {
+        let mut watchers = HashMap::new();
+        assert!(remove_watcher(&mut watchers, "/s/a", None).is_err());
+        assert_eq!(remove_watcher(&mut watchers, "/s/a", Some(3)), Ok(()));
+    }
 
     #[test]
     fn watches_collection_folders_outside_the_content_directory() {
