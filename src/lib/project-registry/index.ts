@@ -26,8 +26,13 @@ import {
 import { discoverProject, folderStates, isSameProject } from './utils'
 import { DEFAULT_PROJECT_SETTINGS } from './defaults'
 
+/** How long entry changes wait before they're written */
+const LAST_FILE_DELAY_MS = 1000
+
 export class ProjectRegistryManager {
   private registry: ProjectRegistry | null = null
+  private pendingLastFiles = new Map<string, string>()
+  private lastFileTimer: ReturnType<typeof setTimeout> | null = null
   private globalSettings: GlobalSettings | null = null
   private projectDataCache: Map<string, ProjectData> = new Map()
 
@@ -392,15 +397,63 @@ export class ProjectRegistryManager {
     await setProjectDataAside(projectId)
   }
 
-  /** Remembers the entry open in a project (relative path), for reopening it */
-  async setLastOpenFile(
-    projectId: string,
-    relativePath: string
-  ): Promise<void> {
+  /**
+   * Remembers the entry open in a project (path relative to its folder), so
+   * opening the project again returns to it. Changes are written together a
+   * second after the last one, since an entry opens often and each write is the
+   * whole list. Memory changes only once the write worked; until then (and
+   * after a failed write, which the next change retries) the value is kept
+   * aside and `getLastOpenFile` reads it
+   */
+  setLastOpenFile(projectId: string, relativePath: string): void {
     const project = this.registry?.projects[projectId]
-    if (!this.registry || !project || project.lastFile === relativePath) return
-    project.lastFile = relativePath
-    await saveProjectRegistry(this.registry)
+    if (!project) return
+    // Already stored. (One still waiting is set again, which retries a failed write)
+    if (
+      !this.pendingLastFiles.has(projectId) &&
+      project.lastFile === relativePath
+    )
+      return
+    this.pendingLastFiles.set(projectId, relativePath)
+    if (this.lastFileTimer) clearTimeout(this.lastFileTimer)
+    this.lastFileTimer = setTimeout(() => {
+      this.lastFileTimer = null
+      void this.flushLastFiles()
+    }, LAST_FILE_DELAY_MS)
+  }
+
+  /** The entry last open in a project: relative to its folder, or undefined */
+  getLastOpenFile(projectId: string): string | undefined {
+    return (
+      this.pendingLastFiles.get(projectId) ??
+      this.registry?.projects[projectId]?.lastFile
+    )
+  }
+
+  private async flushLastFiles(): Promise<void> {
+    const registry = this.registry
+    if (!registry || this.pendingLastFiles.size === 0) return
+    const writing = new Map(this.pendingLastFiles)
+    const projects = { ...registry.projects }
+    for (const [id, lastFile] of writing) {
+      const project = projects[id]
+      if (project) projects[id] = { ...project, lastFile }
+    }
+    try {
+      await saveProjectRegistry({ ...registry, projects })
+    } catch (reason) {
+      await logError(
+        `Astro Editor [PROJECT_REGISTRY] Saving the open entries failed, will retry: ${String(reason)}`
+      )
+      return
+    }
+    for (const [id, lastFile] of writing) {
+      const project = registry.projects[id]
+      if (project) project.lastFile = lastFile
+      if (this.pendingLastFiles.get(id) === lastFile) {
+        this.pendingLastFiles.delete(id)
+      }
+    }
   }
 
   /**

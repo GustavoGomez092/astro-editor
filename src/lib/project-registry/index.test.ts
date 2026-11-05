@@ -2,7 +2,7 @@
  * Basic tests for the project registry system
  */
 
-import { describe, it, expect, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 // Unmock the project-registry module for these tests
 vi.unmock('.')
@@ -337,6 +337,80 @@ describe('Project Registry System', () => {
       .map(([, args]) => (args as { content: string }).content)
       .at(-1)
     expect(saved).not.toContain('devCommand')
+  })
+
+  describe('remembering the open entry', () => {
+    const registryWrites = () =>
+      mockInvoke.mock.calls
+        .filter(([command]) => command === 'write_app_data_file')
+        .map(([, args]) => args as { filePath: string; content: string })
+        .filter(a => a.filePath.endsWith('project-registry.json'))
+
+    async function siteWithRegistry() {
+      fakeDisk({
+        packages: { '/sites/a': 'a' },
+        folders: new Set(['/sites/a']),
+      })
+      await manager.initialize()
+      const id = await manager.registerProject('/sites/a')
+      vi.useFakeTimers()
+      mockInvoke.mockClear()
+      return id
+    }
+
+    afterEach(() => vi.useRealTimers())
+
+    it('writes once, a second after the last change, and reads the pending value meanwhile', async () => {
+      const id = await siteWithRegistry()
+
+      manager.setLastOpenFile(id, 'src/content/blog/one.md')
+      manager.setLastOpenFile(id, 'src/content/blog/two.md')
+      expect(manager.getLastOpenFile(id)).toBe('src/content/blog/two.md')
+      expect(registryWrites()).toHaveLength(0)
+
+      await vi.advanceTimersByTimeAsync(1100)
+
+      expect(registryWrites()).toHaveLength(1)
+      expect(registryWrites()[0]!.content).toContain('src/content/blog/two.md')
+      expect(manager.getRegistry().projects[id]?.lastFile).toBe(
+        'src/content/blog/two.md'
+      )
+    })
+
+    it('does not change what is in memory until the save worked, and retries later', async () => {
+      const id = await siteWithRegistry()
+      const working = vi.mocked(invoke).getMockImplementation()!
+      vi.mocked(invoke).mockImplementation((command, args) =>
+        command === 'write_app_data_file'
+          ? // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+            Promise.reject('disk full')
+          : working(command, args)
+      )
+
+      manager.setLastOpenFile(id, 'a.md')
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(manager.getRegistry().projects[id]?.lastFile).toBeUndefined()
+      // Still remembered for this session
+      expect(manager.getLastOpenFile(id)).toBe('a.md')
+
+      vi.mocked(invoke).mockImplementation(working)
+      manager.setLastOpenFile(id, 'a.md')
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(manager.getRegistry().projects[id]?.lastFile).toBe('a.md')
+    })
+
+    it('ignores an entry already stored, and a site that was removed', async () => {
+      const id = await siteWithRegistry()
+      manager.setLastOpenFile(id, 'a.md')
+      await vi.advanceTimersByTimeAsync(1100)
+      mockInvoke.mockClear()
+
+      manager.setLastOpenFile(id, 'a.md')
+      manager.setLastOpenFile('nope', 'b.md')
+      await vi.advanceTimersByTimeAsync(1100)
+
+      expect(registryWrites()).toHaveLength(0)
+    })
   })
 
   it('shows the preview and publishing tools by default in this fork', async () => {

@@ -15,7 +15,7 @@ Dev builds use `is.gustavogomez.astroeditorplus.dev` instead, so they never read
 Inside it:
 
 - `preferences/global-settings.json`: app-wide settings (theme, IDE command, auto-save delay, appearance and so on). `grammar` holds spelling and grammar checking: on/off, the dialect and the personal dictionary, so a writer's words follow them across projects and never land in a project's files. It's optional and resolved by `resolveGrammarSettings` (`lib/grammar/settings.ts`), which replaces a damaged field with its default rather than switching checking off; global settings replace it whole on update rather than merging it, so callers send the full object.
-- `preferences/project-registry.json`: every project ever opened (ID, name, path, dates) and which was open last.
+- `preferences/project-registry.json`: every project ever opened (ID, name, path, dates, and the entry last open in it, `lastFile`) and which was open last. Saves go through one queue (`saveProjectRegistry`), and `lastFile` changes are written together a second after the last one.
 - `preferences/projects/{id}.json`: one project's settings, including its collection overrides.
 - `themes/`: the writer's own colour theme files, plus a copy of the theme schema. See `color-system.md`.
 - `recovery/` and `crash-reports/`: see [Recovery Files](#recovery-files).
@@ -24,7 +24,7 @@ Inside it:
 
 The webview's localStorage holds a few per-machine conveniences: panel sizes (`panel-v4:*`), a copy of the theme (`astro-editor-theme`) so the theme provider has it before settings load, and a skipped update version. Logs live elsewhere; see `agent-tooling.md`.
 
-All preferences reads and writes go through Rust commands (`readAppDataFile`, `writeAppDataFile`) that refuse paths outside the app data folder. `writeAppDataFile` writes to a hidden `.<name>.tmp` file and then renames it over the old one, so a crash or a full disk never leaves a half-written preferences file.
+All preferences reads and writes go through Rust commands (`readAppDataFile`, `writeAppDataFile`) that refuse paths outside the app data folder. `writeAppDataFile` writes to a hidden temporary file beside it (its name is unique to each write, so two saves at once never share one) and then renames it over the old one, so a crash or a full disk never leaves a half-written preferences file.
 
 ## How a setting resolves
 

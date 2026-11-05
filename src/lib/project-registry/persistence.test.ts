@@ -5,6 +5,7 @@ import {
   loadProjectRegistry,
   saveGlobalSettings,
   saveProjectData,
+  saveProjectRegistry,
 } from './persistence'
 import { DEFAULT_GLOBAL_SETTINGS } from './defaults'
 import { toast } from '@/lib/toast'
@@ -163,5 +164,76 @@ describe('unreadable preferences files', () => {
 
     expect(Object.keys(files).some(p => p.includes('.broken-'))).toBe(false)
     expect(toast.warning).not.toHaveBeenCalled()
+  })
+})
+
+describe('saving the project list', () => {
+  beforeEach(() => {
+    globalThis.mockTauri.reset()
+  })
+
+  it('writes one save at a time, in order, so the last save wins', async () => {
+    let active = 0
+    let overlapped = false
+    const written: string[] = []
+    globalThis.mockTauri.invoke.mockImplementation(
+      (command: string, args?: unknown) => {
+        if (command === 'get_app_data_dir') return Promise.resolve('/data')
+        if (command !== 'write_app_data_file') return Promise.resolve(null)
+        const { filePath, content } = args as {
+          filePath: string
+          content: string
+        }
+        if (!filePath.endsWith('project-registry.json')) {
+          return Promise.resolve(null)
+        }
+        active++
+        overlapped ||= active > 1
+        return new Promise(resolve => {
+          // The first save is the slowest, as a big file would be
+          setTimeout(
+            () => {
+              written.push(content)
+              active--
+              resolve(null)
+            },
+            content.includes('"v": 1') ? 30 : 1
+          )
+        })
+      }
+    )
+    const registry = (v: number) => ({
+      projects: {},
+      lastOpenedProject: null,
+      version: v,
+    })
+
+    await Promise.all([
+      saveProjectRegistry(registry(1)),
+      saveProjectRegistry(registry(2)),
+      saveProjectRegistry(registry(3)),
+    ])
+
+    expect(overlapped).toBe(false)
+    expect(
+      written.map(w => (JSON.parse(w) as { version: number }).version)
+    ).toEqual([1, 2, 3])
+  })
+
+  it('keeps saving after one save fails', async () => {
+    let fail = true
+    globalThis.mockTauri.invoke.mockImplementation((command: string) => {
+      if (command === 'get_app_data_dir') return Promise.resolve('/data')
+      if (command === 'write_app_data_file' && fail) {
+        fail = false
+        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+        return Promise.reject('disk full')
+      }
+      return Promise.resolve(null)
+    })
+    const registry = { projects: {}, lastOpenedProject: null, version: 2 }
+
+    await expect(saveProjectRegistry(registry)).rejects.toThrow('disk full')
+    await expect(saveProjectRegistry(registry)).resolves.toBeUndefined()
   })
 })

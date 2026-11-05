@@ -199,24 +199,29 @@ export async function loadProjectRegistry(): Promise<ProjectRegistry> {
   }
 }
 
+// Saves go one at a time, in the order they were asked for: the file is
+// replaced whole each time, so overlapping saves could land out of order and
+// an older list would win
+let registrySaves: Promise<unknown> = Promise.resolve()
+
 /**
  * Save the project registry to disk
  */
-export async function saveProjectRegistry(
-  registry: ProjectRegistry
-): Promise<void> {
-  try {
-    await ensurePreferencesDir()
-    const { projectRegistryPath } = await getAppSupportPaths()
-
-    await writePreferencesFile(
-      projectRegistryPath,
-      JSON.stringify(registry, null, 2)
-    )
-  } catch (err) {
-    await error(`Failed to save project registry: ${String(err)}`)
-    throw err
-  }
+export function saveProjectRegistry(registry: ProjectRegistry): Promise<void> {
+  // Written as it is now, whenever its turn comes
+  const json = JSON.stringify(registry, null, 2)
+  const save = registrySaves.then(async () => {
+    try {
+      await ensurePreferencesDir()
+      const { projectRegistryPath } = await getAppSupportPaths()
+      await writePreferencesFile(projectRegistryPath, json)
+    } catch (err) {
+      await error(`Failed to save project registry: ${String(err)}`)
+      throw err
+    }
+  })
+  registrySaves = save.catch(() => undefined)
+  return save
 }
 
 /**

@@ -764,7 +764,11 @@ fn write_atomically(path: &Path, content: &[u8]) -> std::io::Result<()> {
         .file_name()
         .map(|n| n.to_string_lossy())
         .unwrap_or_default();
-    let temporary = path.with_file_name(format!(".{name}.tmp"));
+    // Unique per write: two writes to one file (a registry save during another)
+    // must never share a temporary file, or they interleave into invalid content
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let unique = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let temporary = path.with_file_name(format!(".{name}.{}-{unique}.tmp", std::process::id()));
     let result = std::fs::File::create(&temporary)
         .and_then(|mut file| {
             file.write_all(content)?;
@@ -1661,12 +1665,48 @@ Regular markdown content here."#;
         std::fs::write(&file, "old").unwrap();
         write_atomically(&file, b"{\"new\":true}").unwrap();
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"new\":true}");
-        assert!(!dir.join(".global-settings.json.tmp").exists());
+        assert!(std::fs::read_dir(&dir).unwrap().all(|e| !e
+            .unwrap()
+            .file_name()
+            .to_string_lossy()
+            .ends_with(".tmp")));
         // A write that can't happen leaves the old file as it was.
         let missing = dir.join("no-such-folder").join("x.json");
         assert!(write_atomically(&missing, b"x").is_err());
         assert_eq!(std::fs::read_to_string(&file).unwrap(), "{\"new\":true}");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn concurrent_writes_to_one_file_always_leave_one_whole_version() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("project-registry.json");
+        let versions: Vec<String> = (0..8)
+            .map(|i| format!("{{\"v\":{i},\"pad\":\"{}\"}}", "x".repeat(20_000 * (i + 1))))
+            .collect();
+        let handles: Vec<_> = versions
+            .iter()
+            .cloned()
+            .map(|content| {
+                let file = file.clone();
+                std::thread::spawn(move || {
+                    for _ in 0..25 {
+                        write_atomically(&file, content.as_bytes()).unwrap();
+                    }
+                })
+            })
+            .collect();
+        for handle in handles {
+            handle.join().unwrap();
+        }
+        let written = std::fs::read_to_string(&file).unwrap();
+        assert!(versions.contains(&written), "the file is a mix of writes");
+        let leftovers: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name())
+            .filter(|n| n.to_string_lossy().ends_with(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "left {leftovers:?}");
     }
 
     #[test]

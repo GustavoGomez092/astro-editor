@@ -20,6 +20,10 @@ const meta = (id: string, path: string, lastFile?: string) => ({
 
 function setRegistry(projects: ReturnType<typeof meta>[]) {
   // oxlint-disable-next-line @typescript-eslint/unbound-method
+  vi.mocked(projectRegistryManager.getLastOpenFile).mockImplementation(
+    id => projects.find(p => p.id === id)?.lastFile
+  )
+  // oxlint-disable-next-line @typescript-eslint/unbound-method
   vi.mocked(projectRegistryManager.getRegistry).mockReturnValue({
     projects: Object.fromEntries(projects.map(p => [p.id, p])),
     lastOpenedProject: null,
@@ -46,6 +50,15 @@ describe('paths', () => {
     expect(relativeToProject('/s/a', '/s/other/x.md')).toBeNull()
     expect(relativeToProject('/s/a', '/s/ab/x.md')).toBeNull()
     expect(absoluteInProject('/s/a/', 'src/x.md')).toBe('/s/a/src/x.md')
+  })
+
+  it('handles Windows separators', () => {
+    expect(relativeToProject('C:\\sites\\a', 'C:\\sites\\a\\src\\x.md')).toBe(
+      'src/x.md'
+    )
+    expect(absoluteInProject('C:\\sites\\a\\', 'src/x.md')).toBe(
+      'C:/sites/a/src/x.md'
+    )
   })
 })
 
@@ -81,6 +94,31 @@ describe('remembering and reopening the last entry', () => {
       'b',
       'src/content/blog/hi.md'
     )
+  })
+
+  it('records the entry of a project opened through a link, by its real path', async () => {
+    setRegistry([meta('a', '/link/a')])
+    globalThis.mockTauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(command === 'canonical_path' ? '/real/a' : null)
+    )
+
+    await rememberLastEntry('/link/a', '/real/a/src/content/blog/hi.md')
+
+    // oxlint-disable-next-line @typescript-eslint/unbound-method
+    expect(projectRegistryManager.setLastOpenFile).toHaveBeenCalledWith(
+      'a',
+      'src/content/blog/hi.md'
+    )
+  })
+
+  it('records nothing for a file outside the project', async () => {
+    setRegistry([meta('a', '/s/a')])
+    globalThis.mockTauri.invoke.mockResolvedValue('/s/a')
+
+    await rememberLastEntry('/s/a', '/elsewhere/x.md')
+
+    // oxlint-disable-next-line @typescript-eslint/unbound-method
+    expect(projectRegistryManager.setLastOpenFile).not.toHaveBeenCalled()
   })
 
   it('reopens the remembered entry', async () => {
