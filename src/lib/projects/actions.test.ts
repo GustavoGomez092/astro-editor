@@ -9,6 +9,7 @@ const {
   waitForProjectReady,
   waitForSaves,
   refreshProjectPreview,
+  flushLastFiles,
 } = vi.hoisted(() => ({
   saveUnsavedEdits: vi.fn(),
   ask: vi.fn(),
@@ -16,8 +17,12 @@ const {
   waitForProjectReady: vi.fn(),
   waitForSaves: vi.fn(),
   refreshProjectPreview: vi.fn(),
+  flushLastFiles: vi.fn(() => Promise.resolve()),
 }))
-vi.mock('../quit', () => ({ saveUnsavedEdits }))
+vi.mock('../quit', () => ({
+  saveUnsavedEdits,
+  flushRememberedEntries: () => flushLastFiles(),
+}))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask }))
 vi.mock('../files/pending-saves', () => ({ waitForSaves }))
 vi.mock('./last-entry', () => ({ reopenLastEntry }))
@@ -67,6 +72,18 @@ describe('goHome', () => {
 
     expect(order).toEqual(['wait', 'save', 'close'])
     expect(ask).not.toHaveBeenCalled()
+  })
+
+  it('writes the remembered entries before closing the site', async () => {
+    saveUnsavedEdits.mockResolvedValue(true)
+    flushLastFiles.mockImplementation(() => {
+      order.push('flush')
+      return Promise.resolve()
+    })
+
+    await goHome()
+
+    expect(order).toEqual(['wait', 'flush', 'close'])
   })
 
   it('stays in the site when the save fails and the writer chooses Stay', async () => {
@@ -128,6 +145,16 @@ describe('openSite', () => {
 
     expect(setProject).toHaveBeenCalledWith('/Users/k/other')
     expect(reopenLastEntry).toHaveBeenCalledWith('/Users/k/other')
+  })
+
+  it('writes the remembered entries before leaving the open site', async () => {
+    useProjectStore.setState({ projectPath: '/Users/k/first' })
+    saveUnsavedEdits.mockResolvedValue(true)
+    flushLastFiles.mockClear()
+
+    await openSite('/Users/k/other')
+
+    expect(flushLastFiles).toHaveBeenCalledTimes(1)
   })
 
   it('reports false when the site never became ready', async () => {

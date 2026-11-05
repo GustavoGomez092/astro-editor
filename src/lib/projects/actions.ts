@@ -9,7 +9,7 @@ import { reopenLastEntry } from './last-entry'
 import { waitForProjectReady } from './ready'
 import { useProjectStore } from '../../store/projectStore'
 import { ask } from '@tauri-apps/plugin-dialog'
-import { saveUnsavedEdits } from '../quit'
+import { flushRememberedEntries, saveUnsavedEdits } from '../quit'
 import { waitForSaves } from '../files/pending-saves'
 import { useEditorStore } from '../../store/editorStore'
 import { usePreviewRefreshStore } from '../../store/previewRefreshStore'
@@ -25,7 +25,10 @@ let openingSite = false
  */
 async function readyToLeaveSite(): Promise<boolean> {
   await waitForSaves()
-  if (await saveUnsavedEdits()) return true
+  if (await saveUnsavedEdits()) {
+    await flushRememberedEntries()
+    return true
+  }
   const fileName = useEditorStore.getState().currentFile?.name ?? 'this file'
   try {
     return await ask(

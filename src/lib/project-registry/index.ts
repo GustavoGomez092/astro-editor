@@ -28,6 +28,8 @@ import { DEFAULT_PROJECT_SETTINGS } from './defaults'
 
 /** How long entry changes wait before they're written */
 const LAST_FILE_DELAY_MS = 1000
+/** How long after a failed write it's tried once more */
+const LAST_FILE_RETRY_MS = 5000
 
 export class ProjectRegistryManager {
   private registry: ProjectRegistry | null = null
@@ -415,11 +417,15 @@ export class ProjectRegistryManager {
     )
       return
     this.pendingLastFiles.set(projectId, relativePath)
+    this.scheduleFlush(LAST_FILE_DELAY_MS)
+  }
+
+  private scheduleFlush(delayMs: number, isRetry = false): void {
     if (this.lastFileTimer) clearTimeout(this.lastFileTimer)
     this.lastFileTimer = setTimeout(() => {
       this.lastFileTimer = null
-      void this.flushLastFiles()
-    }, LAST_FILE_DELAY_MS)
+      void this.flushLastFiles(isRetry)
+    }, delayMs)
   }
 
   /** The entry last open in a project: relative to its folder, or undefined */
@@ -430,7 +436,15 @@ export class ProjectRegistryManager {
     )
   }
 
-  private async flushLastFiles(): Promise<void> {
+  /**
+   * Writes the remembered entries now, e.g. before the app quits or a site is
+   * left. A failed write is tried once more after a few seconds
+   */
+  async flushLastFiles(isRetry = false): Promise<void> {
+    if (this.lastFileTimer) {
+      clearTimeout(this.lastFileTimer)
+      this.lastFileTimer = null
+    }
     const registry = this.registry
     if (!registry || this.pendingLastFiles.size === 0) return
     const writing = new Map(this.pendingLastFiles)
@@ -443,8 +457,10 @@ export class ProjectRegistryManager {
       await saveProjectRegistry({ ...registry, projects })
     } catch (reason) {
       await logError(
-        `Astro Editor [PROJECT_REGISTRY] Saving the open entries failed, will retry: ${String(reason)}`
+        `Astro Editor [PROJECT_REGISTRY] Saving the open entries failed${isRetry ? '' : ', will retry'}: ${String(reason)}`
       )
+      // One retry; after that the next change tries again
+      if (!isRetry) this.scheduleFlush(LAST_FILE_RETRY_MS, true)
       return
     }
     for (const [id, lastFile] of writing) {

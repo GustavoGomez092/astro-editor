@@ -399,6 +399,48 @@ describe('Project Registry System', () => {
       expect(manager.getRegistry().projects[id]?.lastFile).toBe('a.md')
     })
 
+    it('tries once more after five seconds when a write fails, then waits for the next change', async () => {
+      const id = await siteWithRegistry()
+      const working = vi.mocked(invoke).getMockImplementation()!
+      let writes = 0
+      vi.mocked(invoke).mockImplementation((command, args) => {
+        if (command === 'write_app_data_file') {
+          writes++
+          return writes <= 2
+            ? // oxlint-disable-next-line typescript/prefer-promise-reject-errors
+              Promise.reject('disk full')
+            : working(command, args)
+        }
+        return working(command, args)
+      })
+
+      manager.setLastOpenFile(id, 'a.md')
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(writes).toBe(1)
+      await vi.advanceTimersByTimeAsync(5100)
+      expect(writes).toBe(2)
+      // The retry failed too: nothing more until something changes
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(writes).toBe(2)
+
+      manager.setLastOpenFile(id, 'b.md')
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(manager.getRegistry().projects[id]?.lastFile).toBe('b.md')
+    })
+
+    it('writes at once when asked to flush', async () => {
+      const id = await siteWithRegistry()
+      manager.setLastOpenFile(id, 'a.md')
+
+      await manager.flushLastFiles()
+
+      expect(registryWrites()).toHaveLength(1)
+      expect(manager.getRegistry().projects[id]?.lastFile).toBe('a.md')
+      // The timer no longer fires a second write
+      await vi.advanceTimersByTimeAsync(1100)
+      expect(registryWrites()).toHaveLength(1)
+    })
+
     it('ignores an entry already stored, and a site that was removed', async () => {
       const id = await siteWithRegistry()
       manager.setLastOpenFile(id, 'a.md')
