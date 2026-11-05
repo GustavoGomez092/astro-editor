@@ -314,24 +314,97 @@ pub async fn save_markdown_content(
     project_root: String,
 ) -> Result<(), String> {
     let validated_path = validate_project_path(&file_path, &project_root)?;
+    let new_content = file_text_for_save(
+        frontmatter,
+        raw_frontmatter,
+        &imports,
+        &content,
+        schema_field_order,
+    )?;
+    std::fs::write(&validated_path, new_content).map_err(|e| format!("Failed to write file: {e}"))
+}
 
-    let new_content = match (frontmatter, raw_frontmatter) {
+/// The file's text for a save. The frontmatter comes as text, as values, or
+/// both: the text edited in place, with the values the app should read from
+/// it. Then the text is used only if this parser reads it as those values
+/// (the file must always open again); otherwise the values are written.
+fn file_text_for_save(
+    frontmatter: Option<IndexMap<String, Value>>,
+    raw_frontmatter: Option<String>,
+    imports: &str,
+    content: &str,
+    schema_field_order: Option<Vec<String>>,
+) -> Result<String, String> {
+    match (frontmatter, raw_frontmatter) {
+        // Edited in place: keep the text if it reads back as the values
+        (Some(fm), Some(raw)) => {
+            let reads_back = if raw.trim().is_empty() {
+                Ok(fm.is_empty())
+            } else {
+                parse_yaml_to_json(&raw).map(|parsed| same_values_map(&parsed, &fm))
+            };
+            match reads_back {
+                Ok(true) if !raw.trim().is_empty() => {
+                    rebuild_markdown_with_raw_frontmatter(&raw, imports, content)
+                }
+                Ok(true) => rebuild_markdown_content_only(imports, content),
+                Ok(false) => {
+                    log::warn!("Frontmatter written in full: the edited text reads differently");
+                    rebuild_markdown_with_frontmatter_and_imports_ordered(
+                        &fm,
+                        imports,
+                        content,
+                        schema_field_order,
+                    )
+                }
+                Err(e) => {
+                    log::warn!("Frontmatter written in full: the edited text doesn't parse ({e})");
+                    rebuild_markdown_with_frontmatter_and_imports_ordered(
+                        &fm,
+                        imports,
+                        content,
+                        schema_field_order,
+                    )
+                }
+            }
+        }
         // Frontmatter was edited - reorder and normalize
-        (Some(fm), _) => rebuild_markdown_with_frontmatter_and_imports_ordered(
+        (Some(fm), None) => rebuild_markdown_with_frontmatter_and_imports_ordered(
             &fm,
-            &imports,
-            &content,
+            imports,
+            content,
             schema_field_order,
-        )?,
+        ),
         // Frontmatter unchanged - preserve original (non-empty)
         (None, Some(ref raw)) if !raw.trim().is_empty() => {
-            rebuild_markdown_with_raw_frontmatter(raw, &imports, &content)?
+            rebuild_markdown_with_raw_frontmatter(raw, imports, content)
         }
         // No frontmatter at all (None, None, or empty string)
-        _ => rebuild_markdown_content_only(&imports, &content)?,
-    };
+        _ => rebuild_markdown_content_only(imports, content),
+    }
+}
 
-    std::fs::write(&validated_path, new_content).map_err(|e| format!("Failed to write file: {e}"))
+fn same_values_map(a: &IndexMap<String, Value>, b: &IndexMap<String, Value>) -> bool {
+    a.len() == b.len()
+        && a.iter()
+            .all(|(key, value)| b.get(key).is_some_and(|other| same_value(value, other)))
+}
+
+/// Equality for frontmatter values, whatever the key order, with numbers
+/// compared by value (the form sends `1` for a `1.0` in the file)
+fn same_value(a: &Value, b: &Value) -> bool {
+    match (a, b) {
+        (Value::Number(x), Value::Number(y)) => x == y || x.as_f64() == y.as_f64(),
+        (Value::Array(x), Value::Array(y)) => {
+            x.len() == y.len() && x.iter().zip(y).all(|(p, q)| same_value(p, q))
+        }
+        (Value::Object(x), Value::Object(y)) => {
+            x.len() == y.len()
+                && x.iter()
+                    .all(|(key, value)| y.get(key).is_some_and(|other| same_value(value, other)))
+        }
+        _ => a == b,
+    }
 }
 
 pub fn parse_frontmatter_internal(content: &str) -> Result<MarkdownContent, String> {
@@ -2784,6 +2857,79 @@ X"#;
         for value in values {
             assert_eq!(roundtrip_frontmatter_value(value), value, "{value:?}");
         }
+    }
+
+    fn fm(pairs: &[(&str, Value)]) -> IndexMap<String, Value> {
+        pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_string(), v.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn edited_text_is_written_when_it_reads_as_the_values() {
+        use serde_json::json;
+        // 1.0 reads as a float, the form sends 1: the same number
+        let raw = "title: \"Hi\" # kept\nn: 1.0\nzip: 01234";
+        let values = fm(&[
+            ("title", json!("Hi")),
+            ("n", json!(1)),
+            ("zip", json!("01234")),
+        ]);
+        let saved =
+            file_text_for_save(Some(values), Some(raw.to_string()), "", "Body\n", None).unwrap();
+        assert_eq!(saved, format!("---\n{raw}\n---\n\nBody\n"));
+
+        // How the editor writes a pasted line separator: escaped in quotes
+        let raw = "title: \"One\\LTwo\"";
+        let values = fm(&[("title", json!("One\u{2028}Two"))]);
+        let saved = file_text_for_save(Some(values), Some(raw.to_string()), "", "", None).unwrap();
+        assert_eq!(saved, format!("---\n{raw}\n---\n"));
+    }
+
+    #[test]
+    fn edited_text_that_reads_differently_falls_back_to_the_values() {
+        use serde_json::json;
+        let values = fm(&[("title", json!("Hi")), ("zip", json!("01234"))]);
+        let written =
+            rebuild_markdown_with_frontmatter_and_imports_ordered(&values, "", "Body\n", None)
+                .unwrap();
+        // A value that differs, and text the app's parser can't read at all
+        for raw in [
+            "title: Hi\nzip: 1234",
+            "title: Hi\u{2028}there\nzip: '01234'",
+            "title: [Hi",
+        ] {
+            let saved = file_text_for_save(
+                Some(values.clone()),
+                Some(raw.to_string()),
+                "",
+                "Body\n",
+                None,
+            )
+            .unwrap();
+            assert_eq!(saved, written, "{raw:?}");
+            assert_eq!(parse_frontmatter(&saved).unwrap().frontmatter, values);
+        }
+    }
+
+    #[test]
+    fn values_alone_or_text_alone_are_written_as_before() {
+        use serde_json::json;
+        let values = fm(&[("title", json!("Hi"))]);
+        assert_eq!(
+            file_text_for_save(Some(values.clone()), None, "", "Body", None).unwrap(),
+            rebuild_markdown_with_frontmatter_and_imports_ordered(&values, "", "Body", None)
+                .unwrap()
+        );
+        assert_eq!(
+            file_text_for_save(None, Some("a: 'x'".to_string()), "", "Body", None).unwrap(),
+            "---\na: 'x'\n---\n\nBody"
+        );
+        assert_eq!(
+            file_text_for_save(None, None, "", "Body", None).unwrap(),
+            "Body"
+        );
     }
 
     // The raw frontmatter is the lines between the `---` markers joined
