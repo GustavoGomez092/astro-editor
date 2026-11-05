@@ -3,6 +3,8 @@ import { ChevronDown } from 'lucide-react'
 import { folderName } from '@/lib/projects/recent'
 import { recentSites } from '@/lib/projects/home'
 import { formatRelativeTime } from '@/lib/dates'
+import { getPlatformString } from '@/lib/platform-strings'
+import { usePlatform } from '@/hooks/usePlatform'
 import { goHome, openProjectViaDialog, openSite } from '@/lib/projects/actions'
 import { useShowPublishingTools } from '@/hooks/settings/useShowPublishingTools'
 import { useProjectsListQuery } from '@/hooks/queries/useProjectsListQuery'
@@ -23,6 +25,7 @@ import { SiteThumb } from '../../home/SiteCard'
  * recent sites, leads back Home and adds a site
  */
 export function SiteSwitcher({ projectPath }: { projectPath: string }) {
+  const platform = usePlatform()
   const publishingTools = useShowPublishingTools()
   const [open, setOpen] = useState(false)
   // Read when the menu opens: it checks every site's folder
@@ -79,7 +82,9 @@ export function SiteSwitcher({ projectPath }: { projectPath: string }) {
         {recent.length > 0 && <DropdownMenuSeparator />}
         <DropdownMenuItem onClick={() => void goHome()}>
           All sites (Home)
-          <DropdownMenuShortcut>⇧⌘H</DropdownMenuShortcut>
+          <DropdownMenuShortcut>
+            {getPlatformString('homeShortcut', platform)}
+          </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem onClick={() => void openProjectViaDialog()}>
           Open a folder…

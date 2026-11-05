@@ -29,6 +29,7 @@ import { useEditorActions } from '../../hooks/editor/useEditorActions'
 import { useCreateFile } from '../../hooks/useCreateFile'
 import { useDeepLink } from '../../hooks/useDeepLink'
 import { useRememberLastEntry } from '../../hooks/useRememberLastEntry'
+import { useProjectPreviewEvents } from '../../hooks/useProjectPreviewEvents'
 import { useSquareCornersEffect } from '../../hooks/useSquareCornersEffect'
 import { useExternalLinkHandler } from '../../hooks/useExternalLinkHandler'
 import { useGitStatusRefresh } from '../../hooks/useGitStatusRefresh'
@@ -161,6 +162,8 @@ export const Layout: React.FC = () => {
   useDOMEventListeners(createNewFileWithQuery, handleSetPreferencesOpen)
   useDeepLink(openFileByPath)
   useRememberLastEntry()
+  // Home cards and the switcher follow new pictures, wherever they were taken
+  useProjectPreviewEvents()
   useExternalLinkHandler()
 
   // Enable query-based file loading

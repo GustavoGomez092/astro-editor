@@ -1,11 +1,10 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FolderOpen, Download } from 'lucide-react'
 import { filterProjects } from '@/lib/projects/recent'
 import { greetingFor, nextCardIndex, showSearch } from '@/lib/projects/home'
 import { openProjectViaDialog } from '@/lib/projects/actions'
 import { useNow } from '@/hooks/useNow'
 import { usePlatform } from '@/hooks/usePlatform'
-import { useProjectPreviewEvents } from '@/hooks/useProjectPreviewEvents'
 import { useShowPublishingTools } from '@/hooks/settings/useShowPublishingTools'
 import { useGitHubAuthQuery } from '@/hooks/queries/useGitHubAuthQuery'
 import { useProjectsListQuery } from '@/hooks/queries/useProjectsListQuery'
@@ -22,22 +21,49 @@ const openFromGitHub = () => useGitStore.getState().setOpenFromGitHubOpen(true)
  * With no sites yet it explains the two ways to start instead
  */
 export function HomeScreen() {
-  useProjectPreviewEvents()
   const registryLoaded = useProjectStore(state => state.globalSettings != null)
-  const projects = useProjectsListQuery(true)
+  // Asked only once the registry is read: before that the list is empty, which
+  // would show the first-launch screen to someone with sites
+  const projects = useProjectsListQuery(registryLoaded)
   const sites = projects.data ?? []
-  const loading = !registryLoaded || projects.isPending
+  const loading =
+    !registryLoaded ||
+    projects.isPending ||
+    (projects.isFetching && sites.length === 0)
+  const content = useRef<HTMLDivElement>(null)
+
+  // Focus starts on the first card (or the first way to start)
+  useEffect(() => {
+    if (loading) return
+    content.current
+      ?.querySelector<HTMLElement>('[data-site-card], [data-first-action]')
+      ?.focus()
+  }, [loading])
 
   return (
     <div
       className="h-full overflow-y-auto bg-background"
       data-testid="home-screen"
     >
-      <div className="mx-auto w-full max-w-[880px] px-8 py-16">
+      <div ref={content} className="mx-auto w-full max-w-[880px] px-8 py-16">
         {loading ? null : sites.length === 0 ? <FirstLaunch /> : <Sites />}
       </div>
     </div>
   )
+}
+
+/**
+ * False while the GitHub profile is still being read (briefly), so the
+ * greeting doesn't change its words when the name arrives. Gives up waiting
+ * after a moment, e.g. when offline
+ */
+function useGreetingReady(profileLoading: boolean): boolean {
+  const [gaveUp, setGaveUp] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setGaveUp(true), 1500)
+    return () => clearTimeout(timer)
+  }, [])
+  return gaveUp || !profileLoading
 }
 
 function Heading({ title, lede }: { title: string; lede: string }) {
@@ -54,7 +80,8 @@ function Heading({ title, lede }: { title: string; lede: string }) {
 function Sites() {
   const platform = usePlatform()
   const publishingTools = useShowPublishingTools()
-  const name = useGitHubAuthQuery().data?.name
+  const auth = useGitHubAuthQuery()
+  const greetingReady = useGreetingReady(auth.isLoading)
   const now = useNow(60_000)
   const projects = useProjectsListQuery(true)
   const [search, setSearch] = useState('')
@@ -82,10 +109,12 @@ function Sites() {
 
   return (
     <>
-      <Heading
-        title={greetingFor(new Date(now), name)}
-        lede="Pick a site to keep editing."
-      />
+      <div className={greetingReady ? undefined : 'invisible'}>
+        <Heading
+          title={greetingFor(new Date(now), auth.data?.name)}
+          lede="Pick a site to keep editing."
+        />
+      </div>
 
       <div className="mt-10 mb-4 flex items-center justify-between gap-4">
         <h2 className="m-0 text-sm font-medium text-muted-foreground">
@@ -160,6 +189,7 @@ function FirstLaunch() {
         {publishingTools && (
           <button
             type="button"
+            data-first-action
             onClick={openFromGitHub}
             className="flex flex-col items-start gap-1.5 rounded-xl border bg-card p-5 text-left transition-shadow outline-none hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-ring/50"
           >
@@ -173,6 +203,7 @@ function FirstLaunch() {
         )}
         <button
           type="button"
+          data-first-action
           onClick={() => void openProjectViaDialog()}
           className="flex flex-col items-start gap-1.5 rounded-xl border bg-card p-5 text-left transition-shadow outline-none hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-ring/50"
         >

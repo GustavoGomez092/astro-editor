@@ -31,6 +31,8 @@ describe('greetingFor', () => {
 describe('firstName', () => {
   it('is the first word of the name', () => {
     expect(firstName('  Kevin  Robinson ')).toBe('Kevin')
+    expect(firstName('🌴 Kevin Robinson')).toBe('Kevin')
+    expect(firstName('✨  ')).toBeNull()
     expect(firstName('')).toBeNull()
     expect(firstName(null)).toBeNull()
   })

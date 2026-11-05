@@ -10,9 +10,13 @@ export const SWITCHER_SITES = 5
 export const showSearch = (siteCount: number): boolean =>
   siteCount > SEARCH_THRESHOLD
 
-/** The first word of a person's name, or null when there isn't one */
+/**
+ * The first word of a person's name, or null when there isn't one. Emoji and
+ * other symbols before the name ("🌴 Kevin Robinson") are skipped
+ */
 export function firstName(name: string | null | undefined): string | null {
-  return name?.trim().split(/\s+/)[0] || null
+  const text = name?.replace(/^[^\p{L}\p{N}]+/u, '').trim()
+  return text?.split(/\s+/)[0] || null
 }
 
 /** "Good afternoon, Gustavo", or "Welcome back" when we don't know the name */

@@ -8,22 +8,31 @@ const {
   reopenLastEntry,
   waitForProjectReady,
   waitForSaves,
+  refreshProjectPreview,
 } = vi.hoisted(() => ({
   saveUnsavedEdits: vi.fn(),
   ask: vi.fn(),
   reopenLastEntry: vi.fn(),
   waitForProjectReady: vi.fn(),
   waitForSaves: vi.fn(),
+  refreshProjectPreview: vi.fn(),
 }))
 vi.mock('../quit', () => ({ saveUnsavedEdits }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ ask }))
 vi.mock('../files/pending-saves', () => ({ waitForSaves }))
 vi.mock('./last-entry', () => ({ reopenLastEntry }))
 vi.mock('./ready', () => ({ waitForProjectReady }))
+vi.mock('./previews', () => ({ refreshProjectPreview }))
 vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir: vi.fn() }))
 
 import { toast } from '../toast'
-import { goHome, openProjectViaDialog, openSite } from './actions'
+import { usePreviewRefreshStore } from '@/store/previewRefreshStore'
+import {
+  goHome,
+  openProjectViaDialog,
+  openSite,
+  refreshSitePreview,
+} from './actions'
 
 vi.mock('../toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
@@ -181,5 +190,58 @@ describe('openProjectViaDialog', () => {
     waitForProjectReady.mockResolvedValue(false)
     await openProjectViaDialog()
     expect(toast.success).not.toHaveBeenCalled()
+  })
+})
+
+describe('refreshSitePreview', () => {
+  beforeEach(() => {
+    refreshProjectPreview.mockReset()
+    vi.mocked(toast.info).mockClear()
+    usePreviewRefreshStore.setState({ refreshing: {} })
+  })
+
+  it('shows progress while it runs, and clears it after', async () => {
+    let finish: (value: unknown) => void = () => {}
+    refreshProjectPreview.mockReturnValue(
+      new Promise(resolve => {
+        finish = resolve
+      })
+    )
+
+    const running = refreshSitePreview('/s/a')
+    expect(usePreviewRefreshStore.getState().refreshing['/s/a']).toBe(true)
+    // A second request for the same site waits for the first
+    await refreshSitePreview('/s/a')
+    expect(refreshProjectPreview).toHaveBeenCalledTimes(1)
+
+    finish({ kind: 'screenshot', src: 'data:', takenAt: null })
+    await running
+
+    expect(usePreviewRefreshStore.getState().refreshing['/s/a']).toBeUndefined()
+    expect(toast.info).not.toHaveBeenCalled()
+  })
+
+  it('says quietly when there was nothing to show', async () => {
+    refreshProjectPreview.mockResolvedValue(null)
+
+    await refreshSitePreview('/s/a')
+
+    expect(toast.info).toHaveBeenCalledWith(
+      "Couldn't take a picture of this site"
+    )
+    expect(usePreviewRefreshStore.getState().refreshing).toEqual({})
+  })
+
+  it('gives a friendly message for a failure, not its raw text', async () => {
+    refreshProjectPreview.mockRejectedValue(
+      new Error('ECONNREFUSED 127.0.0.1:4321')
+    )
+
+    await refreshSitePreview('/s/a')
+
+    const [message, options] = vi.mocked(toast.info).mock.calls[0]!
+    expect(message).toBe("Couldn't refresh the preview")
+    expect(options?.description).not.toContain('ECONNREFUSED')
+    expect(usePreviewRefreshStore.getState().refreshing).toEqual({})
   })
 })

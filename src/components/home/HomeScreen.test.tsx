@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/test-utils'
 import { projectRegistryManager } from '@/lib/project-registry'
@@ -215,5 +215,53 @@ describe('HomeScreen', () => {
       screen.getByRole('button', { name: /Open a folder/ })
     ).toBeInTheDocument()
     expect(screen.queryByText('Your sites')).not.toBeInTheDocument()
+  })
+
+  it('never shows the first-launch screen to someone with sites while the registry loads', async () => {
+    useProjectStore.setState({ globalSettings: null })
+    setRegistry([])
+    renderWithProviders(<HomeScreen />)
+    // Before the registry is read the list is empty: that isn't a first launch
+    await new Promise(resolve => setTimeout(resolve, 50))
+    expect(
+      screen.queryByRole('heading', { name: 'Welcome to Astro Editor+' })
+    ).not.toBeInTheDocument()
+
+    setRegistry(sites(2))
+    act(() => {
+      useProjectStore.setState({
+        globalSettings: { general: { showPublishingTools: true } } as never,
+      })
+    })
+
+    expect(await screen.findByText('Your sites')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('heading', { name: 'Welcome to Astro Editor+' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('holds the greeting until the GitHub profile is known, so it does not change', async () => {
+    globalThis.mockTauri.invoke.mockImplementation((command: string) =>
+      Promise.resolve(
+        command === 'github_auth_status'
+          ? new Promise(() => {})
+          : command === 'folder_states'
+            ? ['present']
+            : null
+      )
+    )
+    setRegistry(sites(1))
+    renderWithProviders(<HomeScreen />)
+
+    const heading = await screen.findByRole('heading', { level: 1 })
+    expect(heading.parentElement).toHaveClass('invisible')
+  })
+
+  it('puts focus on the first card', async () => {
+    setRegistry(sites(2))
+    renderWithProviders(<HomeScreen />)
+
+    const cards = await screen.findAllByRole('button', { name: /^site-/ })
+    await waitFor(() => expect(cards[0]).toHaveFocus())
   })
 })

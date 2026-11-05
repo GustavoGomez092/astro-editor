@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { MoreHorizontal } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/dates'
 import { getPlatformString } from '@/lib/platform-strings'
@@ -11,6 +10,7 @@ import {
   showSiteInFileManager,
 } from '@/lib/projects/actions'
 import { cn } from '@/lib/utils'
+import { usePreviewRefreshStore } from '@/store/previewRefreshStore'
 import { usePlatform } from '@/hooks/usePlatform'
 import { useShowPublishingTools } from '@/hooks/settings/useShowPublishingTools'
 import { useGitHubRepoInfoQuery } from '@/hooks/queries/useGitHubRepoInfoQuery'
@@ -59,16 +59,13 @@ export function SiteThumb({
 export function SiteCard({ project }: { project: ListedProject }) {
   const platform = usePlatform()
   const publishingTools = useShowPublishingTools()
-  const [refreshing, setRefreshing] = useState(false)
+  const refreshing = usePreviewRefreshStore(
+    state => state.refreshing[project.path] === true
+  )
   const missing = !project.folderExists
   const onGitHub =
     useGitHubRepoInfoQuery(missing ? null : project.path).data != null
   const name = folderName(project.path)
-
-  const refresh = () => {
-    setRefreshing(true)
-    void refreshSitePreview(project.path).then(() => setRefreshing(false))
-  }
 
   return (
     <div
@@ -162,7 +159,10 @@ export function SiteCard({ project }: { project: ListedProject }) {
             </DropdownMenuItem>
           )}
           {!missing && publishingTools && (
-            <DropdownMenuItem disabled={refreshing} onClick={refresh}>
+            <DropdownMenuItem
+              disabled={refreshing}
+              onClick={() => void refreshSitePreview(project.path)}
+            >
               Refresh preview
             </DropdownMenuItem>
           )}

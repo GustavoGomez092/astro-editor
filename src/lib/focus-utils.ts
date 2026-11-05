@@ -49,3 +49,12 @@ export function focusEditorDelayed(delay = 100): void {
     focusEditor()
   }, delay)
 }
+
+/** Focuses the sidebar (its selected tab), for after a site opens */
+export function focusSidebar(): boolean {
+  const target = document.querySelector<HTMLElement>(
+    '[data-left-sidebar] [role="tab"][aria-selected="true"], [data-left-sidebar] button'
+  )
+  target?.focus()
+  return target != null
+}

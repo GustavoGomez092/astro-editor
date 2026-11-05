@@ -12,6 +12,8 @@ import { ask } from '@tauri-apps/plugin-dialog'
 import { saveUnsavedEdits } from '../quit'
 import { waitForSaves } from '../files/pending-saves'
 import { useEditorStore } from '../../store/editorStore'
+import { usePreviewRefreshStore } from '../../store/previewRefreshStore'
+import { focusSidebar } from '../focus-utils'
 import { toast } from '../toast'
 
 let openingSite = false
@@ -62,6 +64,8 @@ export async function openSite(path: string): Promise<boolean> {
       return false
     }
     await reopenLastEntry(path)
+    // Home is gone and the editor is in view: put focus in it
+    setTimeout(focusSidebar, 100)
     return true
   } finally {
     openingSite = false
@@ -117,16 +121,29 @@ export async function showSiteInFileManager(path: string): Promise<void> {
   }
 }
 
-/** Takes a new screenshot of the site. A failure is a quiet toast */
+/**
+ * Takes a new screenshot of the site, showing progress on its card meanwhile.
+ * Nothing to show or a failure is a quiet toast; the raw reason goes to the log
+ */
 export async function refreshSitePreview(path: string): Promise<void> {
+  const store = usePreviewRefreshStore.getState()
+  if (store.refreshing[path]) return
+  store.setRefreshing(path, true)
   try {
-    await refreshProjectPreview(path)
+    const preview = await refreshProjectPreview(path)
+    if (!preview) toast.info("Couldn't take a picture of this site")
     await queryClient.invalidateQueries({
       queryKey: queryKeys.projectPreview(path),
     })
   } catch (reason) {
+    void logError(
+      `Astro Editor [HOME] Refreshing the preview of ${path} failed: ${String(reason)}`
+    )
     toast.info("Couldn't refresh the preview", {
-      description: reason instanceof Error ? reason.message : String(reason),
+      description:
+        "The site didn't start or didn't answer in time. Try again in a moment.",
     })
+  } finally {
+    usePreviewRefreshStore.getState().setRefreshing(path, false)
   }
 }

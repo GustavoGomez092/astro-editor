@@ -15,6 +15,9 @@ vi.mock('@/lib/projects/actions', () => ({
   openProjectViaDialog: vi.fn(),
 }))
 
+const { platform } = vi.hoisted(() => ({ platform: { current: 'macos' } }))
+vi.mock('@/hooks/usePlatform', () => ({ usePlatform: () => platform.current }))
+
 import { SiteSwitcher } from './SiteSwitcher'
 
 const sites = Array.from({ length: 7 }, (_, i) => ({
@@ -45,6 +48,7 @@ describe('SiteSwitcher', () => {
     useProjectStore.setState({
       globalSettings: { general: { showPublishingTools: true } } as never,
     })
+    platform.current = 'macos'
     goHome.mockClear()
     openSite.mockClear()
   })
@@ -75,6 +79,16 @@ describe('SiteSwitcher', () => {
     expect(items[0]).toHaveTextContent('Open now')
     expect(items[1]).toHaveTextContent(/Edited/)
     expect(items[5]).toHaveTextContent('⇧⌘H')
+  })
+
+  it('shows the Home shortcut for the platform', async () => {
+    platform.current = 'windows'
+    renderWithProviders(<SiteSwitcher projectPath="/Users/k/Sites/site-6" />)
+    await userEvent.click(screen.getByRole('button', { name: /switch site/ }))
+
+    expect(
+      await screen.findByRole('menuitem', { name: /All sites \(Home\)/ })
+    ).toHaveTextContent('Ctrl+Shift+H')
   })
 
   it('goes Home, and opens another site', async () => {
