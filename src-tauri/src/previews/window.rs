@@ -41,24 +41,36 @@ const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5);
 /// How long the home page gets to answer the check before the window opens
 const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// Asks the page whether its fonts have loaded and whether it's showing the
-/// dev server's error overlay (Vite's, which Astro uses too)
-const PAGE_STATE_JS: &str = "(() => { const fonts = !document.fonts || document.fonts.status === 'loaded'; const error = !!document.querySelector('vite-error-overlay'); return 'fonts:' + (fonts ? 'loaded' : 'loading') + ' error:' + (error ? 'yes' : 'no'); })()";
+/// Asks the page whether its fonts have loaded, whether it's showing the dev
+/// server's error overlay (Vite's, which Astro uses too), how many animation
+/// frames it has drawn (the counter `PAGE_SCRIPT` keeps) and whether a
+/// finite animation or transition is running (an endless one, like a
+/// spinner, doesn't count)
+const PAGE_STATE_JS: &str = "(() => { const fonts = !document.fonts || document.fonts.status === 'loaded'; const error = !!document.querySelector('vite-error-overlay'); const frames = typeof window.__astroEditorFrames === 'number' ? window.__astroEditorFrames : -1; let animating = false; try { animating = document.getAnimations().some(a => a.playState === 'running' && a.effect && a.effect.getTiming().iterations !== Infinity); } catch (e) {} return 'fonts:' + (fonts ? 'loaded' : 'loading') + ' error:' + (error ? 'yes' : 'no') + ' frames:' + frames + ' animating:' + (animating ? 'yes' : 'no'); })()";
 
 /// What the page says about itself, from `PAGE_STATE_JS`
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PageState {
     pub fonts_loaded: bool,
     pub error_overlay: bool,
+    /// Animation frames drawn so far; `None` when the page didn't say
+    pub frames: Option<u64>,
+    pub animating: bool,
 }
 
 impl PageState {
-    /// An answer it can't read counts as fonts loaded and no error, so a page
-    /// that breaks the script is still taken
+    /// An answer it can't read has no frame count, so it never counts as a
+    /// page that's drawing (and is never taken as settled)
     pub fn parse(answer: &str) -> Self {
+        let frames = answer
+            .split_whitespace()
+            .find_map(|part| part.strip_prefix("frames:"))
+            .and_then(|count| count.parse::<u64>().ok());
         Self {
             fonts_loaded: !answer.contains("fonts:loading"),
             error_overlay: answer.contains("error:yes"),
+            frames,
+            animating: answer.contains("animating:yes"),
         }
     }
 }
@@ -67,22 +79,94 @@ impl PageState {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wait {
     Longer,
-    /// Still, at least `READY_WAIT` after it was ready
+    /// Ready for `READY_WAIT`, then the same picture for `STILL_FOR`, drawing all along
     Settled,
-    /// Waited as long as it gets; taken as it is
+    /// Waited as long as it gets; taken as it is (still drawing)
     KeptMoving,
 }
 
-/// Whether to take the picture now. `still` is the snapshots' verdict,
-/// `since_load` the time since the load event and `since_ready` the time since
-/// the fonts were in too (`None` until they are). Never sooner than
-/// `READY_WAIT` after the page is ready.
-pub fn decide(still: bool, since_load: Duration, since_ready: Option<Duration>) -> Wait {
-    match since_ready {
-        Some(ready) if ready >= READY_WAIT + MOVING_WAIT => Wait::KeptMoving,
-        Some(ready) if ready >= READY_WAIT && still => Wait::Settled,
-        _ if since_load >= SETTLE_LIMIT => Wait::KeptMoving,
-        _ => Wait::Longer,
+/// One sample of the page
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Sample {
+    pub frames: Option<u64>,
+    /// The snapshot matches the one before
+    pub same_picture: bool,
+    pub animating: bool,
+    pub fonts_loaded: bool,
+}
+
+/// How long the picture must stay the same, with frames being drawn, to count as still
+const STILL_FOR: Duration = Duration::from_secs(2);
+
+/// Watches the samples and says when to take the picture. Never sooner than
+/// `READY_WAIT` after the page is ready (loaded, then fonts in), and never
+/// while its animation frames have stopped: a page whose frames stall looks
+/// still while it's frozen mid-intro, so it's waited on until the capture's
+/// time runs out.
+pub struct Watch {
+    loaded_at: Instant,
+    ready_at: Option<Instant>,
+    still_since: Option<Instant>,
+    last: Option<(Instant, Sample)>,
+    ticking: bool,
+}
+
+impl Watch {
+    pub fn new(loaded_at: Instant) -> Self {
+        Self {
+            loaded_at,
+            ready_at: None,
+            still_since: None,
+            last: None,
+            ticking: false,
+        }
+    }
+
+    /// Whether the page's frames stopped between the last two samples
+    pub fn frozen(&self) -> bool {
+        self.last.is_some() && !self.ticking
+    }
+
+    pub fn observe(&mut self, now: Instant, sample: Sample) -> Wait {
+        let previous = self.last.replace((now, sample));
+        if sample.fonts_loaded && self.ready_at.is_none() {
+            self.ready_at = Some(now);
+        }
+        let (previous_at, previous_sample) = match previous {
+            Some(previous) => previous,
+            None => {
+                self.ticking = false;
+                return Wait::Longer;
+            }
+        };
+        self.ticking = matches!(
+            (previous_sample.frames, sample.frames),
+            (Some(before), Some(after)) if after > before
+        );
+        if !self.ticking {
+            self.still_since = None;
+            return Wait::Longer;
+        }
+        // The same picture since the last sample, with frames drawn between:
+        // still since then (or since now, if that sample was mid-animation)
+        let quiet = sample.same_picture && !sample.animating;
+        self.still_since = quiet.then(|| {
+            self.still_since.unwrap_or(if previous_sample.animating {
+                now
+            } else {
+                previous_at
+            })
+        });
+        let since_ready = self.ready_at.map(|ready| now.duration_since(ready));
+        let still_for = self.still_since.map(|since| now.duration_since(since));
+        match (since_ready, still_for) {
+            (Some(ready), Some(still)) if ready >= READY_WAIT && still >= STILL_FOR => {
+                Wait::Settled
+            }
+            (Some(ready), _) if ready >= READY_WAIT + MOVING_WAIT => Wait::KeptMoving,
+            _ if now.duration_since(self.loaded_at) >= SETTLE_LIMIT => Wait::KeptMoving,
+            _ => Wait::Longer,
+        }
     }
 }
 
@@ -121,13 +205,17 @@ pub async fn check_page(url: &str, timeout: Duration) -> Result<(), String> {
     Ok(())
 }
 
-/// Hides the toolbar every Astro dev server adds to its pages, which isn't
-/// part of the site
-const HIDE_DEV_TOOLBAR: &str = r#"
+/// Run in the page before its own scripts: hides the toolbar every Astro dev
+/// server adds (it isn't part of the site), and counts animation frames, so
+/// the capture can tell a page that's drawing from one that's frozen
+const PAGE_SCRIPT: &str = r#"
 (() => {
   const style = document.createElement('style');
   style.textContent = 'astro-dev-toolbar { display: none !important; }';
   document.documentElement.appendChild(style);
+  window.__astroEditorFrames = 0;
+  const tick = () => { window.__astroEditorFrames += 1; requestAnimationFrame(tick); };
+  requestAnimationFrame(tick);
 })();
 "#;
 
@@ -212,7 +300,7 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
         .focusable(false)
         .skip_taskbar(true)
         .incognito(true)
-        .initialization_script(HIDE_DEV_TOOLBAR)
+        .initialization_script(PAGE_SCRIPT)
         // Doesn't throttle the page before it's put on screen; on screen
         // (`show_without_showing`) its animations run as they would for a reader
         .background_throttling(BackgroundThrottlingPolicy::Disabled)
@@ -247,17 +335,17 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
     // Intros, preloaders and fonts: always five seconds after the page is
     // ready, then until it's still
     let loaded_at = Instant::now();
-    let mut ready_at: Option<Instant> = None;
-    let mut settle = Settle::default();
-    let mut page_state = PageState::parse("");
+    let mut watch = Watch::new(loaded_at);
+    let mut previous: Option<image::GrayImage> = None;
+    let mut page_state;
     loop {
         std::thread::sleep(SAMPLE_EVERY);
         let Some(timeout) = sample_timeout(Instant::now(), deadline) else {
-            if !ready_at.is_some_and(|ready| ready.elapsed() >= READY_WAIT) {
-                return Err("The site took too long to be ready.".into());
+            // Never a frozen page, or one that wasn't ready for long enough
+            if watch.frozen() {
+                return Err("The site stopped drawing, so the last preview was kept.".into());
             }
-            log::info!("Astro Editor [PREVIEWS] Out of time to wait; taking the page as it is");
-            break;
+            return Err("The site took too long to be ready, so the last preview was kept.".into());
         };
         page_state = PageState::parse(
             &snapshot::eval_text(&window.0, PAGE_STATE_JS, timeout).unwrap_or_default(),
@@ -265,19 +353,29 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
         if page_state.error_overlay {
             break;
         }
-        if page_state.fonts_loaded && ready_at.is_none() {
-            ready_at = Some(Instant::now());
-        }
-        let sample = snapshot::take(&window.0, Some(SAMPLE_WIDTH), timeout)?;
-        let frame = image::load_from_memory(&sample.png)
+        let shot = snapshot::take(&window.0, Some(SAMPLE_WIDTH), timeout)?;
+        let frame = image::load_from_memory(&shot.png)
             .map_err(|e| format!("Couldn't read the snapshot: {e}"))?
             .to_luma8();
-        let still = settle.observe(frame);
-        match decide(
-            still,
-            loaded_at.elapsed(),
-            ready_at.map(|ready| ready.elapsed()),
-        ) {
+        let same_picture = previous
+            .as_ref()
+            .is_some_and(|last| changed_share(last, &frame) < MOVING_SHARE);
+        previous = Some(frame);
+        let sample = Sample {
+            frames: page_state.frames,
+            same_picture,
+            animating: page_state.animating,
+            fonts_loaded: page_state.fonts_loaded,
+        };
+        let wait = watch.observe(Instant::now(), sample);
+        log::debug!(
+            "Astro Editor [PREVIEWS] {:.1} s: frames {:?}, same {same_picture}, animating {}, fonts {}, {wait:?}",
+            loaded_at.elapsed().as_secs_f32(),
+            sample.frames,
+            sample.animating,
+            sample.fonts_loaded,
+        );
+        match wait {
             Wait::Longer => {}
             Wait::Settled => {
                 log::info!(
@@ -436,32 +534,10 @@ fn show_without_showing<R: Runtime>(
     Ok(())
 }
 
-/// How many snapshots in a row must look the same for the page to count as still
-const STILL_FRAMES: u32 = 4;
 /// Snapshots look the same when fewer than this share of pixels differ visibly
 const MOVING_SHARE: f64 = 0.002;
 /// A change in brightness smaller than this doesn't count (antialiasing, dithering)
 const VISIBLE_CHANGE: u8 = 24;
-
-/// Watches successive snapshots for the page to stop moving
-#[derive(Default)]
-pub struct Settle {
-    last: Option<image::GrayImage>,
-    still: u32,
-}
-
-impl Settle {
-    /// Takes the next snapshot; true once the last `STILL_FRAMES` matched
-    pub fn observe(&mut self, frame: image::GrayImage) -> bool {
-        let same = self
-            .last
-            .as_ref()
-            .is_some_and(|last| changed_share(last, &frame) < MOVING_SHARE);
-        self.still = if same { self.still + 1 } else { 0 };
-        self.last = Some(frame);
-        self.still + 1 >= STILL_FRAMES
-    }
-}
 
 /// The share of pixels whose brightness differs visibly between two frames;
 /// frames of different sizes differ completely
@@ -530,47 +606,158 @@ mod tests {
 
     #[test]
     fn reads_what_the_page_reports() {
+        let state = PageState::parse("fonts:loaded error:no frames:120 animating:no");
         assert_eq!(
-            PageState::parse("fonts:loaded error:no"),
+            state,
             PageState {
                 fonts_loaded: true,
-                error_overlay: false
+                error_overlay: false,
+                frames: Some(120),
+                animating: false
             }
         );
+        let state = PageState::parse("fonts:loading error:yes frames:7 animating:yes");
         assert_eq!(
-            PageState::parse("fonts:loading error:yes"),
+            state,
             PageState {
                 fonts_loaded: false,
-                error_overlay: true
+                error_overlay: true,
+                frames: Some(7),
+                animating: true
             }
         );
-        // Nothing usable (a page that broke the script): don't wait on fonts
-        assert_eq!(
-            PageState::parse(""),
-            PageState {
-                fonts_loaded: true,
-                error_overlay: false
-            }
+        // Nothing usable: no frame count, so it never counts as drawing
+        let state = PageState::parse("");
+        assert_eq!(state.frames, None);
+        assert!(!state.error_overlay);
+    }
+
+    /// Feeds `Watch` a sample every 400 ms from `start`, `n` times
+    fn run(
+        watch: &mut Watch,
+        start: Instant,
+        from: usize,
+        n: usize,
+        sample: impl Fn(usize) -> Sample,
+    ) -> Vec<Wait> {
+        (from..from + n)
+            .map(|i| watch.observe(start + SAMPLE_EVERY * (i as u32 + 1), sample(i)))
+            .collect()
+    }
+
+    fn ticking(i: usize, same: bool) -> Sample {
+        Sample {
+            frames: Some(100 + i as u64 * 48),
+            same_picture: same,
+            animating: false,
+            fonts_loaded: true,
+        }
+    }
+
+    #[test]
+    fn settles_after_five_seconds_and_two_seconds_of_the_same_picture() {
+        let start = Instant::now();
+        let mut watch = Watch::new(start);
+        // Still from the start: not before 5 s after ready (ready at the first sample)
+        let waits = run(&mut watch, start, 0, 40, |i| ticking(i, i > 0));
+        let settled = waits.iter().position(|w| *w == Wait::Settled).unwrap();
+        let at = SAMPLE_EVERY * (settled as u32 + 1);
+        assert!(at >= SAMPLE_EVERY + READY_WAIT, "{at:?}");
+        assert!(at < SAMPLE_EVERY + READY_WAIT + SAMPLE_EVERY * 2, "{at:?}");
+    }
+
+    #[test]
+    fn needs_two_seconds_of_the_same_picture() {
+        let start = Instant::now();
+        let mut watch = Watch::new(start);
+        // Moving for 6 s, then still: settles 2 s after it stops, not 1.2 s
+        let stops = 15; // sample 15 is the first that matches the one before
+        let waits = run(&mut watch, start, 0, 40, |i| ticking(i, i >= stops));
+        let settled = waits.iter().position(|w| *w == Wait::Settled).unwrap();
+        let still_for = SAMPLE_EVERY * (settled as u32 + 1) - SAMPLE_EVERY * stops as u32;
+        assert!(still_for >= STILL_FOR, "{still_for:?}");
+        assert!(still_for < STILL_FOR + SAMPLE_EVERY, "{still_for:?}");
+    }
+
+    #[test]
+    fn never_shoots_a_page_whose_frames_have_stopped() {
+        let start = Instant::now();
+        let mut watch = Watch::new(start);
+        // The same picture for 40 s, but the frame counter never moves
+        let waits = run(&mut watch, start, 0, 100, |_| Sample {
+            frames: Some(500),
+            same_picture: true,
+            animating: false,
+            fonts_loaded: true,
+        });
+        assert!(waits.iter().all(|w| *w == Wait::Longer));
+        assert!(watch.frozen());
+        // Nor one that gives no count at all
+        let mut watch = Watch::new(start);
+        let waits = run(&mut watch, start, 0, 100, |_| Sample {
+            frames: None,
+            same_picture: true,
+            animating: false,
+            fonts_loaded: true,
+        });
+        assert!(waits.iter().all(|w| *w == Wait::Longer));
+    }
+
+    #[test]
+    fn a_stall_starts_the_still_time_again() {
+        let start = Instant::now();
+        let mut watch = Watch::new(start);
+        let waits = run(&mut watch, start, 0, 13, |i| ticking(i, i > 0));
+        assert!(waits.iter().all(|w| *w == Wait::Longer));
+        // Frames stop for two samples (the same count), then tick again
+        let stalled = run(&mut watch, start, 13, 2, |_| Sample {
+            frames: Some(100 + 12 * 48),
+            ..ticking(0, true)
+        });
+        assert!(
+            stalled.iter().all(|w| *w == Wait::Longer),
+            "never on a frozen page"
+        );
+        let waits = run(&mut watch, start, 15, 10, |i| ticking(i, true));
+        let settled = waits.iter().position(|w| *w == Wait::Settled).unwrap();
+        assert!(
+            SAMPLE_EVERY * (settled as u32 + 1) >= STILL_FOR,
+            "{settled}"
         );
     }
 
     #[test]
-    fn never_shoots_sooner_than_five_seconds_after_the_page_is_ready() {
-        let s = Duration::from_secs;
-        let ms = Duration::from_millis;
-        // Loaded but fonts not in yet: wait, however still
-        assert_eq!(decide(true, s(8), None), Wait::Longer);
-        // Ready, still, but not five seconds yet
-        assert_eq!(decide(true, s(6), Some(ms(4999))), Wait::Longer);
-        assert_eq!(decide(true, s(6), Some(s(5))), Wait::Settled);
-        // Five seconds, still moving: keep watching for a while, then take it
-        assert_eq!(decide(false, s(7), Some(s(5))), Wait::Longer);
-        assert_eq!(decide(false, s(19), Some(s(14))), Wait::Longer);
-        assert_eq!(decide(false, s(20), Some(s(15))), Wait::KeptMoving);
-        // Fonts that never report loaded: taken at the limit, well past five seconds
-        assert_eq!(decide(false, SETTLE_LIMIT - ms(1), None), Wait::Longer);
-        assert_eq!(decide(false, SETTLE_LIMIT, None), Wait::KeptMoving);
-        assert!(SETTLE_LIMIT >= READY_WAIT);
+    fn a_running_animation_counts_as_moving() {
+        let start = Instant::now();
+        let mut watch = Watch::new(start);
+        let waits = run(&mut watch, start, 0, 40, |i| Sample {
+            animating: i < 25,
+            ..ticking(i, true)
+        });
+        let settled = waits.iter().position(|w| *w == Wait::Settled).unwrap();
+        assert!(settled >= 25 + 5, "{settled}");
+    }
+
+    #[test]
+    fn a_page_that_keeps_moving_is_taken_after_fifteen_seconds() {
+        let start = Instant::now();
+        let mut watch = Watch::new(start);
+        let waits = run(&mut watch, start, 0, 60, |i| ticking(i, false));
+        let taken =
+            SAMPLE_EVERY * (waits.iter().position(|w| *w == Wait::KeptMoving).unwrap() as u32 + 1);
+        let earliest = SAMPLE_EVERY + READY_WAIT + MOVING_WAIT;
+        assert!(
+            taken >= earliest && taken < earliest + SAMPLE_EVERY,
+            "{taken:?}"
+        );
+        // Fonts that never load: taken at the limit, still only while drawing
+        let mut watch = Watch::new(start);
+        let waits = run(&mut watch, start, 0, 60, |i| Sample {
+            fonts_loaded: false,
+            ..ticking(i, true)
+        });
+        let taken = waits.iter().position(|w| *w == Wait::KeptMoving).unwrap();
+        assert_eq!(SAMPLE_EVERY * (taken as u32 + 1), SETTLE_LIMIT);
     }
 
     #[test]
@@ -638,26 +825,5 @@ mod tests {
         let moved = changed_share(&with_box(0, 0), &with_box(0, 50));
         assert!((moved - 200.0 / 6000.0).abs() < 1e-9, "{moved}");
         assert_eq!(changed_share(&frame(0), &GrayImage::new(10, 10)), 1.0);
-    }
-
-    #[test]
-    fn a_still_page_settles_after_four_matching_frames() {
-        let mut settle = Settle::default();
-        assert!(!settle.observe(frame(0)));
-        assert!(!settle.observe(frame(0)));
-        assert!(!settle.observe(frame(0)));
-        assert!(settle.observe(frame(0)));
-    }
-
-    #[test]
-    fn movement_starts_the_count_again() {
-        let mut settle = Settle::default();
-        for x in [0, 10, 20, 30] {
-            assert!(!settle.observe(with_box(0, x)));
-        }
-        assert!(!settle.observe(with_box(0, 30)));
-        assert!(!settle.observe(with_box(0, 30)));
-        assert!(settle.observe(with_box(0, 30)));
-        assert!(!settle.observe(with_box(0, 40)));
     }
 }
