@@ -15,6 +15,9 @@ interface EditorState {
   editorContent: string // Content without frontmatter and imports
   frontmatter: Record<string, unknown> // Current frontmatter being edited
   rawFrontmatter: string // Original frontmatter string from disk
+  // What the app read from rawFrontmatter: a save compares the form with it
+  // to tell which keys changed (lib/frontmatter-save.ts)
+  rawFrontmatterValues: Record<string, unknown> | null
   // The frontmatter as it was when the file opened (or last changed outside
   // the app), and the values our last save wrote: a save whose values are
   // back to the baseline writes its text unchanged (lib/frontmatter-save.ts)
@@ -77,6 +80,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   editorContent: '',
   frontmatter: {},
   rawFrontmatter: '',
+  rawFrontmatterValues: null,
   frontmatterBaseline: null,
   lastWrittenFrontmatter: null,
   imports: '',
@@ -122,6 +126,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       editorContent: '',
       frontmatter: {},
       rawFrontmatter: '',
+      rawFrontmatterValues: null,
       frontmatterBaseline: null,
       lastWrittenFrontmatter: null,
       imports: '',
@@ -152,6 +157,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       editorContent: '',
       frontmatter: {},
       rawFrontmatter: '',
+      rawFrontmatterValues: null,
       frontmatterBaseline: null,
       lastWrittenFrontmatter: null,
       imports: '',

@@ -1,10 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { warn as logWarn } from '@tauri-apps/plugin-log'
+import { describe, expect, it, vi } from 'vitest'
 import { FieldType, type SchemaField } from './schema'
-import {
-  frontmatterToWrite,
-  nextFrontmatterBaseline,
-  sameValues,
-} from './frontmatter-save'
+import { frontmatterToWrite, nextFrontmatterBaseline } from './frontmatter-save'
+import { sameValues } from './frontmatter-yaml'
 
 // Quoted YAML, which writing the values back would reformat
 const RAW = `title: "Andrew Dyk"\nrole: 'Founder, "AD Studio"'\nfeatured: false\ntags: ["one", "two"]`
@@ -38,10 +36,10 @@ describe('frontmatterToWrite', () => {
         rawFrontmatter: 'title: Andrew Dyk\nfeatured: true',
         frontmatterBaseline: BASELINE,
       })
-    ).toEqual({ frontmatter: null, rawFrontmatter: RAW })
+    ).toEqual({ frontmatter: null, rawFrontmatter: RAW, written: null })
   })
 
-  it('writes the values when they really changed', () => {
+  it('edits the text on disk in place when the values really changed', () => {
     const changed = { ...VALUES, featured: true }
     expect(
       frontmatterToWrite({
@@ -50,7 +48,78 @@ describe('frontmatterToWrite', () => {
         rawFrontmatter: RAW,
         frontmatterBaseline: BASELINE,
       })
-    ).toEqual({ frontmatter: changed, rawFrontmatter: null })
+    ).toEqual({
+      // The values too, so Rust can check the text reads as them
+      frontmatter: changed,
+      rawFrontmatter: RAW.replace('featured: false', 'featured: true'),
+      written: changed,
+    })
+  })
+
+  it('compares with the values the app loaded from the text on disk', () => {
+    // The app reads 01234 as text; `yaml` would read it as a number
+    const loaded = { zip: '01234', title: 'Hi' }
+    expect(
+      frontmatterToWrite({
+        frontmatter: { ...loaded, title: 'Bye' },
+        isFrontmatterDirty: true,
+        rawFrontmatter: 'zip: 01234\ntitle: Hi',
+        rawFrontmatterValues: loaded,
+        frontmatterBaseline: null,
+      }).rawFrontmatter
+    ).toBe('zip: 01234\ntitle: Bye')
+  })
+
+  it('writes the values when editing the text fails, and says why in the log', () => {
+    vi.mocked(logWarn).mockClear()
+    const changed = { title: 'Fixed' }
+    expect(
+      frontmatterToWrite({
+        frontmatter: changed,
+        isFrontmatterDirty: true,
+        // An alias with no anchor reads without an error, then throws
+        rawFrontmatter: 'title: Hi\nref: *nowhere',
+        frontmatterBaseline: null,
+      })
+    ).toEqual({ frontmatter: changed, rawFrontmatter: null, written: changed })
+    expect(logWarn).toHaveBeenCalledWith(
+      expect.stringContaining('isn’t a YAML mapping')
+    )
+    expect(vi.mocked(logWarn).mock.calls[0]![0]).not.toContain('Fixed')
+  })
+
+  it('writes *Featured* without failing the save', () => {
+    const result = frontmatterToWrite({
+      frontmatter: { title: '*Featured*' },
+      isFrontmatterDirty: true,
+      rawFrontmatter: 'title: Plain',
+      frontmatterBaseline: null,
+    })
+    expect(result.rawFrontmatter).toBe("title: '*Featured*'")
+  })
+
+  it('writes the values, as before, when the text on disk is not valid YAML', () => {
+    const changed = { title: 'Fixed' }
+    expect(
+      frontmatterToWrite({
+        frontmatter: changed,
+        isFrontmatterDirty: true,
+        rawFrontmatter: 'title: [unclosed',
+        frontmatterBaseline: null,
+      })
+    ).toEqual({ frontmatter: changed, rawFrontmatter: null, written: changed })
+  })
+
+  it('writes the values when the file has no frontmatter yet', () => {
+    const values = { title: 'New' }
+    expect(
+      frontmatterToWrite({
+        frontmatter: values,
+        isFrontmatterDirty: true,
+        rawFrontmatter: '',
+        frontmatterBaseline: null,
+      })
+    ).toEqual({ frontmatter: values, rawFrontmatter: null, written: values })
   })
 
   it('keeps the text on disk when the frontmatter was never edited', () => {
@@ -61,7 +130,7 @@ describe('frontmatterToWrite', () => {
         rawFrontmatter: RAW,
         frontmatterBaseline: null,
       })
-    ).toEqual({ frontmatter: null, rawFrontmatter: RAW })
+    ).toEqual({ frontmatter: null, rawFrontmatter: RAW, written: null })
   })
 })
 
@@ -112,6 +181,7 @@ describe('frontmatterToWrite with keys the file never had', () => {
     expect(write({ title: 'Andrew Dyk', featured: false })).toEqual({
       frontmatter: null,
       rawFrontmatter: RAW_NO_FEATURED,
+      written: null,
     })
   })
 
@@ -119,18 +189,29 @@ describe('frontmatterToWrite with keys the file never had', () => {
     expect(write({ title: 'Andrew Dyk', tags: [] })).toEqual({
       frontmatter: null,
       rawFrontmatter: RAW_NO_FEATURED,
+      written: null,
     })
-    expect(write({ title: 'Andrew Dyk', note: '' }).frontmatter).toBeNull()
+    expect(write({ title: 'Andrew Dyk', note: '' }).written).toBeNull()
   })
 
   it('a value that differs from the default is a real change', () => {
     // pinned defaults to true, so false is a choice the writer made
-    expect(write({ title: 'Andrew Dyk', pinned: false }).frontmatter).toEqual({
-      title: 'Andrew Dyk',
-      pinned: false,
+    expect(write({ title: 'Andrew Dyk', pinned: false })).toEqual({
+      frontmatter: { title: 'Andrew Dyk', pinned: false },
+      rawFrontmatter: 'title: Andrew Dyk\npinned: false',
+      written: { title: 'Andrew Dyk', pinned: false },
     })
-    expect(
-      write({ title: 'Andrew Dyk', featured: true }).frontmatter
-    ).not.toBeNull()
+    expect(write({ title: 'Andrew Dyk', featured: true }).rawFrontmatter).toBe(
+      'title: Andrew Dyk\nfeatured: true'
+    )
+  })
+
+  it('leaves out keys the file never had whose value is only the default', () => {
+    // Another field changed, so the text is edited rather than restored
+    expect(write({ title: 'Andrew', featured: false, tags: [] })).toEqual({
+      frontmatter: { title: 'Andrew' },
+      rawFrontmatter: 'title: Andrew',
+      written: { title: 'Andrew' },
+    })
   })
 })
