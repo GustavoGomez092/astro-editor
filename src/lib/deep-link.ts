@@ -1,9 +1,7 @@
 /**
  * Deep-link helpers for the `astro-editor://open?path=...` URL scheme.
  *
- * Pure parsing/matching logic lives here (testable, no Tauri/store deps). The
- * cold-start coordination below lets an incoming launch URL take precedence over
- * the persisted-project auto-load (see `loadPersistedProject` in projectStore).
+ * Pure parsing/matching logic lives here (testable, no Tauri/store deps).
  */
 
 /** The custom URL scheme this app registers (matches tauri.conf.json). */
@@ -68,35 +66,4 @@ export function findOwningProjectPath(
   }
 
   return best
-}
-
-// --- Cold-start coordination -------------------------------------------------
-
-let resolveStartupClaim: ((claimed: boolean) => void) | null = null
-const startupClaim = new Promise<boolean>(resolve => {
-  resolveStartupClaim = resolve
-})
-
-/**
- * Called once by the deep-link hook after it has checked for a launch URL.
- * `claimed` is true when the app was started by a deep link (so the deep-link
- * handler — not the persisted-project loader — should decide which project opens).
- */
-export function resolveDeepLinkStartup(claimed: boolean): void {
-  resolveStartupClaim?.(claimed)
-  resolveStartupClaim = null
-}
-
-/**
- * Resolves to `true` if a deep link claimed app startup, `false` otherwise.
- * Bounded by `timeoutMs` so the persisted-project loader never hangs if the
- * deep-link hook didn't run (e.g. plugin unavailable).
- */
-export function wasStartupClaimedByDeepLink(
-  timeoutMs = 2000
-): Promise<boolean> {
-  const fallback = new Promise<boolean>(resolve => {
-    setTimeout(() => resolve(false), timeoutMs)
-  })
-  return Promise.race([startupClaim, fallback])
 }

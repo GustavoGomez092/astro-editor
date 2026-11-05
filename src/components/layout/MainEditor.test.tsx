@@ -40,26 +40,15 @@ const file: FileEntry = {
   frontmatter: null,
 }
 
-describe('MainEditor welcome screen', () => {
+describe('MainEditor with no file open', () => {
   beforeEach(() => {
     useEditorStore.setState({ currentFile: null })
   })
 
-  it('asks for a project when none is open', () => {
-    useProjectStore.setState({ projectPath: null })
-    renderWithProviders(<MainEditor />)
-    expect(
-      screen.getByText(
-        'Select a project folder to get started, then choose a file to edit.'
-      )
-    ).toBeInTheDocument()
-  })
-
-  it('asks only for a file once a project is open', () => {
+  it('asks for a file', () => {
     useProjectStore.setState({ projectPath: '/site' })
     renderWithProviders(<MainEditor />)
     expect(screen.getByText('Choose a file to edit.')).toBeInTheDocument()
-    expect(screen.queryByText(/Select a project folder/)).toBeNull()
   })
 })
 

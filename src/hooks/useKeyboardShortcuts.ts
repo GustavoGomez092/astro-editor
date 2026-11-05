@@ -6,7 +6,7 @@ import { useEditorStore } from '../store/editorStore'
 import { useProjectStore } from '../store/projectStore'
 import { useUIStore } from '../store/uiStore'
 import { focusEditor } from '../lib/focus-utils'
-import { openProjectViaDialog } from '../lib/projects/actions'
+import { goHome, openProjectViaDialog } from '../lib/projects/actions'
 import { toast } from '../lib/toast'
 import { useEditorActions } from './editor/useEditorActions'
 import { usePlatform } from './usePlatform'
@@ -133,6 +133,15 @@ export function useKeyboardShortcuts(
     'mod+shift+o',
     () => {
       void openProjectViaDialog()
+    },
+    DEFAULT_HOTKEY_OPTS
+  )
+
+  // Cmd+Shift+H: Home (the list of sites)
+  useHotkeys(
+    'mod+shift+h',
+    () => {
+      void goHome()
     },
     DEFAULT_HOTKEY_OPTS
   )

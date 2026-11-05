@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ask } from '@tauri-apps/plugin-dialog'
 import { commands } from '@/lib/bindings'
 import { useEditorStore } from '../store/editorStore'
+import { projectRegistryManager } from './project-registry'
 import { answerQuitRequest } from './quit'
 import type { FileEntry } from '@/types'
 
@@ -40,6 +41,38 @@ describe('answerQuitRequest', () => {
 
     expect(succeedingSave).not.toHaveBeenCalled()
     expect(commands.quitApp).toHaveBeenCalledOnce()
+  })
+
+  it('writes the remembered entries before quitting', async () => {
+    const order: string[] = []
+    // oxlint-disable-next-line @typescript-eslint/unbound-method
+    vi.mocked(projectRegistryManager.flushLastFiles).mockImplementation(() => {
+      order.push('flush')
+      return Promise.resolve()
+    })
+    vi.mocked(commands.quitApp).mockImplementation(() => {
+      order.push('quit')
+      return Promise.resolve()
+    })
+
+    await answerQuitRequest()
+
+    expect(order).toEqual(['flush', 'quit'])
+  })
+
+  it('does not hang on a write that never finishes', async () => {
+    vi.useFakeTimers()
+    // oxlint-disable-next-line @typescript-eslint/unbound-method
+    vi.mocked(projectRegistryManager.flushLastFiles).mockReturnValue(
+      new Promise(() => {})
+    )
+
+    const quitting = answerQuitRequest()
+    await vi.advanceTimersByTimeAsync(2100)
+    await quitting
+
+    expect(commands.quitApp).toHaveBeenCalledOnce()
+    vi.useRealTimers()
   })
 
   it('saves unsaved edits before quitting', async () => {

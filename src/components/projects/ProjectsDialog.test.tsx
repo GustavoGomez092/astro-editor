@@ -7,6 +7,12 @@ import { useProjectStore } from '@/store/projectStore'
 import { useProjectsScreenStore } from '@/store/projectsScreenStore'
 import { ProjectsDialog } from './ProjectsDialog'
 
+const { openSite } = vi.hoisted(() => ({ openSite: vi.fn() }))
+// Opening a site saves first and reopens its last entry (actions.test.ts)
+vi.mock('@/lib/projects/actions', () => ({
+  openSite,
+  openProjectViaDialog: vi.fn(),
+}))
 vi.mock('@tauri-apps/plugin-opener', () => ({ revealItemInDir: vi.fn() }))
 
 const project = (id: string, path: string, lastOpened: string) => ({
@@ -68,15 +74,14 @@ describe('ProjectsDialog', () => {
   })
 
   it('opens the highlighted project with Enter', async () => {
-    const setProject = vi.fn()
-    useProjectStore.setState({ setProject })
+    openSite.mockClear()
     renderWithProviders(<ProjectsDialog />)
     await screen.findByText('blog')
 
     await userEvent.type(screen.getByLabelText('Search projects'), '{Enter}')
 
     await waitFor(() =>
-      expect(setProject).toHaveBeenCalledWith('/Users/kevin/Sites/blog')
+      expect(openSite).toHaveBeenCalledWith('/Users/kevin/Sites/blog')
     )
     expect(useProjectsScreenStore.getState().isOpen).toBe(false)
   })
