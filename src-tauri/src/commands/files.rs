@@ -534,12 +534,12 @@ fn rebuild_markdown_with_raw_frontmatter(
 ) -> Result<String, String> {
     let mut result = String::new();
 
-    // Add frontmatter with raw content (preserves original formatting)
+    // Add frontmatter with raw content (preserves original formatting). It's
+    // the lines between the markers without the last line break, so a
+    // trailing newline in it is a blank line before the closing marker
     result.push_str("---\n");
     result.push_str(raw_frontmatter);
-    if !raw_frontmatter.ends_with('\n') {
-        result.push('\n');
-    }
+    result.push('\n');
     result.push_str("---\n");
 
     // Add imports if present
@@ -2783,6 +2783,27 @@ X"#;
         ];
         for value in values {
             assert_eq!(roundtrip_frontmatter_value(value), value, "{value:?}");
+        }
+    }
+
+    // The raw frontmatter is the lines between the `---` markers joined
+    // without the last line break, so a blank line before `---` is a trailing
+    // newline in it, and must be kept
+    #[test]
+    fn test_roundtrip_raw_frontmatter_byte_for_byte() {
+        for original in [
+            "---\ntitle: \"Hi\"\n---\n\nBody\n",
+            "---\ntitle: Hi\n\n---\n\nBody\n",
+            "---\n# comment\nintro: |\n  One.\n\n  Two.\n---\n\nimport A from './a'\n\nBody",
+        ] {
+            let parsed = parse_frontmatter(original).unwrap();
+            let saved = rebuild_markdown_with_raw_frontmatter(
+                &parsed.raw_frontmatter,
+                &parsed.imports,
+                &parsed.content,
+            )
+            .unwrap();
+            assert_eq!(saved, original);
         }
     }
 
