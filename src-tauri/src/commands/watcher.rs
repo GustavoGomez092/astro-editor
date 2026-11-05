@@ -509,6 +509,18 @@ struct FileChangeEvent {
 }
 
 // Initialize the watcher map when the app starts
+/// Whether the project's files are being watched, which they are while it's
+/// open in the editor
+pub fn is_watching(app: &AppHandle, project_path: &str) -> bool {
+    let wanted = project_path.trim_end_matches('/');
+    app.try_state::<WatcherMap>().is_some_and(|map| {
+        map.lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .keys()
+            .any(|path| path.trim_end_matches('/') == wanted)
+    })
+}
+
 pub fn init_watcher_state() -> WatcherMap {
     Arc::new(Mutex::new(HashMap::new()))
 }

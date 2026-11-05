@@ -12,7 +12,7 @@ import { toast } from '../../lib/toast'
 import {
   EXTERNAL_LABEL,
   isBusy,
-  openInBrowser,
+  openSiteInBrowser,
   previewTitle,
   startDevServer,
   statusLabel,
@@ -57,6 +57,7 @@ export const PreviewButton: React.FC = () => {
       outputOpen={outputOpen}
       onOutputOpenChange={setOutputOpen}
       onStart={() => void startDevServer(activePath)}
+      onOpen={url => void openSiteInBrowser(activePath, url)}
       onStop={() => {
         if (state.status === 'external') {
           toast.info('This server was started in another window or terminal', {
@@ -76,6 +77,7 @@ interface PreviewControlProps {
   outputOpen: boolean
   onOutputOpenChange: (open: boolean) => void
   onStart: () => void
+  onOpen: (url: string) => void
   onStop: () => void
 }
 
@@ -86,10 +88,15 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
   outputOpen,
   onOutputOpenChange,
   onStart,
+  onOpen,
   onStop,
 }) => {
   const { status } = state
-  const running = status === 'running' || status === 'external'
+  // Started to take a site preview, which stops it again: not the writer's to
+  // open or stop until it's done (Rust hands it over if the writer starts it)
+  const previewing =
+    state.forPreview === true && status !== 'stopped' && status !== 'error'
+  const running = !previewing && (status === 'running' || status === 'external')
 
   return (
     <div className="flex items-center gap-1" data-tauri-drag-region>
@@ -137,7 +144,17 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
         </Button>
       )}
 
-      {isBusy(status) && (
+      {previewing && (
+        <span
+          className="flex h-7 items-center gap-1.5 px-2 text-xs text-muted-foreground"
+          title="The site is running so its picture for Home can be taken. It stops again when that's done."
+        >
+          <Spinner className="size-4" />
+          Taking a preview…
+        </span>
+      )}
+
+      {!previewing && isBusy(status) && (
         <>
           <span className="flex h-7 items-center gap-1.5 px-2 text-xs text-muted-foreground">
             <Spinner className="size-4" />
@@ -164,7 +181,7 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
             className={cn(iconButton, 'h-full rounded-r-none')}
             title={state.url ?? undefined}
             disabled={!state.url}
-            onClick={() => state.url && openInBrowser(state.url)}
+            onClick={() => state.url && onOpen(state.url)}
           >
             <ExternalLink className="size-4" />
             Open site

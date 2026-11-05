@@ -40,6 +40,18 @@ export async function stopDevServer(projectPath: string): Promise<void> {
   })
 }
 
+/**
+ * Opens the site in the browser. The writer is using the server now, so a
+ * server started for a site preview is handed over first and keeps running.
+ */
+export async function openSiteInBrowser(
+  projectPath: string,
+  url: string
+): Promise<void> {
+  await commands.devServerClaim(projectPath)
+  openInBrowser(url)
+}
+
 /** Opens a URL in the default browser */
 export function openInBrowser(url: string): void {
   void openUrl(url).catch((error: unknown) => {

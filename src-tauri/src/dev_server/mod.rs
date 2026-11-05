@@ -34,6 +34,10 @@ pub struct DevServerState {
     pub command: Option<String>,
     pub pid: Option<u32>,
     pub error: Option<String>,
+    /// Started to take a site preview (`crate::previews`), which stops it again
+    /// once the picture is taken, unless the writer starts or opens it meanwhile
+    #[serde(default)]
+    pub for_preview: bool,
 }
 
 impl DevServerState {
@@ -44,6 +48,7 @@ impl DevServerState {
             command: None,
             pid: None,
             error: None,
+            for_preview: false,
         }
     }
 }
@@ -161,14 +166,6 @@ impl DevServers {
         self.server(project_path)
             .map(|server| lock(&server.inner).state.clone())
             .unwrap_or_else(DevServerState::stopped)
-    }
-
-    /// Counts the project's starts, so a caller that started a server can
-    /// tell whether it's still that run (the site previews stop only their own)
-    pub fn run(&self, project_path: &str) -> u64 {
-        self.server(project_path)
-            .map(|server| lock(&server.inner).run)
-            .unwrap_or(0)
     }
 
     pub fn logs(&self, project_path: &str) -> Vec<String> {

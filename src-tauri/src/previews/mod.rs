@@ -111,23 +111,27 @@ impl CaptureEnv for TauriEnv {
             .unwrap_or_else(DevServerState::stopped)
     }
 
-    fn start_server(&self, project_path: &str) {
-        let Some(servers) = self.servers() else {
-            return;
-        };
+    fn start_server_for_preview(&self, project_path: &str) -> Option<u64> {
+        let servers = self.servers()?;
         env_path::warm_up();
         let command = detect::read_dev_command_override(&self.preferences, project_path);
-        servers.start(project_path, command.as_deref());
+        servers.start_for_preview(project_path, command.as_deref())
     }
 
-    fn stop_server(&self, project_path: &str) {
+    fn claim_server(&self, project_path: &str) {
         if let Some(servers) = self.servers() {
-            servers.stop(project_path);
+            servers.claim(project_path);
         }
     }
 
-    fn server_run(&self, project_path: &str) -> u64 {
-        self.servers().map(|s| s.run(project_path)).unwrap_or(0)
+    fn stop_preview_server(&self, project_path: &str, run: u64) {
+        if let Some(servers) = self.servers() {
+            servers.stop_preview(project_path, run);
+        }
+    }
+
+    fn project_open(&self, project_path: &str) -> bool {
+        crate::commands::watcher::is_watching(&self.app, project_path)
     }
 
     fn snapshot(&self, url: &str) -> Result<Vec<u8>, String> {

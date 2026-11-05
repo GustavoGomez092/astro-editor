@@ -6,9 +6,13 @@ import { useProjectStore } from '../../store/projectStore'
 import { DEFAULT_GLOBAL_SETTINGS } from '../../lib/project-registry/defaults'
 import { PreviewButton } from './PreviewButton'
 
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn(() => Promise.resolve()),
+}))
+
 vi.unmock('../../lib/project-registry/defaults')
 
-const state = (status: DevServerState['status']) => ({
+const state = (status: DevServerState['status'], forPreview = false) => ({
   status: 'ok' as const,
   data: {
     status,
@@ -16,6 +20,7 @@ const state = (status: DevServerState['status']) => ({
     command: 'npm run dev',
     pid: null,
     error: null,
+    forPreview,
   },
 })
 
@@ -68,6 +73,26 @@ describe('PreviewButton', () => {
     await emitStateChange()
     await screen.findByText('Starting…')
     expect(screen.queryByText('Server output')).toBeNull()
+  })
+
+  it('says a preview is being taken while its own server runs, without Open site or Stop', async () => {
+    vi.spyOn(commands, 'devServerState').mockResolvedValue(
+      state('running', true)
+    )
+    renderWithProviders(<PreviewButton />)
+    expect(await screen.findByText('Taking a preview…')).toBeTruthy()
+    expect(screen.queryByText('Open site')).toBeNull()
+    expect(screen.queryByText('Stop')).toBeNull()
+  })
+
+  it('claims the server when the site is opened, so a preview never stops it', async () => {
+    vi.spyOn(commands, 'devServerState').mockResolvedValue(state('running'))
+    const claim = vi
+      .spyOn(commands, 'devServerClaim')
+      .mockResolvedValue(state('running'))
+    renderWithProviders(<PreviewButton />)
+    fireEvent.click(await screen.findByText('Open site'))
+    await waitFor(() => expect(claim).toHaveBeenCalledWith('/sites/kr'))
   })
 
   it('is hidden while the preview tools are off', () => {

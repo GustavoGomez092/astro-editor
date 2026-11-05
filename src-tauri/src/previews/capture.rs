@@ -20,12 +20,15 @@ pub trait CaptureEnv {
     /// Whether **Show preview and publishing tools** is on
     fn tools_enabled(&self) -> bool;
     fn server_state(&self, project_path: &str) -> DevServerState;
-    /// Starts the project's server; returns once it's on its way
-    fn start_server(&self, project_path: &str);
-    fn stop_server(&self, project_path: &str);
-    /// Counts the server's starts (`DevServers::run`), so a capture can tell
-    /// whether the server it would stop is still the one it started
-    fn server_run(&self, project_path: &str) -> u64;
+    /// Starts the project's server for the preview (`DevServers::start_for_preview`):
+    /// the run it started, or `None` if one was already on its way
+    fn start_server_for_preview(&self, project_path: &str) -> Option<u64>;
+    /// The preview's server becomes the writer's (`DevServers::claim`)
+    fn claim_server(&self, project_path: &str);
+    /// Stops the server if it's still the preview's run (`DevServers::stop_preview`)
+    fn stop_preview_server(&self, project_path: &str, run: u64);
+    /// Whether the project is open in the editor
+    fn project_open(&self, project_path: &str) -> bool;
     /// A JPEG of the page at `url`, at most 800 px wide
     fn snapshot(&self, url: &str) -> Result<Vec<u8>, String>;
     fn project_id(&self, project_path: &str) -> Option<String>;
@@ -71,6 +74,7 @@ impl CaptureGuard {
             })
     }
 
+    #[cfg(test)]
     pub fn is_busy(&self) -> bool {
         self.busy.load(Ordering::SeqCst)
     }
@@ -207,17 +211,35 @@ pub fn capture(
     }
 
     log::info!("Astro Editor [PREVIEWS] Starting {project_path} to take its preview");
-    let run_before = env.server_run(project_path);
-    env.start_server(project_path);
-    let started = env.server_run(project_path);
-    let result =
-        wait_until_ready(env, project_path).and_then(|url| take_and_store(env, project_path, &url));
-    // Stop it only if this started it and it's still that run: the writer may
-    // have started it first, or stopped it and started their own meanwhile
-    if started != run_before && env.server_run(project_path) == started {
-        env.stop_server(project_path);
+    // Dropped however this ends, a panic included
+    let _release = env
+        .start_server_for_preview(project_path)
+        .map(|run| Release {
+            env,
+            project_path,
+            run,
+        });
+    let url = wait_until_ready(env, project_path)?;
+    take_and_store(env, project_path, &url).map(Some)
+}
+
+/// Hands back a server a capture started: it keeps running if the site is
+/// open in the editor (the writer is using it), and is stopped otherwise,
+/// unless the writer started or opened it meanwhile (`stop_preview_server`)
+struct Release<'a, E: CaptureEnv> {
+    env: &'a E,
+    project_path: &'a str,
+    run: u64,
+}
+
+impl<E: CaptureEnv> Drop for Release<'_, E> {
+    fn drop(&mut self) {
+        if self.env.project_open(self.project_path) {
+            self.env.claim_server(self.project_path);
+        } else {
+            self.env.stop_preview_server(self.project_path, self.run);
+        }
     }
-    result.map(Some)
 }
 
 /// When a server becomes ready: takes its screenshot if the last one is over
@@ -230,14 +252,15 @@ pub fn capture_when_ready(
     now: SystemTime,
 ) -> Option<Result<ProjectPreview, String>> {
     let url = ready_url(state)?;
-    if !env.tools_enabled() || guard.is_busy() {
+    if !env.tools_enabled() {
         return None;
     }
+    // The ticket first, so an hour is used up only by a capture that runs
+    let _ticket = guard.try_begin()?;
     let id = env.project_id(project_path)?;
     if !guard.claim_automatic(project_path, env.store().taken_at(&id), now) {
         return None;
     }
-    let _ticket = guard.try_begin()?;
     Some(take_and_store(env, project_path, &url))
 }
 
@@ -254,6 +277,7 @@ mod tests {
             command: None,
             pid,
             error: None,
+            for_preview: false,
         }
     }
 
@@ -268,9 +292,9 @@ mod tests {
         id: Option<&'static str>,
         states: RefCell<Vec<DevServerState>>,
         after_start: RefCell<Vec<DevServerState>>,
-        run: RefCell<u64>,
-        /// Starts by the writer, counted once the capture's own start is done
-        restarts: RefCell<u64>,
+        /// What `start_server_for_preview` returns: `None` when one was on its way
+        starts: Option<u64>,
+        open: bool,
         snapshot: Result<Vec<u8>, String>,
         calls: RefCell<Vec<String>>,
     }
@@ -285,8 +309,8 @@ mod tests {
                 id: Some("blog"),
                 states: RefCell::new(states),
                 after_start: RefCell::new(Vec::new()),
-                run: RefCell::new(0),
-                restarts: RefCell::new(0),
+                starts: Some(7),
+                open: false,
                 snapshot: Ok(vec![0xff, 0xd8, 0xff]),
                 calls: RefCell::new(Vec::new()),
             }
@@ -311,22 +335,20 @@ mod tests {
                 states[0].clone()
             }
         }
-        fn start_server(&self, _: &str) {
+        fn start_server_for_preview(&self, _: &str) -> Option<u64> {
             self.calls.borrow_mut().push("start".into());
             let next = std::mem::take(&mut *self.after_start.borrow_mut());
             *self.states.borrow_mut() = next;
-            *self.run.borrow_mut() += 1;
+            self.starts
         }
-        fn server_run(&self, _: &str) -> u64 {
-            let run = *self.run.borrow();
-            if run > 0 {
-                // The writer's restarts land after the capture's start
-                *self.run.borrow_mut() += std::mem::take(&mut *self.restarts.borrow_mut());
-            }
-            run
+        fn claim_server(&self, _: &str) {
+            self.calls.borrow_mut().push("claim".into());
         }
-        fn stop_server(&self, _: &str) {
-            self.calls.borrow_mut().push("stop".into());
+        fn stop_preview_server(&self, _: &str, run: u64) {
+            self.calls.borrow_mut().push(format!("stop {run}"));
+        }
+        fn project_open(&self, _: &str) -> bool {
+            self.open
         }
         fn snapshot(&self, url: &str) -> Result<Vec<u8>, String> {
             self.calls.borrow_mut().push(format!("snapshot {url}"));
@@ -395,7 +417,12 @@ mod tests {
         capture(&env, &guard, &env.project()).unwrap().unwrap();
         assert_eq!(
             env.calls(),
-            ["start", "snapshot http://localhost:4322/", "notify", "stop"]
+            [
+                "start",
+                "snapshot http://localhost:4322/",
+                "notify",
+                "stop 7"
+            ]
         );
     }
 
@@ -412,7 +439,7 @@ mod tests {
             [
                 "start".to_string(),
                 format!("snapshot {URL}"),
-                "stop".into()
+                "stop 7".into()
             ]
         );
         assert!(env.store.screenshot("blog").is_none());
@@ -429,7 +456,7 @@ mod tests {
             vec![state(DevServerStatus::Starting, None, Some(7)), failed];
         let error = capture(&env, &guard, &env.project()).unwrap_err();
         assert_eq!(error, "The site couldn't start: Node.js isn't installed.");
-        assert_eq!(env.calls(), ["start", "stop"]);
+        assert_eq!(env.calls(), ["start", "stop 7"]);
     }
 
     #[test]
@@ -439,23 +466,92 @@ mod tests {
         *env.after_start.borrow_mut() = vec![state(DevServerStatus::Starting, None, Some(7))];
         let error = capture(&env, &guard, &env.project()).unwrap_err();
         assert!(error.contains("too long"), "{error}");
-        assert_eq!(env.calls(), ["start", "stop"]);
+        assert_eq!(env.calls(), ["start", "stop 7"]);
     }
 
     #[test]
-    fn leaves_alone_a_server_the_writer_restarted_meanwhile() {
+    fn keeps_the_server_running_when_the_site_is_open_in_the_editor() {
         let guard = CaptureGuard::default();
         let mut env = FakeEnv::new(vec![stopped()]);
-        env.snapshot = Err("failed".into());
+        env.open = true;
         *env.after_start.borrow_mut() = vec![state(DevServerStatus::Running, Some(URL), Some(7))];
-        *env.restarts.borrow_mut() = 1;
-        let _ = capture(&env, &guard, &env.project());
-        assert!(env.calls().contains(&"start".to_string()));
-        assert!(
-            !env.calls().contains(&"stop".to_string()),
-            "{:?}",
-            env.calls()
+        capture(&env, &guard, &env.project()).unwrap();
+        assert_eq!(
+            env.calls(),
+            [
+                "start".to_string(),
+                format!("snapshot {URL}"),
+                "notify".into(),
+                "claim".into()
+            ]
         );
+    }
+
+    #[test]
+    fn never_stops_a_server_it_didnt_start() {
+        let guard = CaptureGuard::default();
+        let mut env = FakeEnv::new(vec![stopped()]);
+        env.starts = None;
+        *env.after_start.borrow_mut() = vec![state(DevServerStatus::Running, Some(URL), Some(7))];
+        capture(&env, &guard, &env.project()).unwrap();
+        assert_eq!(
+            env.calls(),
+            [
+                "start".to_string(),
+                format!("snapshot {URL}"),
+                "notify".into()
+            ]
+        );
+    }
+
+    #[test]
+    fn stops_the_server_it_started_even_after_a_panic() {
+        struct Panicking(FakeEnv);
+        impl CaptureEnv for Panicking {
+            fn tools_enabled(&self) -> bool {
+                true
+            }
+            fn server_state(&self, p: &str) -> DevServerState {
+                self.0.server_state(p)
+            }
+            fn start_server_for_preview(&self, p: &str) -> Option<u64> {
+                self.0.start_server_for_preview(p)
+            }
+            fn claim_server(&self, p: &str) {
+                self.0.claim_server(p)
+            }
+            fn stop_preview_server(&self, p: &str, run: u64) {
+                self.0.stop_preview_server(p, run)
+            }
+            fn project_open(&self, _: &str) -> bool {
+                false
+            }
+            fn snapshot(&self, _: &str) -> Result<Vec<u8>, String> {
+                panic!("WebKit went away")
+            }
+            fn project_id(&self, p: &str) -> Option<String> {
+                self.0.project_id(p)
+            }
+            fn store(&self) -> &Store {
+                self.0.store()
+            }
+            fn notify(&self, p: &str) {
+                self.0.notify(p)
+            }
+            fn poll_interval(&self) -> Duration {
+                Duration::from_millis(1)
+            }
+        }
+        let env = Panicking(FakeEnv::new(vec![stopped()]));
+        *env.0.after_start.borrow_mut() = vec![state(DevServerStatus::Running, Some(URL), Some(7))];
+        let guard = CaptureGuard::default();
+        let project = env.0.project();
+        let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            capture(&env, &guard, &project)
+        }));
+        assert!(outcome.is_err());
+        assert_eq!(env.0.calls(), ["start", "stop 7"]);
+        assert!(!guard.is_busy());
     }
 
     #[test]

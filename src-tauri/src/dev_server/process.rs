@@ -38,6 +38,56 @@ impl DevServers {
     /// missing or out of date). Returns the new state at once; a server that's
     /// already installing, starting or running is left alone.
     pub fn start(&self, project_path: &str, override_command: Option<&str>) -> DevServerState {
+        self.start_run(project_path, override_command, false).0
+    }
+
+    /// Starts the project's server to take a site preview: its state says so
+    /// (`for_preview`) for the whole run. Returns the run it started, or `None`
+    /// if a server was already installing, starting or running (then it's
+    /// left alone and isn't the preview's).
+    pub fn start_for_preview(
+        &self,
+        project_path: &str,
+        override_command: Option<&str>,
+    ) -> Option<u64> {
+        self.start_run(project_path, override_command, true).1
+    }
+
+    /// The writer wants the server: a preview's server becomes an ordinary
+    /// one, which the preview won't stop
+    pub fn claim(&self, project_path: &str) {
+        let Some(server) = self.server(project_path) else {
+            return;
+        };
+        let mut inner = lock(&server.inner);
+        if !inner.state.for_preview {
+            return;
+        }
+        inner.state.for_preview = false;
+        let state = inner.state.clone();
+        drop(inner);
+        (self.shared.listener)(project_path, &state);
+    }
+
+    /// Stops the server if it's still the preview's run `run`, nobody having
+    /// claimed it. Returns whether it stopped it.
+    pub fn stop_preview(&self, project_path: &str, run: u64) -> bool {
+        let ours = self.server(project_path).is_some_and(|server| {
+            let inner = lock(&server.inner);
+            inner.run == run && inner.state.for_preview
+        });
+        if ours {
+            self.stop(project_path);
+        }
+        ours
+    }
+
+    fn start_run(
+        &self,
+        project_path: &str,
+        override_command: Option<&str>,
+        for_preview: bool,
+    ) -> (DevServerState, Option<u64>) {
         let server = self
             .shared
             .servers
@@ -51,7 +101,13 @@ impl DevServers {
 
         let mut inner = lock(&server.inner);
         if inner.is_active() {
-            return inner.state.clone();
+            if !for_preview && inner.state.for_preview {
+                // The writer started it too: it's theirs now
+                drop(inner);
+                self.claim(project_path);
+                return (self.state(project_path), None);
+            }
+            return (inner.state.clone(), None);
         }
         inner.run += 1;
         inner.stop_requested = false;
@@ -89,6 +145,7 @@ impl DevServers {
                             command: Some(command.clone()),
                             pid: Some(pid),
                             error: None,
+                            for_preview,
                         };
                         let monitor = Monitor {
                             server: server.clone(),
@@ -106,9 +163,10 @@ impl DevServers {
             }
         }
         let state = inner.state.clone();
+        let run = inner.is_active().then_some(inner.run);
         drop(inner);
         listener(project_path, &state);
-        state
+        (state, run)
     }
 
     /// Gets a project ready to edit: installs dependencies if they're missing or
@@ -1027,6 +1085,90 @@ sleep 30",
         assert_eq!(stopped.status, DevServerStatus::Stopped);
         assert_eq!(stopped.url, None);
         assert_eq!(stopped.pid, None);
+    }
+
+    fn quick_server(fx: &Fixture) -> String {
+        fx.script("server.sh", "echo http://localhost:4321/\nsleep 30")
+    }
+
+    #[test]
+    fn a_preview_start_is_marked_and_stopped_only_while_its_own() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        assert!(fx.servers.state(fx.path()).for_preview);
+        let running = fx.wait_for(DevServerStatus::Running);
+        assert!(running.for_preview, "the flag lasts the whole run");
+        assert!(fx.states.lock().unwrap().iter().all(|s| s.for_preview));
+
+        assert!(fx.servers.stop_preview(fx.path(), run));
+        let stopped = fx.servers.state(fx.path());
+        assert_eq!(stopped.status, DevServerStatus::Stopped);
+        assert!(!stopped.for_preview);
+    }
+
+    #[test]
+    fn a_preview_start_leaves_a_running_server_alone() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        assert_eq!(
+            fx.servers.start_for_preview(fx.path(), Some(&command)),
+            None
+        );
+        assert!(!fx.servers.state(fx.path()).for_preview);
+        fx.servers.stop(fx.path());
+    }
+
+    #[test]
+    fn the_writer_starting_or_claiming_a_preview_server_keeps_it_running() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+
+        // Start on the preview's running server: the writer's now
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        fx.wait_for(DevServerStatus::Running);
+        let after_start = fx.start(Some(&command));
+        assert!(!after_start.for_preview);
+        assert!(
+            !fx.states.lock().unwrap().last().unwrap().for_preview,
+            "announced"
+        );
+        assert!(!fx.servers.stop_preview(fx.path(), run));
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+        fx.servers.stop(fx.path());
+
+        // Claimed (Open site, or the site is open in the editor)
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        fx.wait_for(DevServerStatus::Running);
+        fx.servers.claim(fx.path());
+        assert!(!fx.servers.state(fx.path()).for_preview);
+        assert!(!fx.servers.stop_preview(fx.path(), run));
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+        fx.servers.stop(fx.path());
+
+        // Stopped and started again by the writer: a newer run
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        fx.wait_for(DevServerStatus::Running);
+        fx.servers.stop(fx.path());
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        assert!(!fx.servers.stop_preview(fx.path(), run));
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+        fx.servers.stop(fx.path());
     }
 
     #[test]

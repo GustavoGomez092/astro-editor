@@ -35,6 +35,16 @@ const STATES: { label: string; state: DevServerState }[] = [
         "Couldn't find npm. Install Node.js from https://nodejs.org, then try again.\n\nzsh:1: command not found: npm",
     },
   },
+  {
+    label: 'Taking a preview',
+    state: {
+      ...base,
+      status: 'running',
+      pid: 4242,
+      url: 'http://localhost:4321/',
+      forPreview: true,
+    },
+  },
 ]
 
 const LINES = [
@@ -67,6 +77,7 @@ export function DevServerSection() {
               outputOpen={false}
               onOutputOpenChange={noop}
               onStart={noop}
+              onOpen={noop}
               onStop={noop}
             />
           </div>
