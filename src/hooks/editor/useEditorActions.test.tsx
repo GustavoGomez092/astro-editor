@@ -303,18 +303,37 @@ describe('useEditorActions.saveFile with frontmatter back where it started', () 
     })
   })
 
-  it('writes the values when they changed, and remembers them', async () => {
+  it('edits the text on disk when the values changed, and remembers them', async () => {
     useEditorStore.setState({
-      frontmatter: { title: 'Andrew Dyk', featured: true },
+      frontmatter: { title: 'Andrew', featured: true },
+      imports: "import Card from '../components/Card.astro'",
     })
     const { saveFile } = renderActions()
     await saveFile(false)
     expect(savedArgs()).toMatchObject({
-      frontmatter: { title: 'Andrew Dyk', featured: true },
+      frontmatter: null,
+      rawFrontmatter: 'title: Andrew\nfeatured: true',
+      imports: "import Card from '../components/Card.astro'",
+    })
+    expect(useEditorStore.getState().lastWrittenFrontmatter).toEqual({
+      title: 'Andrew',
+      featured: true,
+    })
+  })
+
+  it('writes the values when the text on disk is not valid YAML', async () => {
+    useEditorStore.setState({
+      frontmatter: { title: 'Andrew', featured: true },
+      rawFrontmatter: 'title: [unclosed',
+    })
+    const { saveFile } = renderActions()
+    await saveFile(false)
+    expect(savedArgs()).toMatchObject({
+      frontmatter: { title: 'Andrew', featured: true },
       rawFrontmatter: null,
     })
     expect(useEditorStore.getState().lastWrittenFrontmatter).toEqual({
-      title: 'Andrew Dyk',
+      title: 'Andrew',
       featured: true,
     })
   })

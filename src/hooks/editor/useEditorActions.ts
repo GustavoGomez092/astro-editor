@@ -70,8 +70,8 @@ function reportFieldsNeedingAttention(
 }
 
 /**
- * Saves the open file: writes its body, imports and frontmatter (in the
- * schema's field order), marks it clean if nothing changed meanwhile, and
+ * Saves the open file: writes its body, imports and frontmatter (edited in
+ * place, new keys in the schema's field order), marks it clean if nothing changed meanwhile, and
  * refreshes the queries that show it. On failure, writes recovery data and a
  * crash report and keeps the file dirty. When the writer asked to save
  * (`reportFields`: Cmd+S, File → Save, the toolbar) it also reports the fields
@@ -118,8 +118,8 @@ async function saveCurrentFile(
   }
 
   try {
-    // The values only when they changed; otherwise the text, to keep its
-    // formatting (also when edits ended where they started)
+    // The text on disk with only the changed values rewritten, or kept as it
+    // was when nothing changed (also when edits ended where they started)
     const toWrite = frontmatterToWrite({
       frontmatter,
       isFrontmatterDirty,
@@ -159,7 +159,7 @@ async function saveCurrentFile(
 
       useEditorStore.setState({
         // So the reload of this save isn't taken for a change from outside
-        ...(toWrite.frontmatter && { lastWrittenFrontmatter: frontmatter }),
+        ...(toWrite.written && { lastWrittenFrontmatter: toWrite.written }),
         autoSaveTimeoutId: null,
         isDirty: !contentUnchanged || !frontmatterUnchanged,
         isFrontmatterDirty:
