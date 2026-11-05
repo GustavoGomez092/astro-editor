@@ -104,21 +104,27 @@ const STILL_FOR: Duration = Duration::from_secs(2);
 /// still while it's frozen mid-intro, so it's waited on until the capture's
 /// time runs out.
 pub struct Watch {
-    loaded_at: Instant,
-    ready_at: Option<Instant>,
+    ready: bool,
     still_since: Option<Instant>,
     last: Option<(Instant, Sample)>,
     ticking: bool,
+    /// Time spent drawing (between samples whose frame counts advanced)
+    /// since loading and since the page was ready. The waits count this, not
+    /// the clock, so a page that froze mid-intro and comes back gets its full
+    /// waits again rather than being taken as soon as it draws
+    drawn_since_load: Duration,
+    drawn_since_ready: Duration,
 }
 
 impl Watch {
-    pub fn new(loaded_at: Instant) -> Self {
+    pub fn new() -> Self {
         Self {
-            loaded_at,
-            ready_at: None,
+            ready: false,
             still_since: None,
             last: None,
             ticking: false,
+            drawn_since_load: Duration::ZERO,
+            drawn_since_ready: Duration::ZERO,
         }
     }
 
@@ -129,9 +135,8 @@ impl Watch {
 
     pub fn observe(&mut self, now: Instant, sample: Sample) -> Wait {
         let previous = self.last.replace((now, sample));
-        if sample.fonts_loaded && self.ready_at.is_none() {
-            self.ready_at = Some(now);
-        }
+        let was_ready = self.ready;
+        self.ready |= sample.fonts_loaded;
         let (previous_at, previous_sample) = match previous {
             Some(previous) => previous,
             None => {
@@ -147,6 +152,11 @@ impl Watch {
             self.still_since = None;
             return Wait::Longer;
         }
+        let drawn = now.duration_since(previous_at);
+        self.drawn_since_load += drawn;
+        if was_ready {
+            self.drawn_since_ready += drawn;
+        }
         // The same picture since the last sample, with frames drawn between:
         // still since then (or since now, if that sample was mid-animation)
         let quiet = sample.same_picture && !sample.animating;
@@ -157,15 +167,22 @@ impl Watch {
                 previous_at
             })
         });
-        let since_ready = self.ready_at.map(|ready| now.duration_since(ready));
         let still_for = self.still_since.map(|since| now.duration_since(since));
-        match (since_ready, still_for) {
-            (Some(ready), Some(still)) if ready >= READY_WAIT && still >= STILL_FOR => {
-                Wait::Settled
+        if self.ready {
+            let drawn = self.drawn_since_ready;
+            if drawn >= READY_WAIT && still_for.is_some_and(|still| still >= STILL_FOR) {
+                return Wait::Settled;
             }
-            (Some(ready), _) if ready >= READY_WAIT + MOVING_WAIT => Wait::KeptMoving,
-            _ if now.duration_since(self.loaded_at) >= SETTLE_LIMIT => Wait::KeptMoving,
-            _ => Wait::Longer,
+            if drawn >= READY_WAIT + MOVING_WAIT {
+                return Wait::KeptMoving;
+            }
+            return Wait::Longer;
+        }
+        // Fonts that never report loaded: taken after this much drawing
+        if self.drawn_since_load >= SETTLE_LIMIT {
+            Wait::KeptMoving
+        } else {
+            Wait::Longer
         }
     }
 }
@@ -205,17 +222,20 @@ pub async fn check_page(url: &str, timeout: Duration) -> Result<(), String> {
     Ok(())
 }
 
-/// Run in the page before its own scripts: hides the toolbar every Astro dev
-/// server adds (it isn't part of the site), and counts animation frames, so
-/// the capture can tell a page that's drawing from one that's frozen
+/// Run in the page before its own scripts: counts animation frames, so the
+/// capture can tell a page that's drawing from one that's frozen, and hides
+/// the toolbar every Astro dev server adds (it isn't part of the site)
 const PAGE_SCRIPT: &str = r#"
 (() => {
-  const style = document.createElement('style');
-  style.textContent = 'astro-dev-toolbar { display: none !important; }';
-  document.documentElement.appendChild(style);
+  // The frame counter first, so nothing after it can keep it from starting
   window.__astroEditorFrames = 0;
   const tick = () => { window.__astroEditorFrames += 1; requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
+  try {
+    const style = document.createElement('style');
+    style.textContent = 'astro-dev-toolbar { display: none !important; }';
+    document.documentElement.appendChild(style);
+  } catch (e) {}
 })();
 "#;
 
@@ -335,7 +355,7 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
     // Intros, preloaders and fonts: always five seconds after the page is
     // ready, then until it's still
     let loaded_at = Instant::now();
-    let mut watch = Watch::new(loaded_at);
+    let mut watch = Watch::new();
     let mut previous: Option<image::GrayImage> = None;
     let mut page_state;
     loop {
@@ -657,7 +677,7 @@ mod tests {
     #[test]
     fn settles_after_five_seconds_and_two_seconds_of_the_same_picture() {
         let start = Instant::now();
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         // Still from the start: not before 5 s after ready (ready at the first sample)
         let waits = run(&mut watch, start, 0, 40, |i| ticking(i, i > 0));
         let settled = waits.iter().position(|w| *w == Wait::Settled).unwrap();
@@ -669,7 +689,7 @@ mod tests {
     #[test]
     fn needs_two_seconds_of_the_same_picture() {
         let start = Instant::now();
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         // Moving for 6 s, then still: settles 2 s after it stops, not 1.2 s
         let stops = 15; // sample 15 is the first that matches the one before
         let waits = run(&mut watch, start, 0, 40, |i| ticking(i, i >= stops));
@@ -682,7 +702,7 @@ mod tests {
     #[test]
     fn never_shoots_a_page_whose_frames_have_stopped() {
         let start = Instant::now();
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         // The same picture for 40 s, but the frame counter never moves
         let waits = run(&mut watch, start, 0, 100, |_| Sample {
             frames: Some(500),
@@ -693,7 +713,7 @@ mod tests {
         assert!(waits.iter().all(|w| *w == Wait::Longer));
         assert!(watch.frozen());
         // Nor one that gives no count at all
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         let waits = run(&mut watch, start, 0, 100, |_| Sample {
             frames: None,
             same_picture: true,
@@ -706,7 +726,7 @@ mod tests {
     #[test]
     fn a_stall_starts_the_still_time_again() {
         let start = Instant::now();
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         let waits = run(&mut watch, start, 0, 13, |i| ticking(i, i > 0));
         assert!(waits.iter().all(|w| *w == Wait::Longer));
         // Frames stop for two samples (the same count), then tick again
@@ -719,7 +739,42 @@ mod tests {
             "never on a frozen page"
         );
         let waits = run(&mut watch, start, 15, 10, |i| ticking(i, true));
+        // The still time starts again at the last stalled sample (14), so it
+        // settles exactly 2 s later, not on the time it was still before the stall
         let settled = waits.iter().position(|w| *w == Wait::Settled).unwrap();
+        let settled_at = SAMPLE_EVERY * (15 + settled as u32 + 1);
+        assert_eq!(settled_at, SAMPLE_EVERY * 15 + STILL_FOR, "{settled}");
+        assert!(waits[..settled].iter().all(|w| *w == Wait::Longer));
+    }
+
+    #[test]
+    fn after_a_long_freeze_it_waits_while_drawing_again() {
+        // Seen on Kevin's site: frames stopped 3 s in and came back 26 s later
+        let start = Instant::now();
+        let frozen = |_: usize| Sample {
+            frames: Some(100 + 7 * 48),
+            ..ticking(0, true)
+        };
+        // Moving when it thaws: not taken on the first sample back
+        let mut watch = Watch::new();
+        run(&mut watch, start, 0, 8, |i| ticking(i, false));
+        let during = run(&mut watch, start, 8, 66, frozen);
+        assert!(during.iter().all(|w| *w == Wait::Longer));
+        let after = run(&mut watch, start, 74, 40, |i| ticking(i, false));
+        let taken = after.iter().position(|w| *w != Wait::Longer).unwrap();
+        assert_eq!(after[taken], Wait::KeptMoving);
+        // 15 s of drawing after ready in all: ~2.8 s before the freeze, the rest after
+        assert!(
+            SAMPLE_EVERY * (taken as u32 + 1) >= Duration::from_secs(12),
+            "{taken}"
+        );
+        // Still when it thaws: settled only after 2 s of drawing the same picture
+        let mut watch = Watch::new();
+        run(&mut watch, start, 0, 8, |i| ticking(i, false));
+        run(&mut watch, start, 8, 66, frozen);
+        let after = run(&mut watch, start, 74, 40, |i| ticking(i, true));
+        let settled = after.iter().position(|w| *w != Wait::Longer).unwrap();
+        assert_eq!(after[settled], Wait::Settled);
         assert!(
             SAMPLE_EVERY * (settled as u32 + 1) >= STILL_FOR,
             "{settled}"
@@ -727,9 +782,38 @@ mod tests {
     }
 
     #[test]
+    fn fonts_ready_late_still_get_their_five_seconds() {
+        let start = Instant::now();
+        let mut watch = Watch::new();
+        // Fonts report loaded only at 18 s; moving all along
+        let ready_from = 44; // sample 44 is at 18 s
+        let waits = run(&mut watch, start, 0, 100, |i| Sample {
+            fonts_loaded: i >= ready_from,
+            ..ticking(i, false)
+        });
+        let taken = waits.iter().position(|w| *w != Wait::Longer).unwrap();
+        let ready_at = SAMPLE_EVERY * (ready_from as u32 + 1);
+        let taken_at = SAMPLE_EVERY * (taken as u32 + 1);
+        assert_eq!(waits[taken], Wait::KeptMoving);
+        assert!(
+            taken_at >= ready_at + READY_WAIT + MOVING_WAIT,
+            "{taken_at:?}"
+        );
+        // Still once ready: settled 5 s after the fonts, never at the 20 s cap
+        let mut watch = Watch::new();
+        let waits = run(&mut watch, start, 0, 100, |i| Sample {
+            fonts_loaded: i >= ready_from,
+            ..ticking(i, true)
+        });
+        let taken = waits.iter().position(|w| *w != Wait::Longer).unwrap();
+        assert_eq!(waits[taken], Wait::Settled);
+        assert!(SAMPLE_EVERY * (taken as u32 + 1) >= ready_at + READY_WAIT);
+    }
+
+    #[test]
     fn a_running_animation_counts_as_moving() {
         let start = Instant::now();
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         let waits = run(&mut watch, start, 0, 40, |i| Sample {
             animating: i < 25,
             ..ticking(i, true)
@@ -741,7 +825,7 @@ mod tests {
     #[test]
     fn a_page_that_keeps_moving_is_taken_after_fifteen_seconds() {
         let start = Instant::now();
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         let waits = run(&mut watch, start, 0, 60, |i| ticking(i, false));
         let taken =
             SAMPLE_EVERY * (waits.iter().position(|w| *w == Wait::KeptMoving).unwrap() as u32 + 1);
@@ -751,13 +835,17 @@ mod tests {
             "{taken:?}"
         );
         // Fonts that never load: taken at the limit, still only while drawing
-        let mut watch = Watch::new(start);
+        let mut watch = Watch::new();
         let waits = run(&mut watch, start, 0, 60, |i| Sample {
             fonts_loaded: false,
             ..ticking(i, true)
         });
-        let taken = waits.iter().position(|w| *w == Wait::KeptMoving).unwrap();
-        assert_eq!(SAMPLE_EVERY * (taken as u32 + 1), SETTLE_LIMIT);
+        let taken =
+            SAMPLE_EVERY * (waits.iter().position(|w| *w == Wait::KeptMoving).unwrap() as u32 + 1);
+        assert!(
+            taken >= SETTLE_LIMIT && taken <= SETTLE_LIMIT + SAMPLE_EVERY,
+            "{taken:?}"
+        );
     }
 
     #[test]
