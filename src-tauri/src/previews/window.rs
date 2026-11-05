@@ -31,6 +31,73 @@ const SAMPLE_WIDTH: f64 = 240.0;
 /// The picture itself, in points; downscaled to `thumb::MAX_WIDTH` pixels
 const PICTURE_WIDTH: f64 = 800.0;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5);
+/// The shortest wait after loading, so a page's first frame isn't taken as still
+const MIN_SETTLE: Duration = Duration::from_millis(1500);
+/// How long the home page gets to answer the check before the window opens
+const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Asks the page whether its fonts have loaded and whether it's showing the
+/// dev server's error overlay (Vite's, which Astro uses too)
+const PAGE_STATE_JS: &str = "(() => { const fonts = !document.fonts || document.fonts.status === 'loaded'; const error = !!document.querySelector('vite-error-overlay'); return 'fonts:' + (fonts ? 'loaded' : 'loading') + ' error:' + (error ? 'yes' : 'no'); })()";
+
+/// What the page says about itself, from `PAGE_STATE_JS`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PageState {
+    pub fonts_loaded: bool,
+    pub error_overlay: bool,
+}
+
+impl PageState {
+    /// An answer it can't read counts as fonts loaded and no error, so a page
+    /// that breaks the script is still taken
+    pub fn parse(answer: &str) -> Self {
+        Self {
+            fonts_loaded: !answer.contains("fonts:loading"),
+            error_overlay: answer.contains("error:yes"),
+        }
+    }
+}
+
+/// The page is ready for its picture: still, with its fonts in, and loaded at
+/// least `MIN_SETTLE` ago
+pub fn settled(still: bool, fonts_loaded: bool, since_load: Duration) -> bool {
+    still && fonts_loaded && since_load >= MIN_SETTLE
+}
+
+/// How long the next sample may take, keeping `SNAPSHOT_TIMEOUT` for the
+/// picture itself; `None` when there's no time left for samples
+pub fn sample_timeout(now: Instant, deadline: Instant) -> Option<Duration> {
+    let left = deadline
+        .saturating_duration_since(now)
+        .checked_sub(SNAPSHOT_TIMEOUT)?;
+    (!left.is_zero()).then(|| left.min(SNAPSHOT_TIMEOUT))
+}
+
+/// Asks the dev server for the page first, so an error page (a 404, or a 500
+/// from a broken page) is never stored over a good preview. Redirects aren't
+/// followed, since one could lead off the computer; the window allows only
+/// the page's own origin.
+pub async fn check_page(url: &str, timeout: Duration) -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .no_proxy()
+        .timeout(timeout)
+        .build()
+        .map_err(|e| e.to_string())?;
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|_| "The site isn't answering.".to_string())?;
+    let status = response.status();
+    if status.as_u16() >= 400 {
+        return Err(format!(
+            "The site's home page shows an error ({}), so the last preview was kept.",
+            status.as_u16()
+        ));
+    }
+    Ok(())
+}
 
 /// Hides the toolbar every Astro dev server adds to its pages, which isn't
 /// part of the site
@@ -100,6 +167,7 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
         return Err(format!("Only pages on localhost are captured, not {url}"));
     }
     let origin = page.origin();
+    tauri::async_runtime::block_on(check_page(url, CHECK_TIMEOUT))?;
 
     // A window left over from a capture that panicked
     if let Some(old) = app.get_webview_window(LABEL) {
@@ -155,15 +223,27 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
 
     // Fonts, images and intro animations: wait until the page stops changing
     let loaded_at = Instant::now();
-    let settle_until = (loaded_at + SETTLE_LIMIT).min(deadline - SNAPSHOT_TIMEOUT);
+    let settle_until = loaded_at + SETTLE_LIMIT;
     let mut settle = Settle::default();
+    let mut page_state = PageState::parse("");
     loop {
         std::thread::sleep(SAMPLE_EVERY);
-        let sample = snapshot::take(&window.0, Some(SAMPLE_WIDTH), SNAPSHOT_TIMEOUT)?;
+        let Some(timeout) = sample_timeout(Instant::now(), deadline) else {
+            log::info!("Astro Editor [PREVIEWS] Out of time to wait; taking the page as it is");
+            break;
+        };
+        page_state = PageState::parse(
+            &snapshot::eval_text(&window.0, PAGE_STATE_JS, timeout).unwrap_or_default(),
+        );
+        if page_state.error_overlay {
+            break;
+        }
+        let sample = snapshot::take(&window.0, Some(SAMPLE_WIDTH), timeout)?;
         let frame = image::load_from_memory(&sample.png)
             .map_err(|e| format!("Couldn't read the snapshot: {e}"))?
             .to_luma8();
-        if settle.observe(frame) {
+        let still = settle.observe(frame);
+        if settled(still, page_state.fonts_loaded, loaded_at.elapsed()) {
             log::info!(
                 "Astro Editor [PREVIEWS] The page settled {:.1} s after loading",
                 loaded_at.elapsed().as_secs_f32()
@@ -175,13 +255,17 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
             break;
         }
     }
+    if page_state.error_overlay {
+        return Err("The site shows an error, so the last preview was kept.".into());
+    }
 
-    let picture = snapshot::take(&window.0, Some(PICTURE_WIDTH), SNAPSHOT_TIMEOUT)?;
-    let image = image::load_from_memory(&picture.png)
-        .map_err(|e| format!("Couldn't read the snapshot: {e}"))?;
-    if Instant::now() > deadline {
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
         return Err("Taking the preview took too long.".into());
     }
+    let picture = snapshot::take(&window.0, Some(PICTURE_WIDTH), left)?;
+    let image = image::load_from_memory(&picture.png)
+        .map_err(|e| format!("Couldn't read the snapshot: {e}"))?;
     thumb::encode(&image)
 }
 
@@ -369,6 +453,86 @@ mod tests {
             }
         }
         image
+    }
+
+    #[test]
+    fn an_error_status_is_never_captured() {
+        let mut server = mockito::Server::new();
+        let _ok = server
+            .mock("GET", "/")
+            .with_status(200)
+            .with_body("<html>")
+            .create();
+        let _missing = server.mock("GET", "/missing").with_status(404).create();
+        let _broken = server.mock("GET", "/broken").with_status(500).create();
+        let _moved = server
+            .mock("GET", "/moved")
+            .with_status(302)
+            .with_header("location", "https://example.com/")
+            .create();
+        let base = server.url();
+        let check = |path: &str| {
+            tauri::async_runtime::block_on(check_page(
+                &format!("{base}{path}"),
+                Duration::from_secs(5),
+            ))
+        };
+        assert_eq!(check("/"), Ok(()));
+        assert!(check("/missing").unwrap_err().contains("404"));
+        assert!(check("/broken").unwrap_err().contains("500"));
+        // Not followed (it could lead off the computer); the window decides
+        assert_eq!(check("/moved"), Ok(()));
+        drop(server);
+        assert!(check("/").is_err(), "nothing answering");
+    }
+
+    #[test]
+    fn reads_what_the_page_reports() {
+        assert_eq!(
+            PageState::parse("fonts:loaded error:no"),
+            PageState {
+                fonts_loaded: true,
+                error_overlay: false
+            }
+        );
+        assert_eq!(
+            PageState::parse("fonts:loading error:yes"),
+            PageState {
+                fonts_loaded: false,
+                error_overlay: true
+            }
+        );
+        // Nothing usable (a page that broke the script): don't wait on fonts
+        assert_eq!(
+            PageState::parse(""),
+            PageState {
+                fonts_loaded: true,
+                error_overlay: false
+            }
+        );
+    }
+
+    #[test]
+    fn settles_only_when_still_with_fonts_loaded_after_a_moment() {
+        let moment = Duration::from_millis(1500);
+        assert!(settled(true, true, moment));
+        assert!(!settled(false, true, moment * 2), "still moving");
+        assert!(!settled(true, false, moment * 2), "fonts still loading");
+        assert!(
+            !settled(true, true, moment - Duration::from_millis(1)),
+            "too soon"
+        );
+    }
+
+    #[test]
+    fn keeps_time_for_the_picture() {
+        let now = Instant::now();
+        let deadline = now + Duration::from_secs(30);
+        assert_eq!(sample_timeout(now, deadline), Some(SNAPSHOT_TIMEOUT));
+        let late = deadline - SNAPSHOT_TIMEOUT - Duration::from_secs(2);
+        assert_eq!(sample_timeout(late, deadline), Some(Duration::from_secs(2)));
+        assert_eq!(sample_timeout(deadline - SNAPSHOT_TIMEOUT, deadline), None);
+        assert_eq!(sample_timeout(deadline, deadline), None);
     }
 
     #[test]

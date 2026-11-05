@@ -280,7 +280,9 @@ mod tests {
     #[test]
     fn saves_at_the_same_time_never_clash() {
         let f = fixture(&[]);
-        let contents: Vec<Vec<u8>> = (0..8u8).map(|n| vec![n; 2000 + usize::from(n) * 100]).collect();
+        let contents: Vec<Vec<u8>> = (0..8u8)
+            .map(|n| vec![n; 2000 + usize::from(n) * 100])
+            .collect();
         std::thread::scope(|scope| {
             for content in &contents {
                 let store = &f.store;

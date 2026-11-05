@@ -61,6 +61,56 @@ pub fn take<R: Runtime>(
         .map_err(|_| "snapshot timed out".to_string())?
 }
 
+/// Runs `js` in the page and returns its result as text (`""` when it isn't a
+/// string). Never call it on the main thread.
+#[cfg(target_os = "macos")]
+pub fn eval_text<R: Runtime>(
+    window: &WebviewWindow<R>,
+    js: &str,
+    timeout: Duration,
+) -> Result<String, String> {
+    use block2::RcBlock;
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSError, NSString};
+    use objc2_web_kit::WKWebView;
+    use std::sync::mpsc;
+
+    let (tx, rx) = mpsc::channel::<Result<String, String>>();
+    let js = js.to_string();
+    window
+        .with_webview(move |webview| {
+            // SAFETY: on macOS, `inner()` is the WKWebView that wry created for this window
+            let wk_webview: &WKWebView = unsafe { &*webview.inner().cast() };
+            let handler = RcBlock::new(move |value: *mut AnyObject, error: *mut NSError| {
+                // SAFETY: WebKit passes a valid object (or nil) and a valid error (or nil)
+                let result = match unsafe { error.as_ref() } {
+                    Some(error) => Err(error.localizedDescription().to_string()),
+                    None => Ok(unsafe { value.as_ref() }
+                        .and_then(|value| value.downcast_ref::<NSString>())
+                        .map(|text| text.to_string())
+                        .unwrap_or_default()),
+                };
+                let _ = tx.send(result);
+            });
+            unsafe {
+                wk_webview
+                    .evaluateJavaScript_completionHandler(&NSString::from_str(&js), Some(&handler))
+            };
+        })
+        .map_err(|e| e.to_string())?;
+    rx.recv_timeout(timeout)
+        .map_err(|_| "the page didn't answer".to_string())?
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn eval_text<R: Runtime>(
+    _window: &WebviewWindow<R>,
+    _js: &str,
+    _timeout: Duration,
+) -> Result<String, String> {
+    Err("not implemented on this platform".to_string())
+}
+
 #[cfg(target_os = "macos")]
 fn png_data(image: &objc2_app_kit::NSImage) -> Result<Snapshot, String> {
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
