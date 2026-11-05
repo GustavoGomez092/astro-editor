@@ -1,5 +1,5 @@
 //! Does a repository look like an Astro site? Answered for many repositories at once
-//! through GitHub's GraphQL API (one query per 25 to 50 repositories, using aliases,
+//! through GitHub's GraphQL API (one query per 10 repositories, using aliases,
 //! at most three in flight), so the Open from GitHub list can hide everything that
 //! isn't a site.
 //!
@@ -19,11 +19,9 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinSet;
 use tokio::time::Instant;
 
-/// Repositories per GraphQL query
-const BATCH_SIZE: usize = 50;
-/// Smaller queries for an account with a lot of repositories
-const BIG_ACCOUNT_BATCH_SIZE: usize = 25;
-const BIG_ACCOUNT: usize = 300;
+/// Repositories per GraphQL query. Each one fetches its package.json text, and
+/// GitHub answers a query with 50 of them with a 502 (25 worked in 4 s, 10 in 3 s).
+const BATCH_SIZE: usize = 10;
 /// Queries in flight at once
 const MAX_IN_FLIGHT: usize = 3;
 /// The whole call gives up after this long; what isn't answered by then is unknown
@@ -210,11 +208,7 @@ async fn check_repos_within(
                 .then(|| (full.clone(), owner.to_string(), name.to_string()))
         })
         .collect();
-    let size = if valid.len() > BIG_ACCOUNT {
-        BIG_ACCOUNT_BATCH_SIZE
-    } else {
-        BATCH_SIZE
-    };
+    let size = BATCH_SIZE;
     let permits = Arc::new(Semaphore::new(MAX_IN_FLIGHT));
     let mut tasks = JoinSet::new();
     let batches: Vec<Vec<(String, String, String)>> =
@@ -430,22 +424,22 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn more_than_fifty_repositories_go_in_several_queries() {
+    async fn more_than_ten_repositories_go_in_several_queries() {
         let mut server = mockito::Server::new_async().await;
         let mut first = serde_json::Map::new();
-        for i in 0..50 {
+        for i in 0..10 {
             first.insert(format!("r{i}"), node(Some("astro.config.ts"), None, false));
         }
         let first_mock = server
             .mock("POST", "/graphql")
-            .match_body(Matcher::Regex(r#""o49":"k""#.into()))
+            .match_body(Matcher::Regex(r#""o9":"k""#.into()))
             .with_body(json!({"data": first}).to_string())
             .expect(1)
             .create_async()
             .await;
         let second_mock = server
             .mock("POST", "/graphql")
-            .match_body(Matcher::Regex(r#""n1":"repo-51""#.into()))
+            .match_body(Matcher::Regex(r#""n1":"repo-11""#.into()))
             .with_body(
                 json!({"data": {"r0": node(None, None, false), "r1": node(None, None, false)}})
                     .to_string(),
@@ -454,14 +448,14 @@ mod tests {
             .create_async()
             .await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let names: Vec<String> = (0..52).map(|i| format!("k/repo-{i}")).collect();
+        let names: Vec<String> = (0..12).map(|i| format!("k/repo-{i}")).collect();
         let got = check_repos(&client, "t", &names).await.unwrap();
         first_mock.assert_async().await;
         second_mock.assert_async().await;
-        assert_eq!(got.len(), 52);
-        assert_eq!(got[49].check, AstroCheck::Astro);
-        assert_eq!(got[50].check, AstroCheck::NotAstro);
-        assert_eq!(got[51].full_name, "k/repo-51");
+        assert_eq!(got.len(), 12);
+        assert_eq!(got[9].check, AstroCheck::Astro);
+        assert_eq!(got[10].check, AstroCheck::NotAstro);
+        assert_eq!(got[11].full_name, "k/repo-11");
     }
 
     #[tokio::test]
@@ -477,7 +471,7 @@ mod tests {
     async fn a_failed_query_leaves_the_other_answers_alone() {
         let mut server = mockito::Server::new_async().await;
         let mut first = serde_json::Map::new();
-        for i in 0..50 {
+        for i in 0..10 {
             first.insert(format!("r{i}"), node(Some("astro.config.ts"), None, false));
         }
         server
@@ -488,17 +482,17 @@ mod tests {
             .await;
         server
             .mock("POST", "/graphql")
-            .match_body(Matcher::Regex(r#""n1":"repo-51""#.into()))
+            .match_body(Matcher::Regex(r#""n1":"repo-11""#.into()))
             .with_status(502)
             .create_async()
             .await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let names: Vec<String> = (0..52).map(|i| format!("k/repo-{i}")).collect();
+        let names: Vec<String> = (0..12).map(|i| format!("k/repo-{i}")).collect();
         let got = check_repos(&client, "t", &names).await.unwrap();
         assert_eq!(got[0].check, AstroCheck::Astro);
-        assert_eq!(got[49].check, AstroCheck::Astro);
-        assert_eq!(got[50].check, AstroCheck::Unknown);
-        assert_eq!(got[51].check, AstroCheck::Unknown);
+        assert_eq!(got[9].check, AstroCheck::Astro);
+        assert_eq!(got[10].check, AstroCheck::Unknown);
+        assert_eq!(got[11].check, AstroCheck::Unknown);
     }
 
     #[tokio::test]
@@ -544,7 +538,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn big_accounts_use_smaller_queries() {
+    async fn queries_hold_ten_repositories_each() {
         let mut server = mockito::Server::new_async().await;
         let mock = server
             .mock("POST", "/graphql")
@@ -553,9 +547,9 @@ mod tests {
             .create_async()
             .await;
         let client = GitHubClient::with_base_urls(&server.url(), &server.url());
-        let names: Vec<String> = (0..320).map(|i| format!("k/repo-{i}")).collect();
+        let names: Vec<String> = (0..128).map(|i| format!("k/repo-{i}")).collect();
         check_repos(&client, "t", &names).await.unwrap();
-        // 320 repositories in queries of 25 is 13 requests (50 would be 7)
+        // 128 repositories in queries of 10 is 13 requests
         mock.assert_async().await;
     }
 
