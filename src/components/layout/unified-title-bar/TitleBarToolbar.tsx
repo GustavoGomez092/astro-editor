@@ -22,6 +22,7 @@ import { cn } from '../../../lib/utils'
 import { PreviewButton } from '../../dev-server'
 import { collectionDisplayName } from '../../../lib/collection-name'
 import { PublishButton } from '../../git/PublishButton'
+import { SiteSwitcher } from './SiteSwitcher'
 
 interface TitleBarToolbarProps {
   /** Window controls for the left side (e.g., macOS traffic lights) */
@@ -77,7 +78,9 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
     }
   }
 
-  const bothPanelsHidden = !sidebarVisible && !frontmatterPanelVisible
+  // Home: no site is open, so the bar holds just the app name and Settings
+  const home = projectPath == null
+  const bothPanelsHidden = !home && !sidebarVisible && !frontmatterPanelVisible
 
   return (
     <div
@@ -107,113 +110,134 @@ export const TitleBarToolbar: React.FC<TitleBarToolbarProps> = ({
           </Badge>
         )}
 
-        <Button
-          onClick={toggleSidebar}
-          variant="ghost"
-          size="sm"
-          className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
-          title={sidebarVisible ? 'Close Sidebar' : 'Open Sidebar'}
-        >
-          {sidebarVisible ? (
-            <PanelLeftClose className="size-4" />
-          ) : (
-            <PanelLeft className="size-4" />
-          )}
-        </Button>
-
-        {projectPath ? (
-          <span className="overflow-hidden text-xs text-ellipsis whitespace-nowrap text-muted-foreground">
-            {projectPath.split('/').pop() || projectPath}
+        {home ? (
+          <span
+            className="text-sm font-medium text-muted-foreground"
+            data-tauri-drag-region
+          >
+            Astro Editor+
           </span>
         ) : (
-          <span className="text-sm font-medium text-muted-foreground">
-            Astro Editor
-          </span>
+          <>
+            <Button
+              onClick={toggleSidebar}
+              variant="ghost"
+              size="sm"
+              className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
+              title={sidebarVisible ? 'Close Sidebar' : 'Open Sidebar'}
+            >
+              {sidebarVisible ? (
+                <PanelLeftClose className="size-4" />
+              ) : (
+                <PanelLeft className="size-4" />
+              )}
+            </Button>
+
+            <SiteSwitcher projectPath={projectPath} />
+          </>
         )}
       </div>
 
       <div className="flex items-center gap-2" data-tauri-drag-region>
-        <PreviewButton />
-        <PublishButton />
-
-        {selectedCollection && (
+        {home ? (
           <Button
-            onClick={() => void createNewFile()}
             variant="ghost"
             size="sm"
-            className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
-            title={`New ${collectionDisplayName(selectedCollection)} file`}
+            className="h-7 px-2 text-xs font-normal text-muted-foreground"
+            onClick={() =>
+              window.dispatchEvent(new CustomEvent('open-preferences'))
+            }
           >
-            <Plus className="size-4" />
+            Settings
           </Button>
+        ) : (
+          <>
+            <PreviewButton />
+            <PublishButton />
+
+            {selectedCollection && (
+              <Button
+                onClick={() => void createNewFile()}
+                variant="ghost"
+                size="sm"
+                className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
+                title={`New ${collectionDisplayName(selectedCollection)} file`}
+              >
+                <Plus className="size-4" />
+              </Button>
+            )}
+
+            <Button
+              onClick={toggleFocusMode}
+              variant="ghost"
+              size="sm"
+              className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
+              title={
+                focusModeEnabled ? 'Disable Focus Mode' : 'Enable Focus Mode'
+              }
+              aria-label={
+                focusModeEnabled ? 'Disable Focus Mode' : 'Enable Focus Mode'
+              }
+            >
+              <Eye
+                className={cn('size-4', focusModeEnabled && 'text-active')}
+              />
+            </Button>
+
+            <Button
+              onClick={toggleTypewriterMode}
+              variant="ghost"
+              size="sm"
+              className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
+              title={
+                typewriterModeEnabled
+                  ? 'Disable Typewriter Mode'
+                  : 'Enable Typewriter Mode'
+              }
+              aria-label={
+                typewriterModeEnabled
+                  ? 'Disable Typewriter Mode'
+                  : 'Enable Typewriter Mode'
+              }
+            >
+              <Pilcrow
+                className={cn('size-4', typewriterModeEnabled && 'text-active')}
+              />
+            </Button>
+
+            <Button
+              onClick={handleSave}
+              variant="ghost"
+              size="sm"
+              disabled={!currentFile || !isDirty}
+              title={`Save${isDirty ? ' (unsaved changes)' : ''}`}
+              className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
+            >
+              <Save className="size-4" />
+            </Button>
+
+            <Button
+              onClick={toggleFrontmatterPanel}
+              variant="ghost"
+              size="sm"
+              disabled={formInMain}
+              className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
+              title={
+                formInMain
+                  ? "This collection's fields are in the main area"
+                  : frontmatterPanelVisible
+                    ? 'Close Frontmatter Panel'
+                    : 'Open Frontmatter Panel'
+              }
+            >
+              {frontmatterPanelVisible && !formInMain ? (
+                <PanelRightClose className="size-4" />
+              ) : (
+                <PanelRight className="size-4" />
+              )}
+            </Button>
+          </>
         )}
-
-        <Button
-          onClick={toggleFocusMode}
-          variant="ghost"
-          size="sm"
-          className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
-          title={focusModeEnabled ? 'Disable Focus Mode' : 'Enable Focus Mode'}
-          aria-label={
-            focusModeEnabled ? 'Disable Focus Mode' : 'Enable Focus Mode'
-          }
-        >
-          <Eye className={cn('size-4', focusModeEnabled && 'text-active')} />
-        </Button>
-
-        <Button
-          onClick={toggleTypewriterMode}
-          variant="ghost"
-          size="sm"
-          className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
-          title={
-            typewriterModeEnabled
-              ? 'Disable Typewriter Mode'
-              : 'Enable Typewriter Mode'
-          }
-          aria-label={
-            typewriterModeEnabled
-              ? 'Disable Typewriter Mode'
-              : 'Enable Typewriter Mode'
-          }
-        >
-          <Pilcrow
-            className={cn('size-4', typewriterModeEnabled && 'text-active')}
-          />
-        </Button>
-
-        <Button
-          onClick={handleSave}
-          variant="ghost"
-          size="sm"
-          disabled={!currentFile || !isDirty}
-          title={`Save${isDirty ? ' (unsaved changes)' : ''}`}
-          className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
-        >
-          <Save className="size-4" />
-        </Button>
-
-        <Button
-          onClick={toggleFrontmatterPanel}
-          variant="ghost"
-          size="sm"
-          disabled={formInMain}
-          className="size-7 p-0 text-icon [&_svg]:scale-100 [&_svg]:transform-gpu"
-          title={
-            formInMain
-              ? "This collection's fields are in the main area"
-              : frontmatterPanelVisible
-                ? 'Close Frontmatter Panel'
-                : 'Open Frontmatter Panel'
-          }
-        >
-          {frontmatterPanelVisible && !formInMain ? (
-            <PanelRightClose className="size-4" />
-          ) : (
-            <PanelRight className="size-4" />
-          )}
-        </Button>
-
         {rightSlot}
       </div>
     </div>

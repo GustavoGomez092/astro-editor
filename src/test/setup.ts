@@ -48,6 +48,9 @@ const mockProjectRegistryManager = {
   updateGlobalSettings: vi.fn().mockResolvedValue(undefined),
   updateProjectSettings: vi.fn().mockResolvedValue(undefined),
   getLastOpenedProjectId: vi.fn().mockReturnValue(null),
+  setLastOpenFile: vi.fn(),
+  getLastOpenFile: vi.fn(),
+  flushLastFiles: vi.fn().mockResolvedValue(undefined),
   getProjectData: vi.fn().mockResolvedValue(null),
   getGlobalSettings: vi.fn().mockReturnValue({
     general: { ideCommand: '' },

@@ -7,7 +7,7 @@ import { projectRegistryManager } from '@/lib/project-registry'
 import { folderStates } from '@/lib/project-registry/utils'
 import { filterProjects, folderName, shortenHome } from '@/lib/projects/recent'
 import { shortenMiddle } from '@/lib/git/clone'
-import { openProjectViaDialog } from '@/lib/projects/actions'
+import { openProjectViaDialog, openSite } from '@/lib/projects/actions'
 import { formatRelativeTime } from '@/lib/dates'
 import { getPlatformString } from '@/lib/platform-strings'
 import { toast } from '@/lib/toast'
@@ -81,7 +81,7 @@ function ProjectsList() {
         return
       }
       close()
-      useProjectStore.getState().setProject(project.path)
+      void openSite(project.path)
     })
   }
 

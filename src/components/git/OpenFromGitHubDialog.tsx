@@ -23,11 +23,11 @@ import {
 } from '@/lib/dev-server/prepare'
 import { commands } from '@/lib/bindings'
 import { startGitHubSignIn } from '@/lib/git/sign-in'
+import { openSite } from '@/lib/projects/actions'
 import { formatRelativeTime } from '@/lib/dates'
 import { toast } from '@/lib/toast'
 import { cn } from '@/lib/utils'
 import { useGitStore } from '../../store/gitStore'
-import { useProjectStore } from '../../store/projectStore'
 import { useGitHubAuthQuery } from '../../hooks/queries/useGitHubAuthQuery'
 import {
   useAstroSiteStatus,
@@ -192,7 +192,12 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         const skipped = skippedRef.current
         setPreparing(null)
         setCloning(false)
-        useProjectStore.getState().setProject(projectPath)
+        const opened = await openSite(projectPath)
+        // The writer chose to stay in the site that's open
+        if (!opened) {
+          onDone()
+          return
+        }
         if (astro && prepared && !skipped) {
           // Its first preview for Home, taken in the background: Rust starts
           // the dev server, takes the screenshot and stops it again

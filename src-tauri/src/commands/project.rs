@@ -928,10 +928,42 @@ pub async fn resolve_file_entry(
     }
 }
 
+/// The folder's real path, with links followed. Files found by `resolve_file_entry`
+/// carry real paths, so a project opened through a link needs this to be compared
+#[tauri::command]
+#[specta::specta]
+pub async fn canonical_path(path: String) -> Result<String, String> {
+    std::fs::canonicalize(&path)
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(|e| format!("Couldn't find {path}: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::path::PathBuf;
+
+    #[tokio::test]
+    async fn canonical_path_follows_links_and_fails_for_missing_folders() {
+        let temp = tempfile::tempdir().unwrap();
+        let real = temp.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let expected = std::fs::canonicalize(&real).unwrap();
+        #[cfg(unix)]
+        {
+            let link = temp.path().join("link");
+            std::os::unix::fs::symlink(&real, &link).unwrap();
+            assert_eq!(
+                canonical_path(link.to_string_lossy().to_string()).await,
+                Ok(expected.to_string_lossy().to_string())
+            );
+        }
+        assert!(
+            canonical_path(temp.path().join("gone").to_string_lossy().to_string())
+                .await
+                .is_err()
+        );
+    }
 
     // --- folder_states ---
 

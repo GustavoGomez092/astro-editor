@@ -183,6 +183,7 @@ pub fn run() {
                         true,
                         Some("CmdOrCtrl+Shift+O"),
                     )?,
+                    &MenuItem::with_id(app, "go_home", "Home", true, Some("CmdOrCtrl+Shift+H"))?,
                     &MenuItem::with_id(app, "show_projects", "Projects...", true, None::<&str>)?,
                     &MenuItem::with_id(app, "new_file", "New File", true, Some("CmdOrCtrl+N"))?,
                     &PredefinedMenuItem::separator(app)?,
@@ -368,6 +369,9 @@ pub fn run() {
             app.on_menu_event(move |app, event| match event.id().as_ref() {
                 "open_project" => {
                     let _ = app.emit("menu-open-project", ());
+                }
+                "go_home" => {
+                    let _ = app.emit("menu-go-home", ());
                 }
                 "show_projects" => {
                     let _ = app.emit("menu-show-projects", ());

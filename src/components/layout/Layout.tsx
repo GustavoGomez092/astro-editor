@@ -28,6 +28,8 @@ import { useSaveOnQuit } from '../../hooks/useSaveOnQuit'
 import { useEditorActions } from '../../hooks/editor/useEditorActions'
 import { useCreateFile } from '../../hooks/useCreateFile'
 import { useDeepLink } from '../../hooks/useDeepLink'
+import { useRememberLastEntry } from '../../hooks/useRememberLastEntry'
+import { useProjectPreviewEvents } from '../../hooks/useProjectPreviewEvents'
 import { useSquareCornersEffect } from '../../hooks/useSquareCornersEffect'
 import { useExternalLinkHandler } from '../../hooks/useExternalLinkHandler'
 import { useGitStatusRefresh } from '../../hooks/useGitStatusRefresh'
@@ -37,6 +39,7 @@ import { useGitStore } from '../../store/gitStore'
 import { SignInSheet } from '../git/SignInSheet'
 import { OpenFromGitHubDialog } from '../git/OpenFromGitHubDialog'
 import { ProjectsDialog } from '../projects/ProjectsDialog'
+import { HomeScreen } from '../home'
 import { useEditorStore } from '../../store/editorStore'
 import { useBodyEditorHidden } from '../../hooks/editor/useBodyEditorHidden'
 import { focusEditor } from '../../lib/focus-utils'
@@ -158,6 +161,9 @@ export const Layout: React.FC = () => {
   useSquareCornersEffect()
   useDOMEventListeners(createNewFileWithQuery, handleSetPreferencesOpen)
   useDeepLink(openFileByPath)
+  useRememberLastEntry()
+  // Home cards and the switcher follow new pictures, wherever they were taken
+  useProjectPreviewEvents()
   useExternalLinkHandler()
 
   // Enable query-based file loading
@@ -228,59 +234,68 @@ export const Layout: React.FC = () => {
     <div className="flex h-screen w-screen flex-col overflow-hidden bg-editor-background">
       <UnifiedTitleBar />
 
-      <div className="min-h-0 flex-1">
-        <ResizablePanelGroup
-          direction="horizontal"
-          className="h-full"
-          autoSaveId="astro-editor-layout"
-        >
-          <ResizablePanel
-            id="left-sidebar"
-            panelRef={leftPanelRef}
-            collapsible
-            collapsedSize={0}
-            defaultSize={LAYOUT_SIZES.leftSidebar.default}
-            minSize={LAYOUT_SIZES.leftSidebar.min}
-            maxSize={LAYOUT_SIZES.leftSidebar.max}
-            style={{
-              minWidth: sidebarVisible
-                ? LAYOUT_SIZES.leftSidebar.minWidth
-                : undefined,
-            }}
-            onResize={handleLeftPanelResize}
+      {/* Home covers the editor while no site is open. The panels stay
+          mounted underneath (their sizes and state survive), but out of reach */}
+      <div className="relative min-h-0 flex-1">
+        {projectPath == null && (
+          <div className="absolute inset-0 z-10">
+            <HomeScreen />
+          </div>
+        )}
+        <div className="h-full" inert={projectPath == null}>
+          <ResizablePanelGroup
+            direction="horizontal"
+            className="h-full"
+            autoSaveId="astro-editor-layout"
           >
-            <LeftSidebar />
-          </ResizablePanel>
-          <ResizableHandle
-            className={`!cursor-col-resize ${sidebarVisible ? '' : 'hidden'}`}
-          />
+            <ResizablePanel
+              id="left-sidebar"
+              panelRef={leftPanelRef}
+              collapsible
+              collapsedSize={0}
+              defaultSize={LAYOUT_SIZES.leftSidebar.default}
+              minSize={LAYOUT_SIZES.leftSidebar.min}
+              maxSize={LAYOUT_SIZES.leftSidebar.max}
+              style={{
+                minWidth: sidebarVisible
+                  ? LAYOUT_SIZES.leftSidebar.minWidth
+                  : undefined,
+              }}
+              onResize={handleLeftPanelResize}
+            >
+              <LeftSidebar />
+            </ResizablePanel>
+            <ResizableHandle
+              className={`!cursor-col-resize ${sidebarVisible ? '' : 'hidden'}`}
+            />
 
-          <ResizablePanel
-            id="main-editor"
-            defaultSize={LAYOUT_SIZES.mainEditor.default}
-            minSize={LAYOUT_SIZES.mainEditor.min}
-          >
-            <MainEditor />
-          </ResizablePanel>
+            <ResizablePanel
+              id="main-editor"
+              defaultSize={LAYOUT_SIZES.mainEditor.default}
+              minSize={LAYOUT_SIZES.mainEditor.min}
+            >
+              <MainEditor />
+            </ResizablePanel>
 
-          <ResizableHandle
-            className={`!cursor-col-resize ${rightPanelShown ? '' : 'hidden'}`}
-          />
-          <ResizablePanel
-            id="right-sidebar"
-            panelRef={rightPanelRef}
-            collapsible
-            collapsedSize={0}
-            defaultSize={LAYOUT_SIZES.rightSidebar.default}
-            minSize={LAYOUT_SIZES.rightSidebar.min}
-            maxSize={LAYOUT_SIZES.rightSidebar.max}
-            onResize={handleRightPanelResize}
-          >
-            <RightSidebar>
-              <FrontmatterPanel />
-            </RightSidebar>
-          </ResizablePanel>
-        </ResizablePanelGroup>
+            <ResizableHandle
+              className={`!cursor-col-resize ${rightPanelShown ? '' : 'hidden'}`}
+            />
+            <ResizablePanel
+              id="right-sidebar"
+              panelRef={rightPanelRef}
+              collapsible
+              collapsedSize={0}
+              defaultSize={LAYOUT_SIZES.rightSidebar.default}
+              minSize={LAYOUT_SIZES.rightSidebar.min}
+              maxSize={LAYOUT_SIZES.rightSidebar.max}
+              onResize={handleRightPanelResize}
+            >
+              <RightSidebar>
+                <FrontmatterPanel />
+              </RightSidebar>
+            </ResizablePanel>
+          </ResizablePanelGroup>
+        </div>
       </div>
 
       {/* Floating components */}

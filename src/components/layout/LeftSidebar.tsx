@@ -690,7 +690,10 @@ export const LeftSidebar: React.FC = () => {
   const tab = toolsOn ? panelTab : 'files'
 
   return (
-    <div className="flex h-full flex-col border-r bg-background">
+    <div
+      className="flex h-full flex-col border-r bg-background"
+      data-left-sidebar
+    >
       {toolsOn && (
         <div
           role="tablist"

@@ -97,6 +97,11 @@ export const commands = {
 	 *  shows a "couldn't find that file" toast).
 	 */
 	resolveFileEntry: (filePath: string, projectPath: string, contentDirectory: string | null, collectionDirectories: { [key in string]: string } | null) => typedError<FileEntry | null, string>(__TAURI_INVOKE("resolve_file_entry", { filePath, projectPath, contentDirectory, collectionDirectories })),
+	/**
+	 *  The folder's real path, with links followed. Files found by `resolve_file_entry`
+	 *  carry real paths, so a project opened through a link needs this to be compared
+	 */
+	canonicalPath: (path: string) => typedError<string, string>(__TAURI_INVOKE("canonical_path", { path })),
 	loadFileBasedCollection: (projectPath: string, collectionName: string) => typedError<FileEntry[], string>(__TAURI_INVOKE("load_file_based_collection", { projectPath, collectionName })),
 	/**  Scan a single directory (non-recursive) for subdirectories and markdown/mdx files */
 	scanDirectory: (directoryPath: string, collectionName: string, collectionRoot: string) => typedError<DirectoryScanResult, string>(__TAURI_INVOKE("scan_directory", { directoryPath, collectionName, collectionRoot })),

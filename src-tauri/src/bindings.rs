@@ -55,6 +55,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::project::scan_project,
             crate::commands::project::scan_project_with_content_dir,
             crate::commands::project::resolve_file_entry,
+            crate::commands::project::canonical_path,
             crate::commands::project::load_file_based_collection,
             crate::commands::project::scan_directory,
             crate::commands::project::count_collection_files_recursive,

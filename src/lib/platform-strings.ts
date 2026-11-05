@@ -10,6 +10,16 @@ const platformStrings = {
     windows: 'Show in Explorer',
     linux: 'Show in File Manager',
   },
+  showInFileManager: {
+    macos: 'Show in Finder',
+    windows: 'Show in Explorer',
+    linux: 'Show in File Manager',
+  },
+  homeShortcut: {
+    macos: '⇧⌘H',
+    windows: 'Ctrl+Shift+H',
+    linux: 'Ctrl+Shift+H',
+  },
   fileManager: {
     macos: 'Finder',
     windows: 'Explorer',
