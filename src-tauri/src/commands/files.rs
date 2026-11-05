@@ -763,7 +763,7 @@ pub async fn write_app_data_file(
 
 /// Writes a file so that a crash or a full disk never leaves it half written: the new
 /// content goes to a hidden temporary file next to it, which then replaces it in one step.
-fn write_atomically(path: &Path, content: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_atomically(path: &Path, content: &[u8]) -> std::io::Result<()> {
     use std::io::Write;
     let name = path
         .file_name()

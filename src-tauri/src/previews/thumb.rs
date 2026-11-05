@@ -8,6 +8,12 @@ use std::io::Cursor;
 /// Previews are at most this wide, in pixels
 pub const MAX_WIDTH: u32 = 800;
 const JPEG_QUALITY: u8 = 82;
+/// Larger images aren't decoded: a share image is a few hundred kilobytes, and
+/// these keep a broken or hostile file from taking all the memory
+const MAX_SIDE: u32 = 8192;
+const MAX_DECODE_BYTES: u64 = 128 * 1024 * 1024;
+/// Share image files bigger than this aren't read at all
+pub const MAX_FILE_BYTES: u64 = 32 * 1024 * 1024;
 
 /// The size an image of `width` × `height` is shown at: at most `MAX_WIDTH`
 /// wide, the same shape, never enlarged
@@ -22,9 +28,15 @@ pub fn fitted_size(width: u32, height: u32) -> (u32, u32) {
 /// Decodes an image (PNG, JPEG or WebP, whatever its file name says) and
 /// returns it as a JPEG at most `MAX_WIDTH` wide
 pub fn thumbnail_jpeg(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let image = ImageReader::new(Cursor::new(bytes))
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_SIDE);
+    limits.max_image_height = Some(MAX_SIDE);
+    limits.max_alloc = Some(MAX_DECODE_BYTES);
+    let mut reader = ImageReader::new(Cursor::new(bytes))
         .with_guessed_format()
-        .map_err(|e| e.to_string())?
+        .map_err(|e| e.to_string())?;
+    reader.limits(limits);
+    let image = reader
         .decode()
         .map_err(|e| format!("Couldn't read the image: {e}"))?;
     encode(&image)
@@ -41,12 +53,26 @@ pub fn encode(image: &DynamicImage) -> Result<Vec<u8>, String> {
         &resized
     };
     let mut jpeg = Vec::new();
-    // JPEG has no alpha: flatten onto the RGB values as they are
-    let rgb = image.to_rgb8();
+    let rgb = on_white(image);
     image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, JPEG_QUALITY)
         .encode_image(&rgb)
         .map_err(|e| format!("Couldn't save the preview: {e}"))?;
     Ok(jpeg)
+}
+
+/// JPEG has no transparency: transparent parts are shown on white, as a page
+/// would show them
+fn on_white(image: &DynamicImage) -> image::RgbImage {
+    if !image.color().has_alpha() {
+        return image.to_rgb8();
+    }
+    let rgba = image.to_rgba8();
+    image::RgbImage::from_fn(rgba.width(), rgba.height(), |x, y| {
+        let [r, g, b, a] = rgba.get_pixel(x, y).0;
+        let blend =
+            |c: u8| ((u16::from(c) * u16::from(a) + 255 * (255 - u16::from(a)) + 127) / 255) as u8;
+        image::Rgb([blend(r), blend(g), blend(b)])
+    })
 }
 
 /// A `data:` URL for a JPEG
@@ -98,6 +124,40 @@ mod tests {
         }
         let small = thumbnail_jpeg(&image_bytes(400, 300, ImageFormat::Png)).unwrap();
         assert_eq!(size_of(&small), (400, 300));
+    }
+
+    #[test]
+    fn refuses_images_too_large_to_decode_safely() {
+        assert!(thumbnail_jpeg(&image_bytes(8193, 1, ImageFormat::Png)).is_err());
+        assert!(thumbnail_jpeg(&image_bytes(1, 8193, ImageFormat::Png)).is_err());
+        assert!(thumbnail_jpeg(&image_bytes(8192, 1, ImageFormat::Png)).is_ok());
+    }
+
+    #[test]
+    fn puts_transparent_images_on_white() {
+        let clear =
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(40, 20, image::Rgba([0, 0, 0, 0])));
+        let mut bytes = Cursor::new(Vec::new());
+        clear.write_to(&mut bytes, ImageFormat::Png).unwrap();
+        let jpeg = thumbnail_jpeg(&bytes.into_inner()).unwrap();
+        let pixel = image::load_from_memory(&jpeg)
+            .unwrap()
+            .to_rgb8()
+            .get_pixel(20, 10)
+            .0;
+        assert!(pixel.iter().all(|&c| c > 245), "{pixel:?}");
+
+        let half =
+            DynamicImage::ImageRgba8(RgbaImage::from_pixel(40, 20, image::Rgba([0, 0, 0, 128])));
+        let mut bytes = Cursor::new(Vec::new());
+        half.write_to(&mut bytes, ImageFormat::Png).unwrap();
+        let jpeg = thumbnail_jpeg(&bytes.into_inner()).unwrap();
+        let pixel = image::load_from_memory(&jpeg)
+            .unwrap()
+            .to_rgb8()
+            .get_pixel(20, 10)
+            .0;
+        assert!(pixel.iter().all(|&c| (115..=140).contains(&c)), "{pixel:?}");
     }
 
     #[test]

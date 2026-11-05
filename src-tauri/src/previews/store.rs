@@ -26,18 +26,13 @@ fn iso_time(time: SystemTime) -> String {
     chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
-/// Writes to a temporary file and renames it into place, so a preview is
-/// whole or absent
+/// Writes to a temporary file of its own and renames it into place, so a
+/// preview is whole or absent, even with two saves at once
 fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = path.parent().ok_or("no folder for the preview")?;
     fs::create_dir_all(dir).map_err(|e| format!("Couldn't save the preview: {e}"))?;
-    let name = path.file_name().ok_or("no name for the preview")?;
-    let temporary = dir.join(format!(".{}.tmp", name.to_string_lossy()));
-    fs::write(&temporary, bytes).map_err(|e| format!("Couldn't save the preview: {e}"))?;
-    fs::rename(&temporary, path).map_err(|e| {
-        let _ = fs::remove_file(&temporary);
-        format!("Couldn't save the preview: {e}")
-    })
+    crate::commands::files::write_atomically(path, bytes)
+        .map_err(|e| format!("Couldn't save the preview: {e}"))
 }
 
 impl Store {
@@ -82,6 +77,13 @@ impl Store {
     /// it has an ID. The cache is keyed by the image's modified time and size.
     pub fn share_thumbnail(&self, id: Option<&str>, source: &Path) -> Option<ProjectPreview> {
         let metadata = fs::metadata(source).ok()?;
+        if metadata.len() > thumb::MAX_FILE_BYTES {
+            log::warn!(
+                "Astro Editor [PREVIEWS] {} is too big to use",
+                source.display()
+            );
+            return None;
+        }
         let preview = |jpeg: &[u8]| ProjectPreview {
             kind: PreviewKind::ShareImage,
             src: thumb::data_url(jpeg),
@@ -276,6 +278,25 @@ mod tests {
     }
 
     #[test]
+    fn saves_at_the_same_time_never_clash() {
+        let f = fixture(&[]);
+        let contents: Vec<Vec<u8>> = (0..8u8).map(|n| vec![n; 2000 + usize::from(n) * 100]).collect();
+        std::thread::scope(|scope| {
+            for content in &contents {
+                let store = &f.store;
+                scope.spawn(move || {
+                    for _ in 0..40 {
+                        store.save_screenshot("blog", content).unwrap();
+                    }
+                });
+            }
+        });
+        let saved = fs::read(f.store_dir.join("blog.jpg")).unwrap();
+        assert!(contents.contains(&saved), "a whole file, not a mix");
+        assert_eq!(files(&f.store_dir), ["blog.jpg"], "no temporary files left");
+    }
+
+    #[test]
     fn refuses_ids_that_could_name_a_path() {
         let f = fixture(&[]);
         for id in ["", "../x", "a/b", "a.b"] {
@@ -334,6 +355,16 @@ mod tests {
         let source = f.site.join("public/og.png");
         fs::write(&source, png(100, 50)).unwrap();
         assert!(f.store.share_thumbnail(None, &source).is_some());
+        assert!(files(&f.store_dir).is_empty());
+    }
+
+    #[test]
+    fn a_huge_share_image_file_is_never_read() {
+        let f = fixture(&[]);
+        let source = f.site.join("public/og.png");
+        let file = fs::File::create(&source).unwrap();
+        file.set_len(thumb::MAX_FILE_BYTES + 1).unwrap();
+        assert_eq!(f.store.share_thumbnail(Some("blog"), &source), None);
         assert!(files(&f.store_dir).is_empty());
     }
 
