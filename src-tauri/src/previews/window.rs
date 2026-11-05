@@ -1,4 +1,5 @@
-//! The hidden window a screenshot is taken in. It loads one local page and
+//! The invisible window a screenshot is taken in (on screen, transparent and
+//! click-through; see `show_without_showing`). It loads one local page and
 //! nothing else: it has no capabilities (`capabilities/` names only `main`),
 //! the app's invoke handler refuses it (`lib.rs`), every request that isn't
 //! to the page's own `localhost` port is blocked before the page loads (so a
@@ -157,7 +158,7 @@ impl<R: Runtime> Drop for CloseOnDrop<R> {
     }
 }
 
-/// Loads `url` (a `http://localhost:<port>/` page) in a hidden window, waits
+/// Loads `url` (a `http://localhost:<port>/` page) in an invisible window, waits
 /// for it to load and settle, and returns a JPEG of it at most
 /// `thumb::MAX_WIDTH` wide. Blocks; never call it on the main thread.
 pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>, String> {
@@ -190,8 +191,8 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
         .skip_taskbar(true)
         .incognito(true)
         .initialization_script(HIDE_DEV_TOOLBAR)
-        // Keeps the page's timers and animations running while it's hidden,
-        // so intro animations finish
+        // Doesn't throttle the page before it's put on screen; on screen
+        // (`show_without_showing`) its animations run as they would for a reader
         .background_throttling(BackgroundThrottlingPolicy::Disabled)
         .on_navigation(move |to| {
             let allowed = to.origin() == origin || to.as_str() == "about:blank";

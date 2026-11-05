@@ -1,7 +1,7 @@
 //! Webview snapshots, for the site previews and the debug-only agent bridge.
 //!
 //! On macOS this uses `WKWebView.takeSnapshot`, which needs no Screen Recording
-//! permission, doesn't raise or focus the window, and works for a hidden one.
+//! permission, doesn't raise or focus the window, and works for a hidden or transparent one.
 //! It only captures the webview, so the vibrancy behind transparent areas comes
 //! out transparent. Never call it on the main thread: it waits for WebKit,
 //! which answers there.
