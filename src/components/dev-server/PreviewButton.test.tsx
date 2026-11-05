@@ -75,14 +75,36 @@ describe('PreviewButton', () => {
     expect(screen.queryByText('Server output')).toBeNull()
   })
 
-  it('says a preview is being taken while its own server runs, without Open site or Stop', async () => {
+  it('while a preview runs, offers Open site (which claims the server) and Stop', async () => {
     vi.spyOn(commands, 'devServerState').mockResolvedValue(
       state('running', true)
     )
+    const claim = vi
+      .spyOn(commands, 'devServerClaim')
+      .mockResolvedValue(state('running'))
+    const stop = vi
+      .spyOn(commands, 'devServerStop')
+      .mockResolvedValue(state('stopped'))
+    renderWithProviders(<PreviewButton />)
+    expect(await screen.findByText('Taking a preview…')).toBeTruthy()
+    fireEvent.click(screen.getByText('Open site'))
+    await waitFor(() => expect(claim).toHaveBeenCalledWith('/sites/kr'))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the preview' }))
+    await waitFor(() => expect(stop).toHaveBeenCalledWith('/sites/kr'))
+  })
+
+  it('while a preview installs or starts, Preview keeps the server for the writer', async () => {
+    vi.spyOn(commands, 'devServerState').mockResolvedValue(
+      state('installing', true)
+    )
+    const claim = vi
+      .spyOn(commands, 'devServerClaim')
+      .mockResolvedValue(state('installing'))
     renderWithProviders(<PreviewButton />)
     expect(await screen.findByText('Taking a preview…')).toBeTruthy()
     expect(screen.queryByText('Open site')).toBeNull()
-    expect(screen.queryByText('Stop')).toBeNull()
+    fireEvent.click(screen.getByText('Preview'))
+    await waitFor(() => expect(claim).toHaveBeenCalledWith('/sites/kr'))
   })
 
   it('claims the server when the site is opened, so a preview never stops it', async () => {

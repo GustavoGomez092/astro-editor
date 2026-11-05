@@ -23,12 +23,8 @@ pub trait CaptureEnv {
     /// Starts the project's server for the preview (`DevServers::start_for_preview`):
     /// the run it started, or `None` if one was already on its way
     fn start_server_for_preview(&self, project_path: &str) -> Option<u64>;
-    /// The preview's server becomes the writer's (`DevServers::claim`)
-    fn claim_server(&self, project_path: &str);
     /// Stops the server if it's still the preview's run (`DevServers::stop_preview`)
     fn stop_preview_server(&self, project_path: &str, run: u64);
-    /// Whether the project is open in the editor
-    fn project_open(&self, project_path: &str) -> bool;
     /// A JPEG of the page at `url`, at most 800 px wide
     fn snapshot(&self, url: &str) -> Result<Vec<u8>, String>;
     fn project_id(&self, project_path: &str) -> Option<String>;
@@ -133,13 +129,20 @@ fn ready_url(state: &DevServerState) -> Option<String> {
     }
 }
 
-/// Snapshots the page, stores it under the project's ID and tells the frontend
+/// Snapshots the page, stores it under the project's ID and tells the
+/// frontend. `None` when the writer stopped the server meanwhile: the
+/// capture ends quietly and the last preview stays.
 fn take_and_store(
     env: &impl CaptureEnv,
     project_path: &str,
     url: &str,
-) -> Result<ProjectPreview, String> {
-    let jpeg = env.snapshot(url)?;
+) -> Result<Option<ProjectPreview>, String> {
+    let snapshot = env.snapshot(url);
+    if env.server_state(project_path).status == DevServerStatus::Stopped {
+        log::info!("Astro Editor [PREVIEWS] The server was stopped; no preview of {project_path}");
+        return Ok(None);
+    }
+    let jpeg = snapshot?;
     // Looked up after the snapshot: a site just opened from GitHub is added
     // to the list while its server starts
     let id = env
@@ -147,16 +150,17 @@ fn take_and_store(
         .ok_or("This site isn't in your list of sites, so its preview can't be kept.")?;
     let preview = env.store().save_screenshot(&id, &jpeg)?;
     env.notify(project_path);
-    Ok(preview)
+    Ok(Some(preview))
 }
 
-/// Waits for the server to be ready and returns its page's URL
-fn wait_until_ready(env: &impl CaptureEnv, project_path: &str) -> Result<String, String> {
+/// Waits for the server to be ready and returns its page's URL; `None` if
+/// the writer stopped it meanwhile
+fn wait_until_ready(env: &impl CaptureEnv, project_path: &str) -> Result<Option<String>, String> {
     let deadline = Instant::now() + env.server_limit();
     loop {
         let state = env.server_state(project_path);
         if let Some(url) = ready_url(&state) {
-            return Ok(url);
+            return Ok(Some(url));
         }
         match state.status {
             DevServerStatus::Error => {
@@ -164,7 +168,7 @@ fn wait_until_ready(env: &impl CaptureEnv, project_path: &str) -> Result<String,
                 let first = why.lines().next().unwrap_or("it stopped");
                 return Err(format!("The site couldn't start: {first}"));
             }
-            DevServerStatus::Stopped => return Err("The site stopped before it was ready.".into()),
+            DevServerStatus::Stopped => return Ok(None),
             DevServerStatus::Running | DevServerStatus::External => {
                 return Err("The site isn't running on this computer's local address.".into())
             }
@@ -199,15 +203,17 @@ pub fn capture(
 
     let before = env.server_state(project_path);
     if let Some(url) = ready_url(&before) {
-        return take_and_store(env, project_path, &url).map(Some);
+        return take_and_store(env, project_path, &url);
     }
     if matches!(
         before.status,
         DevServerStatus::Installing | DevServerStatus::Starting
     ) {
         // The writer started it: wait for it, and leave it running
-        let url = wait_until_ready(env, project_path)?;
-        return take_and_store(env, project_path, &url).map(Some);
+        let Some(url) = wait_until_ready(env, project_path)? else {
+            return Ok(None);
+        };
+        return take_and_store(env, project_path, &url);
     }
 
     log::info!("Astro Editor [PREVIEWS] Starting {project_path} to take its preview");
@@ -219,13 +225,14 @@ pub fn capture(
             project_path,
             run,
         });
-    let url = wait_until_ready(env, project_path)?;
-    take_and_store(env, project_path, &url).map(Some)
+    let Some(url) = wait_until_ready(env, project_path)? else {
+        return Ok(None);
+    };
+    take_and_store(env, project_path, &url)
 }
 
-/// Hands back a server a capture started: it keeps running if the site is
-/// open in the editor (the writer is using it), and is stopped otherwise,
-/// unless the writer started or opened it meanwhile (`stop_preview_server`)
+/// Stops the server a capture started when the capture ends, however it
+/// ends, unless the writer claimed it meanwhile (`stop_preview_server`)
 struct Release<'a, E: CaptureEnv> {
     env: &'a E,
     project_path: &'a str,
@@ -234,11 +241,7 @@ struct Release<'a, E: CaptureEnv> {
 
 impl<E: CaptureEnv> Drop for Release<'_, E> {
     fn drop(&mut self) {
-        if self.env.project_open(self.project_path) {
-            self.env.claim_server(self.project_path);
-        } else {
-            self.env.stop_preview_server(self.project_path, self.run);
-        }
+        self.env.stop_preview_server(self.project_path, self.run);
     }
 }
 
@@ -261,7 +264,7 @@ pub fn capture_when_ready(
     if !guard.claim_automatic(project_path, env.store().taken_at(&id), now) {
         return None;
     }
-    Some(take_and_store(env, project_path, &url))
+    take_and_store(env, project_path, &url).transpose()
 }
 
 #[cfg(test)]
@@ -294,7 +297,6 @@ mod tests {
         after_start: RefCell<Vec<DevServerState>>,
         /// What `start_server_for_preview` returns: `None` when one was on its way
         starts: Option<u64>,
-        open: bool,
         snapshot: Result<Vec<u8>, String>,
         calls: RefCell<Vec<String>>,
     }
@@ -310,7 +312,6 @@ mod tests {
                 states: RefCell::new(states),
                 after_start: RefCell::new(Vec::new()),
                 starts: Some(7),
-                open: false,
                 snapshot: Ok(vec![0xff, 0xd8, 0xff]),
                 calls: RefCell::new(Vec::new()),
             }
@@ -341,14 +342,8 @@ mod tests {
             *self.states.borrow_mut() = next;
             self.starts
         }
-        fn claim_server(&self, _: &str) {
-            self.calls.borrow_mut().push("claim".into());
-        }
         fn stop_preview_server(&self, _: &str, run: u64) {
             self.calls.borrow_mut().push(format!("stop {run}"));
-        }
-        fn project_open(&self, _: &str) -> bool {
-            self.open
         }
         fn snapshot(&self, url: &str) -> Result<Vec<u8>, String> {
             self.calls.borrow_mut().push(format!("snapshot {url}"));
@@ -470,20 +465,36 @@ mod tests {
     }
 
     #[test]
-    fn keeps_the_server_running_when_the_site_is_open_in_the_editor() {
+    fn the_writer_stopping_its_server_while_it_starts_ends_quietly() {
         let guard = CaptureGuard::default();
-        let mut env = FakeEnv::new(vec![stopped()]);
-        env.open = true;
-        *env.after_start.borrow_mut() = vec![state(DevServerStatus::Running, Some(URL), Some(7))];
-        capture(&env, &guard, &env.project()).unwrap();
+        let env = FakeEnv::new(vec![stopped()]);
+        *env.after_start.borrow_mut() =
+            vec![state(DevServerStatus::Installing, None, Some(7)), stopped()];
+        assert_eq!(capture(&env, &guard, &env.project()), Ok(None));
+        assert_eq!(env.calls(), ["start", "stop 7"]);
+        assert!(env.store.screenshot("blog").is_none());
+    }
+
+    #[test]
+    fn the_writer_stopping_its_server_mid_picture_keeps_the_last_preview() {
+        let guard = CaptureGuard::default();
+        let env = FakeEnv::new(vec![stopped()]);
+        *env.after_start.borrow_mut() = vec![
+            state(DevServerStatus::Running, Some(URL), Some(7)),
+            stopped(),
+        ];
+        assert_eq!(capture(&env, &guard, &env.project()), Ok(None));
         assert_eq!(
             env.calls(),
             [
                 "start".to_string(),
                 format!("snapshot {URL}"),
-                "notify".into(),
-                "claim".into()
+                "stop 7".into()
             ]
+        );
+        assert!(
+            env.store.screenshot("blog").is_none(),
+            "nothing stored, no notify"
         );
     }
 
@@ -517,14 +528,8 @@ mod tests {
             fn start_server_for_preview(&self, p: &str) -> Option<u64> {
                 self.0.start_server_for_preview(p)
             }
-            fn claim_server(&self, p: &str) {
-                self.0.claim_server(p)
-            }
             fn stop_preview_server(&self, p: &str, run: u64) {
                 self.0.stop_preview_server(p, run)
-            }
-            fn project_open(&self, _: &str) -> bool {
-                false
             }
             fn snapshot(&self, _: &str) -> Result<Vec<u8>, String> {
                 panic!("WebKit went away")
@@ -629,7 +634,7 @@ mod tests {
     fn automatic_captures_wait_for_a_ready_server_and_a_free_guard() {
         let now = SystemTime::now();
         let guard = CaptureGuard::default();
-        let env = FakeEnv::new(vec![stopped()]);
+        let env = FakeEnv::new(vec![state(DevServerStatus::Running, Some(URL), Some(1))]);
         let project = env.project();
         let starting = state(DevServerStatus::Starting, None, Some(1));
         assert!(capture_when_ready(&env, &guard, &project, &starting, now).is_none());

@@ -54,32 +54,32 @@ impl DevServers {
     }
 
     /// The writer wants the server: a preview's server becomes an ordinary
-    /// one, which the preview won't stop
-    pub fn claim(&self, project_path: &str) {
+    /// one, which the preview won't stop. Returns whether it was the
+    /// preview's and now isn't; a server the preview has already decided to
+    /// stop can't be claimed (`stop_preview` decides under the same lock).
+    pub fn claim(&self, project_path: &str) -> bool {
         let Some(server) = self.server(project_path) else {
-            return;
+            return false;
         };
         let mut inner = lock(&server.inner);
-        if !inner.state.for_preview {
-            return;
+        if !inner.state.for_preview || inner.stop_requested || !inner.is_active() {
+            return false;
         }
         inner.state.for_preview = false;
         let state = inner.state.clone();
         drop(inner);
         (self.shared.listener)(project_path, &state);
+        true
     }
 
     /// Stops the server if it's still the preview's run `run`, nobody having
-    /// claimed it. Returns whether it stopped it.
+    /// claimed it, deciding under the lock a claim takes. Returns whether it
+    /// stopped it.
     pub fn stop_preview(&self, project_path: &str, run: u64) -> bool {
-        let ours = self.server(project_path).is_some_and(|server| {
-            let inner = lock(&server.inner);
-            inner.run == run && inner.state.for_preview
-        });
-        if ours {
-            self.stop(project_path);
-        }
-        ours
+        self.stop_if(project_path, |inner| {
+            inner.is_active() && inner.run == run && inner.state.for_preview
+        })
+        .is_some()
     }
 
     fn start_run(
@@ -320,29 +320,42 @@ impl DevServers {
     /// process group, then SIGKILL if it's still there after 3 seconds.
     /// Clears an error or an external server's state too.
     pub fn stop(&self, project_path: &str) -> DevServerState {
-        let Some(server) = self.server(project_path) else {
-            return DevServerState::stopped();
-        };
-        let listener = &self.shared.listener;
-
-        // A prepare's sync, whether or not a server is running beside it
-        let sync = lock(&server.inner).sync_pgid.take();
-        if let Some(pgid) = sync {
-            log::info!("Astro Editor [DEV_SERVER] Stopping `astro sync` in {project_path}");
-            terminate_group(&server, pgid);
+        if let Some(server) = self.server(project_path) {
+            // A prepare's sync, whether or not a server is running beside it
+            let sync = lock(&server.inner).sync_pgid.take();
+            if let Some(pgid) = sync {
+                log::info!("Astro Editor [DEV_SERVER] Stopping `astro sync` in {project_path}");
+                terminate_group(&server, pgid);
+            }
         }
+        self.stop_if(project_path, |_| true)
+            .unwrap_or_else(DevServerState::stopped)
+    }
+
+    /// Stops the server if `wanted` says so, asked under the lock that marks
+    /// it as stopping. `None` if it wasn't wanted (or there's no server).
+    fn stop_if(
+        &self,
+        project_path: &str,
+        wanted: impl FnOnce(&super::ServerInner) -> bool,
+    ) -> Option<DevServerState> {
+        let server = self.server(project_path)?;
+        let listener = &self.shared.listener;
 
         let (run, pgid) = {
             let mut inner = lock(&server.inner);
+            if !wanted(&inner) {
+                return None;
+            }
             if !inner.is_active() {
                 if inner.state.status == DevServerStatus::Stopped {
-                    return inner.state.clone();
+                    return Some(inner.state.clone());
                 }
                 inner.state = stopped_state(&inner.state);
                 let state = inner.state.clone();
                 drop(inner);
                 listener(project_path, &state);
-                return state;
+                return Some(state);
             }
             inner.stop_requested = true;
             (inner.run, inner.pgid)
@@ -360,9 +373,9 @@ impl DevServers {
             let state = inner.state.clone();
             drop(inner);
             listener(project_path, &state);
-            return state;
+            return Some(state);
         }
-        inner.state.clone()
+        Some(inner.state.clone())
     }
 
     /// Stops every project's server at once, for quitting
@@ -1169,6 +1182,33 @@ sleep 30",
         assert!(!fx.servers.stop_preview(fx.path(), run));
         assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
         fx.servers.stop(fx.path());
+    }
+
+    #[test]
+    fn a_claim_never_wins_a_server_that_is_then_stopped() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+        for _ in 0..5 {
+            let run = fx
+                .servers
+                .start_for_preview(fx.path(), Some(&command))
+                .unwrap();
+            fx.wait_for(DevServerStatus::Running);
+            let (claimed, stopped) = std::thread::scope(|scope| {
+                let claim = scope.spawn(|| fx.servers.claim(fx.path()));
+                let stop = scope.spawn(|| fx.servers.stop_preview(fx.path(), run));
+                (claim.join().unwrap(), stop.join().unwrap())
+            });
+            assert!(claimed != stopped, "exactly one wins");
+            let state = fx.servers.state(fx.path());
+            if claimed {
+                assert_eq!(state.status, DevServerStatus::Running);
+                assert!(!state.for_preview);
+            } else {
+                assert_eq!(state.status, DevServerStatus::Stopped);
+            }
+            fx.servers.stop(fx.path());
+        }
     }
 
     #[test]

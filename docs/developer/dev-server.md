@@ -23,7 +23,7 @@ The title bar's **Preview** control runs the project's dev server so a writer ca
 
 ## Servers started for a site preview
 
-A site preview (`docs/developer/site-previews.md`) may start a server to take its picture: `DevServers::start_for_preview` starts it like Preview does and marks the run `forPreview` in its state, and the preview stops it afterwards with `stop_preview`, which stops only that run and only while it's still marked. The writer starting it (`start` on a running preview server), opening the site (`devServerClaim`, which Open site calls first) or having the site open in the editor when the picture is taken makes it theirs (`claim` clears the mark and emits the state). Meanwhile the Preview control shows "Taking a preview…" instead of Open site and Stop.
+A site preview (`site-previews.md`) may start a server to take its picture: `DevServers::start_for_preview` starts it like Preview does and marks the run `forPreview` in its state, and the preview stops it when it's done with `stop_preview`, which stops only that run and only while it's still marked. The writer makes it theirs by claiming it: Preview or Open site in the Preview control (`devServerClaim`), or starting it (`start` on a running preview server). `claim` clears the mark and emits the state; it's refused once `stop_preview` has decided to stop the run, and both decide under the server's lock. While the mark is on, the Preview control shows "Taking a preview…" with Preview or Open site and a small Stop, which stops the server and cancels the preview. Having the site open in the editor doesn't keep the server.
 
 ## Ready, failed, already running
 

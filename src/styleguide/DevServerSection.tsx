@@ -36,6 +36,10 @@ const STATES: { label: string; state: DevServerState }[] = [
     },
   },
   {
+    label: 'Preview installing',
+    state: { ...base, status: 'installing', pid: 4242, forPreview: true },
+  },
+  {
     label: 'Taking a preview',
     state: {
       ...base,
@@ -78,6 +82,7 @@ export function DevServerSection() {
               onOutputOpenChange={noop}
               onStart={noop}
               onOpen={noop}
+              onClaim={noop}
               onStop={noop}
             />
           </div>

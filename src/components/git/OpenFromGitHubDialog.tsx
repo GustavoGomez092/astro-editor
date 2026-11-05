@@ -200,7 +200,8 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         }
         if (astro && prepared && !skipped) {
           // Its first preview for Home, taken in the background: Rust starts
-          // the dev server, takes the screenshot and stops it again
+          // the dev server, takes the screenshot and stops it again, unless
+          // the writer keeps it with Preview or Open site meanwhile
           void commands.captureProjectPreview(projectPath)
         }
         if (skipped) {

@@ -118,20 +118,10 @@ impl CaptureEnv for TauriEnv {
         servers.start_for_preview(project_path, command.as_deref())
     }
 
-    fn claim_server(&self, project_path: &str) {
-        if let Some(servers) = self.servers() {
-            servers.claim(project_path);
-        }
-    }
-
     fn stop_preview_server(&self, project_path: &str, run: u64) {
         if let Some(servers) = self.servers() {
             servers.stop_preview(project_path, run);
         }
-    }
-
-    fn project_open(&self, project_path: &str) -> bool {
-        crate::commands::watcher::is_watching(&self.app, project_path)
     }
 
     fn snapshot(&self, url: &str) -> Result<Vec<u8>, String> {

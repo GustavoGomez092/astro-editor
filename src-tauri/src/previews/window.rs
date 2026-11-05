@@ -156,7 +156,8 @@ pub fn forget_saved_state_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> 
                 .ok()
                 .and_then(|saved| without_saved_state(&saved))
             {
-                if let Err(e) = std::fs::write(&path, cleaned) {
+                if let Err(e) = crate::commands::files::write_atomically(&path, cleaned.as_bytes())
+                {
                     log::warn!(
                         "Astro Editor [PREVIEWS] Couldn't update {}: {e}",
                         path.display()
@@ -291,7 +292,12 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
             }
         }
     }
-    if page_state.error_overlay {
+    // Asked once more right before the picture, so it's never taken without
+    // having looked for an error overlay (the loop may have run out of time)
+    let left = deadline.saturating_duration_since(Instant::now());
+    let answer = snapshot::eval_text(&window.0, PAGE_STATE_JS, (left / 2).min(SNAPSHOT_TIMEOUT))
+        .map_err(|e| format!("Couldn't check the page: {e}"))?;
+    if page_state.error_overlay || PageState::parse(&answer).error_overlay {
         return Err("The site shows an error, so the last preview was kept.".into());
     }
 

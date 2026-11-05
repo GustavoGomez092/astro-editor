@@ -13,6 +13,7 @@ import {
   EXTERNAL_LABEL,
   isBusy,
   openSiteInBrowser,
+  claimDevServer,
   previewTitle,
   startDevServer,
   statusLabel,
@@ -58,6 +59,7 @@ export const PreviewButton: React.FC = () => {
       onOutputOpenChange={setOutputOpen}
       onStart={() => void startDevServer(activePath)}
       onOpen={url => void openSiteInBrowser(activePath, url)}
+      onClaim={() => void claimDevServer(activePath)}
       onStop={() => {
         if (state.status === 'external') {
           toast.info('This server was started in another window or terminal', {
@@ -78,6 +80,7 @@ interface PreviewControlProps {
   onOutputOpenChange: (open: boolean) => void
   onStart: () => void
   onOpen: (url: string) => void
+  onClaim: () => void
   onStop: () => void
 }
 
@@ -89,11 +92,13 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
   onOutputOpenChange,
   onStart,
   onOpen,
+  onClaim,
   onStop,
 }) => {
   const { status } = state
-  // Started to take a site preview, which stops it again: not the writer's to
-  // open or stop until it's done (Rust hands it over if the writer starts it)
+  // Started to take a site preview, which stops it again when the picture is
+  // taken. Preview or Open site makes it the writer's (onClaim); Stop cancels
+  // the preview, which keeps its last picture
   const previewing =
     state.forPreview === true && status !== 'stopped' && status !== 'error'
   const running = !previewing && (status === 'running' || status === 'external')
@@ -145,13 +150,49 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
       )}
 
       {previewing && (
-        <span
-          className="flex h-7 items-center gap-1.5 px-2 text-xs text-muted-foreground"
-          title="The site is running so its picture for Home can be taken. It stops again when that's done."
-        >
-          <Spinner className="size-4" />
-          Taking a preview…
-        </span>
+        <>
+          <span
+            className="flex h-7 items-center gap-1.5 px-2 text-xs text-muted-foreground"
+            title="The site is running so its picture for Home can be taken. It stops again when that's done."
+          >
+            <Spinner className="size-4" />
+            Taking a preview…
+          </span>
+          {status === 'running' || status === 'external' ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconButton}
+              title="Open the site and keep it running"
+              disabled={!state.url}
+              onClick={() => state.url && onOpen(state.url)}
+            >
+              <ExternalLink className="size-4" />
+              Open site
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconButton}
+              title="Keep the site running when the preview is taken"
+              onClick={onClaim}
+            >
+              <Play className="size-4" />
+              Preview
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="size-7 p-0 text-icon"
+            title="Stop the preview"
+            aria-label="Stop the preview"
+            onClick={onStop}
+          >
+            <Square className="size-3.5" />
+          </Button>
+        </>
       )}
 
       {!previewing && isBusy(status) && (
