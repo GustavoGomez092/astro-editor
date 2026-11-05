@@ -9,7 +9,9 @@
 use std::time::Duration;
 use tauri::{Runtime, WebviewWindow};
 
-/// A PNG of the webview and its size in pixels
+/// A PNG of the webview and its size in pixels. Only the debug-only agent
+/// bridge reads the size.
+#[cfg_attr(not(debug_assertions), allow(dead_code))]
 pub struct Snapshot {
     pub png: Vec<u8>,
     pub width: isize,

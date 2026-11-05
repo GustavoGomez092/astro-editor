@@ -433,6 +433,7 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
 /// port on `localhost` (its scripts, styles, images and live-reload socket)
 /// and inline `data:`, `blob:` and `about:` URLs. WebKit's URL filters have no
 /// alternation, so each allowed kind is its own rule.
+#[cfg(any(target_os = "macos", test))]
 pub fn request_rules(port: u16) -> String {
     let allow = |filter: String| serde_json::json!({ "trigger": { "url-filter": filter }, "action": { "type": "ignore-previous-rules" } });
     serde_json::json!([
