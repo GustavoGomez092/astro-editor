@@ -40,6 +40,29 @@ export async function stopDevServer(projectPath: string): Promise<void> {
   })
 }
 
+/**
+ * Keeps a server that was started for a site preview: it becomes an ordinary
+ * one, which the preview won't stop.
+ */
+export async function claimDevServer(projectPath: string): Promise<void> {
+  await commands.devServerClaim(projectPath)
+  await queryClient.invalidateQueries({
+    queryKey: queryKeys.devServer(projectPath),
+  })
+}
+
+/**
+ * Opens the site in the browser. The writer is using the server now, so a
+ * server started for a site preview is handed over first and keeps running.
+ */
+export async function openSiteInBrowser(
+  projectPath: string,
+  url: string
+): Promise<void> {
+  await claimDevServer(projectPath)
+  openInBrowser(url)
+}
+
 /** Opens a URL in the default browser */
 export function openInBrowser(url: string): void {
   void openUrl(url).catch((error: unknown) => {

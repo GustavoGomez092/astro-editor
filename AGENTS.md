@@ -124,6 +124,7 @@ In `docs/developer/`. Read the ones for the area you're working in.
 - `releases.md`: cutting a release, hotfixes, test builds, CI, updates and signing
 - `agent-tooling.md`: the dev identity, agent bridge, styleguide and logs
 - `dev-server.md`: the optional Preview control: running, watching and stopping a project's dev server
+- `site-previews.md`: the Home screen's site pictures: screenshots in a hidden window, share images, storage and when they're taken
 - `git-and-github.md`: the git and GitHub engine behind the Git panel: modules, safety rules, sign-in and the token
 - `git-panel.md`: the optional publishing tools' frontend: the Changes tab, Publish, History, GitHub sign-in, Open from GitHub
 

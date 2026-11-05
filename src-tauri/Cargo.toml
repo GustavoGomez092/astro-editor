@@ -48,6 +48,13 @@ indexmap = { version = "2", features = ["serde"] }
 pathdiff = "0.2"
 reqwest = { version = "0.13", features = ["json", "form"] }
 uuid = { version = "1.23", features = ["v4"] }
+# Site previews (src/previews): reading share images and making the small JPEGs
+image = { version = "0.25", default-features = false, features = [
+  "jpeg",
+  "png",
+  "webp",
+] }
+base64 = "0.22"
 tauri-plugin-os = "2.3.2"
 tauri-plugin-window-state = "2"
 tauri-plugin-deep-link = "2"
@@ -74,7 +81,7 @@ keyring = { version = "3", features = [
   "linux-native",
 ] }
 
-# Native WKWebView snapshots for the agent bridge, and the app delegate hook
+# Native WKWebView snapshots for the site previews and the agent bridge, and the app delegate hook
 # that saves before quitting (commands/quit.rs)
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6"
@@ -86,6 +93,7 @@ objc2-foundation = { version = "0.3", default-features = false, features = [
   "NSDictionary",
   "NSError",
   "NSString",
+  "NSValue",
 ] }
 objc2-app-kit = { version = "0.3", default-features = false, features = [
   "std",
@@ -94,6 +102,7 @@ objc2-app-kit = { version = "0.3", default-features = false, features = [
   "NSImage",
   "NSImageRep",
   "NSBitmapImageRep",
+  "NSWindow",
 ] }
 objc2-web-kit = { version = "0.3", default-features = false, features = [
   "std",
@@ -101,6 +110,10 @@ objc2-web-kit = { version = "0.3", default-features = false, features = [
   "objc2-app-kit",
   "WKWebView",
   "WKSnapshotConfiguration",
+  "WKContentRuleList",
+  "WKContentRuleListStore",
+  "WKUserContentController",
+  "WKWebViewConfiguration",
 ] }
 
 # Signals the dev server's process group (dev_server/process.rs)

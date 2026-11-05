@@ -111,3 +111,15 @@ pub async fn dev_server_logs(
 ) -> Result<Vec<String>, String> {
     Ok(servers.logs(&project_path))
 }
+
+/// The writer is using the server (Open site): a server started for a site
+/// preview becomes an ordinary one, which the preview won't stop
+#[tauri::command]
+#[specta::specta]
+pub async fn dev_server_claim(
+    servers: State<'_, DevServers>,
+    project_path: String,
+) -> Result<DevServerState, String> {
+    servers.claim(&project_path);
+    Ok(servers.state(&project_path))
+}

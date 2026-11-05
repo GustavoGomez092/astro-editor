@@ -6,9 +6,13 @@ import { useProjectStore } from '../../store/projectStore'
 import { DEFAULT_GLOBAL_SETTINGS } from '../../lib/project-registry/defaults'
 import { PreviewButton } from './PreviewButton'
 
+vi.mock('@tauri-apps/plugin-opener', () => ({
+  openUrl: vi.fn(() => Promise.resolve()),
+}))
+
 vi.unmock('../../lib/project-registry/defaults')
 
-const state = (status: DevServerState['status']) => ({
+const state = (status: DevServerState['status'], forPreview = false) => ({
   status: 'ok' as const,
   data: {
     status,
@@ -16,6 +20,7 @@ const state = (status: DevServerState['status']) => ({
     command: 'npm run dev',
     pid: null,
     error: null,
+    forPreview,
   },
 })
 
@@ -68,6 +73,48 @@ describe('PreviewButton', () => {
     await emitStateChange()
     await screen.findByText('Starting…')
     expect(screen.queryByText('Server output')).toBeNull()
+  })
+
+  it('while a preview runs, offers Open site (which claims the server) and Stop', async () => {
+    vi.spyOn(commands, 'devServerState').mockResolvedValue(
+      state('running', true)
+    )
+    const claim = vi
+      .spyOn(commands, 'devServerClaim')
+      .mockResolvedValue(state('running'))
+    const stop = vi
+      .spyOn(commands, 'devServerStop')
+      .mockResolvedValue(state('stopped'))
+    renderWithProviders(<PreviewButton />)
+    expect(await screen.findByText('Taking a preview…')).toBeTruthy()
+    fireEvent.click(screen.getByText('Open site'))
+    await waitFor(() => expect(claim).toHaveBeenCalledWith('/sites/kr'))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop the preview' }))
+    await waitFor(() => expect(stop).toHaveBeenCalledWith('/sites/kr'))
+  })
+
+  it('while a preview installs or starts, Preview keeps the server for the writer', async () => {
+    vi.spyOn(commands, 'devServerState').mockResolvedValue(
+      state('installing', true)
+    )
+    const claim = vi
+      .spyOn(commands, 'devServerClaim')
+      .mockResolvedValue(state('installing'))
+    renderWithProviders(<PreviewButton />)
+    expect(await screen.findByText('Taking a preview…')).toBeTruthy()
+    expect(screen.queryByText('Open site')).toBeNull()
+    fireEvent.click(screen.getByText('Preview'))
+    await waitFor(() => expect(claim).toHaveBeenCalledWith('/sites/kr'))
+  })
+
+  it('claims the server when the site is opened, so a preview never stops it', async () => {
+    vi.spyOn(commands, 'devServerState').mockResolvedValue(state('running'))
+    const claim = vi
+      .spyOn(commands, 'devServerClaim')
+      .mockResolvedValue(state('running'))
+    renderWithProviders(<PreviewButton />)
+    fireEvent.click(await screen.findByText('Open site'))
+    await waitFor(() => expect(claim).toHaveBeenCalledWith('/sites/kr'))
   })
 
   it('is hidden while the preview tools are off', () => {

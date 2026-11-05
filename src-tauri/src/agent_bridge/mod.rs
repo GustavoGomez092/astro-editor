@@ -9,8 +9,6 @@
 //! navigation). App-specific actions live in the frontend and are reached
 //! through `/eval`.
 
-mod snapshot;
-
 use serde::Deserialize;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -149,7 +147,7 @@ fn route(app: &AppHandle, method: &Method, url: &str, body: &str) -> Result<Valu
         }
         (Method::Post, "/snapshot") => {
             let req: SnapshotRequest = parse(body)?;
-            let (width, height) = snapshot::capture(&window, &req.path)?;
+            let (width, height) = capture(&window, &req.path)?;
             Ok(json!({ "path": req.path, "width": width, "height": height }))
         }
         (Method::Get, "/window") => window_info(&window),
@@ -273,4 +271,17 @@ fn eval_sync(window: &WebviewWindow, js: &str) -> Result<Value, String> {
         return Ok(Value::Null);
     }
     serde_json::from_str(&json).map_err(|e| format!("couldn't parse eval result: {e}"))
+}
+
+/// Writes a PNG of the webview to `path` and returns its size in pixels
+fn capture(
+    window: &tauri::WebviewWindow,
+    path: &std::path::Path,
+) -> Result<(isize, isize), String> {
+    let shot = crate::snapshot::take(window, None, std::time::Duration::from_secs(10))?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    }
+    std::fs::write(path, shot.png).map_err(|e| e.to_string())?;
+    Ok((shot.width, shot.height))
 }

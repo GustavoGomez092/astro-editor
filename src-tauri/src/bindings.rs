@@ -94,6 +94,7 @@ pub fn generate_bindings() -> Builder<tauri::Wry> {
             crate::commands::dev_server::dev_server_state,
             crate::commands::dev_server::dev_server_logs,
             crate::commands::dev_server::dev_server_prepare,
+            crate::commands::dev_server::dev_server_claim,
             // git.rs commands
             crate::commands::git::git_status,
             crate::commands::git::git_file_diff,

@@ -12,6 +12,7 @@ mod models;
 mod parser;
 mod previews;
 mod schema_merger;
+mod snapshot;
 // Fork: kept for upstream merges but never called (telemetry is disabled).
 #[allow(dead_code)]
 mod telemetry;
@@ -111,7 +112,15 @@ pub fn run() {
                 .build()
         })
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Before the window-state plugin, which reads its file when set up
+        .plugin(previews::window::forget_saved_state_plugin())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                // The capture window must never come back from a saved state
+                // (shown, white, taking focus) after quitting mid-capture
+                .with_denylist(&[previews::window::LABEL])
+                .build(),
+        )
         .manage(commands::watcher::init_watcher_state())
         .manage(commands::grammar::GrammarState::default())
         .setup(|app| {
@@ -148,10 +157,14 @@ pub fn run() {
             // Dev servers report each state change to the frontend
             let event_handle = app.handle().clone();
             app.manage(dev_server::DevServers::new(std::sync::Arc::new(
-                move |_project_path, state| {
+                move |project_path, state| {
                     let _ = event_handle.emit(commands::dev_server::STATE_EVENT, state);
+                    // A server that's ready gets its site's preview taken
+                    previews::on_server_state(&event_handle, project_path, state);
                 },
             )));
+            app.manage(previews::capture::CaptureGuard::default());
+            previews::prune_in_background(app.handle());
 
             // Fix PATH environment variable for production builds
             // This ensures shell commands can find executables like 'code', 'cursor', etc.
@@ -454,7 +467,18 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(builder.invoke_handler())
+        .invoke_handler({
+            let handler = builder.invoke_handler();
+            move |invoke| {
+                // The site preview window shows a local site, which must never
+                // reach the app's commands
+                if invoke.message.webview_ref().label() == previews::window::LABEL {
+                    invoke.resolver.reject("Not allowed");
+                    return true;
+                }
+                handler(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {
@@ -481,10 +505,13 @@ pub fn run() {
             }
             // macOS: Reopen window when dock icon is clicked
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen {
-                has_visible_windows,
-                ..
-            } if !has_visible_windows => {
+            // The main window's own visibility, not `has_visible_windows`: the
+            // site preview's capture window is on screen (invisibly) while it works
+            tauri::RunEvent::Reopen { .. }
+                if !app_handle
+                    .get_webview_window("main")
+                    .is_some_and(|window| window.is_visible().unwrap_or(false)) =>
+            {
                 if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.show();
                     // The window-state plugin only restores at startup, so restore

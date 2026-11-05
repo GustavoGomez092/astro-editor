@@ -34,6 +34,10 @@ pub struct DevServerState {
     pub command: Option<String>,
     pub pid: Option<u32>,
     pub error: Option<String>,
+    /// Started to take a site preview (`crate::previews`), which stops it again
+    /// once the picture is taken, unless the writer starts or opens it meanwhile
+    #[serde(default)]
+    pub for_preview: bool,
 }
 
 impl DevServerState {
@@ -44,6 +48,7 @@ impl DevServerState {
             command: None,
             pid: None,
             error: None,
+            for_preview: false,
         }
     }
 }

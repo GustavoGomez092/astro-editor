@@ -12,7 +12,8 @@ import { toast } from '../../lib/toast'
 import {
   EXTERNAL_LABEL,
   isBusy,
-  openInBrowser,
+  openSiteInBrowser,
+  claimDevServer,
   previewTitle,
   startDevServer,
   statusLabel,
@@ -57,6 +58,8 @@ export const PreviewButton: React.FC = () => {
       outputOpen={outputOpen}
       onOutputOpenChange={setOutputOpen}
       onStart={() => void startDevServer(activePath)}
+      onOpen={url => void openSiteInBrowser(activePath, url)}
+      onClaim={() => void claimDevServer(activePath)}
       onStop={() => {
         if (state.status === 'external') {
           toast.info('This server was started in another window or terminal', {
@@ -76,6 +79,8 @@ interface PreviewControlProps {
   outputOpen: boolean
   onOutputOpenChange: (open: boolean) => void
   onStart: () => void
+  onOpen: (url: string) => void
+  onClaim: () => void
   onStop: () => void
 }
 
@@ -86,10 +91,17 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
   outputOpen,
   onOutputOpenChange,
   onStart,
+  onOpen,
+  onClaim,
   onStop,
 }) => {
   const { status } = state
-  const running = status === 'running' || status === 'external'
+  // Started to take a site preview, which stops it again when the picture is
+  // taken. Preview or Open site makes it the writer's (onClaim); Stop cancels
+  // the preview, which keeps its last picture
+  const previewing =
+    state.forPreview === true && status !== 'stopped' && status !== 'error'
+  const running = !previewing && (status === 'running' || status === 'external')
 
   return (
     <div className="flex items-center gap-1" data-tauri-drag-region>
@@ -137,7 +149,53 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
         </Button>
       )}
 
-      {isBusy(status) && (
+      {previewing && (
+        <>
+          <span
+            className="flex h-7 items-center gap-1.5 px-2 text-xs text-muted-foreground"
+            title="The site is running so its picture for Home can be taken. It stops again when that's done."
+          >
+            <Spinner className="size-4" />
+            Taking a preview…
+          </span>
+          {status === 'running' || status === 'external' ? (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconButton}
+              title="Open the site and keep it running"
+              disabled={!state.url}
+              onClick={() => state.url && onOpen(state.url)}
+            >
+              <ExternalLink className="size-4" />
+              Open site
+            </Button>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconButton}
+              title="Keep the site running when the preview is taken"
+              onClick={onClaim}
+            >
+              <Play className="size-4" />
+              Preview
+            </Button>
+          )}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="size-7 p-0 text-icon"
+            title="Stop the preview"
+            aria-label="Stop the preview"
+            onClick={onStop}
+          >
+            <Square className="size-3.5" />
+          </Button>
+        </>
+      )}
+
+      {!previewing && isBusy(status) && (
         <>
           <span className="flex h-7 items-center gap-1.5 px-2 text-xs text-muted-foreground">
             <Spinner className="size-4" />
@@ -164,7 +222,7 @@ export const PreviewControl: React.FC<PreviewControlProps> = ({
             className={cn(iconButton, 'h-full rounded-r-none')}
             title={state.url ?? undefined}
             disabled={!state.url}
-            onClick={() => state.url && openInBrowser(state.url)}
+            onClick={() => state.url && onOpen(state.url)}
           >
             <ExternalLink className="size-4" />
             Open site

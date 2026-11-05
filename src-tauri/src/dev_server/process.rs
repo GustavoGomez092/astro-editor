@@ -38,6 +38,56 @@ impl DevServers {
     /// missing or out of date). Returns the new state at once; a server that's
     /// already installing, starting or running is left alone.
     pub fn start(&self, project_path: &str, override_command: Option<&str>) -> DevServerState {
+        self.start_run(project_path, override_command, false).0
+    }
+
+    /// Starts the project's server to take a site preview: its state says so
+    /// (`for_preview`) for the whole run. Returns the run it started, or `None`
+    /// if a server was already installing, starting or running (then it's
+    /// left alone and isn't the preview's).
+    pub fn start_for_preview(
+        &self,
+        project_path: &str,
+        override_command: Option<&str>,
+    ) -> Option<u64> {
+        self.start_run(project_path, override_command, true).1
+    }
+
+    /// The writer wants the server: a preview's server becomes an ordinary
+    /// one, which the preview won't stop. Returns whether it was the
+    /// preview's and now isn't; a server the preview has already decided to
+    /// stop can't be claimed (`stop_preview` decides under the same lock).
+    pub fn claim(&self, project_path: &str) -> bool {
+        let Some(server) = self.server(project_path) else {
+            return false;
+        };
+        let mut inner = lock(&server.inner);
+        if !inner.state.for_preview || inner.stop_requested || !inner.is_active() {
+            return false;
+        }
+        inner.state.for_preview = false;
+        let state = inner.state.clone();
+        drop(inner);
+        (self.shared.listener)(project_path, &state);
+        true
+    }
+
+    /// Stops the server if it's still the preview's run `run`, nobody having
+    /// claimed it, deciding under the lock a claim takes. Returns whether it
+    /// stopped it.
+    pub fn stop_preview(&self, project_path: &str, run: u64) -> bool {
+        self.stop_if(project_path, |inner| {
+            inner.is_active() && inner.run == run && inner.state.for_preview
+        })
+        .is_some()
+    }
+
+    fn start_run(
+        &self,
+        project_path: &str,
+        override_command: Option<&str>,
+        for_preview: bool,
+    ) -> (DevServerState, Option<u64>) {
         let server = self
             .shared
             .servers
@@ -51,7 +101,13 @@ impl DevServers {
 
         let mut inner = lock(&server.inner);
         if inner.is_active() {
-            return inner.state.clone();
+            if !for_preview && inner.state.for_preview {
+                // The writer started it too: it's theirs now
+                drop(inner);
+                self.claim(project_path);
+                return (self.state(project_path), None);
+            }
+            return (inner.state.clone(), None);
         }
         inner.run += 1;
         inner.stop_requested = false;
@@ -89,6 +145,7 @@ impl DevServers {
                             command: Some(command.clone()),
                             pid: Some(pid),
                             error: None,
+                            for_preview,
                         };
                         let monitor = Monitor {
                             server: server.clone(),
@@ -106,9 +163,10 @@ impl DevServers {
             }
         }
         let state = inner.state.clone();
+        let run = inner.is_active().then_some(inner.run);
         drop(inner);
         listener(project_path, &state);
-        state
+        (state, run)
     }
 
     /// Gets a project ready to edit: installs dependencies if they're missing or
@@ -262,29 +320,42 @@ impl DevServers {
     /// process group, then SIGKILL if it's still there after 3 seconds.
     /// Clears an error or an external server's state too.
     pub fn stop(&self, project_path: &str) -> DevServerState {
-        let Some(server) = self.server(project_path) else {
-            return DevServerState::stopped();
-        };
-        let listener = &self.shared.listener;
-
-        // A prepare's sync, whether or not a server is running beside it
-        let sync = lock(&server.inner).sync_pgid.take();
-        if let Some(pgid) = sync {
-            log::info!("Astro Editor [DEV_SERVER] Stopping `astro sync` in {project_path}");
-            terminate_group(&server, pgid);
+        if let Some(server) = self.server(project_path) {
+            // A prepare's sync, whether or not a server is running beside it
+            let sync = lock(&server.inner).sync_pgid.take();
+            if let Some(pgid) = sync {
+                log::info!("Astro Editor [DEV_SERVER] Stopping `astro sync` in {project_path}");
+                terminate_group(&server, pgid);
+            }
         }
+        self.stop_if(project_path, |_| true)
+            .unwrap_or_else(DevServerState::stopped)
+    }
+
+    /// Stops the server if `wanted` says so, asked under the lock that marks
+    /// it as stopping. `None` if it wasn't wanted (or there's no server).
+    fn stop_if(
+        &self,
+        project_path: &str,
+        wanted: impl FnOnce(&super::ServerInner) -> bool,
+    ) -> Option<DevServerState> {
+        let server = self.server(project_path)?;
+        let listener = &self.shared.listener;
 
         let (run, pgid) = {
             let mut inner = lock(&server.inner);
+            if !wanted(&inner) {
+                return None;
+            }
             if !inner.is_active() {
                 if inner.state.status == DevServerStatus::Stopped {
-                    return inner.state.clone();
+                    return Some(inner.state.clone());
                 }
                 inner.state = stopped_state(&inner.state);
                 let state = inner.state.clone();
                 drop(inner);
                 listener(project_path, &state);
-                return state;
+                return Some(state);
             }
             inner.stop_requested = true;
             (inner.run, inner.pgid)
@@ -302,9 +373,9 @@ impl DevServers {
             let state = inner.state.clone();
             drop(inner);
             listener(project_path, &state);
-            return state;
+            return Some(state);
         }
-        inner.state.clone()
+        Some(inner.state.clone())
     }
 
     /// Stops every project's server at once, for quitting
@@ -1027,6 +1098,117 @@ sleep 30",
         assert_eq!(stopped.status, DevServerStatus::Stopped);
         assert_eq!(stopped.url, None);
         assert_eq!(stopped.pid, None);
+    }
+
+    fn quick_server(fx: &Fixture) -> String {
+        fx.script("server.sh", "echo http://localhost:4321/\nsleep 30")
+    }
+
+    #[test]
+    fn a_preview_start_is_marked_and_stopped_only_while_its_own() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        assert!(fx.servers.state(fx.path()).for_preview);
+        let running = fx.wait_for(DevServerStatus::Running);
+        assert!(running.for_preview, "the flag lasts the whole run");
+        assert!(fx.states.lock().unwrap().iter().all(|s| s.for_preview));
+
+        assert!(fx.servers.stop_preview(fx.path(), run));
+        let stopped = fx.servers.state(fx.path());
+        assert_eq!(stopped.status, DevServerStatus::Stopped);
+        assert!(!stopped.for_preview);
+    }
+
+    #[test]
+    fn a_preview_start_leaves_a_running_server_alone() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        assert_eq!(
+            fx.servers.start_for_preview(fx.path(), Some(&command)),
+            None
+        );
+        assert!(!fx.servers.state(fx.path()).for_preview);
+        fx.servers.stop(fx.path());
+    }
+
+    #[test]
+    fn the_writer_starting_or_claiming_a_preview_server_keeps_it_running() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+
+        // Start on the preview's running server: the writer's now
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        fx.wait_for(DevServerStatus::Running);
+        let after_start = fx.start(Some(&command));
+        assert!(!after_start.for_preview);
+        assert!(
+            !fx.states.lock().unwrap().last().unwrap().for_preview,
+            "announced"
+        );
+        assert!(!fx.servers.stop_preview(fx.path(), run));
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+        fx.servers.stop(fx.path());
+
+        // Claimed (Open site, or the site is open in the editor)
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        fx.wait_for(DevServerStatus::Running);
+        fx.servers.claim(fx.path());
+        assert!(!fx.servers.state(fx.path()).for_preview);
+        assert!(!fx.servers.stop_preview(fx.path(), run));
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+        fx.servers.stop(fx.path());
+
+        // Stopped and started again by the writer: a newer run
+        let run = fx
+            .servers
+            .start_for_preview(fx.path(), Some(&command))
+            .unwrap();
+        fx.wait_for(DevServerStatus::Running);
+        fx.servers.stop(fx.path());
+        fx.start(Some(&command));
+        fx.wait_for(DevServerStatus::Running);
+        assert!(!fx.servers.stop_preview(fx.path(), run));
+        assert_eq!(fx.servers.state(fx.path()).status, DevServerStatus::Running);
+        fx.servers.stop(fx.path());
+    }
+
+    #[test]
+    fn a_claim_never_wins_a_server_that_is_then_stopped() {
+        let fx = Fixture::new(None);
+        let command = quick_server(&fx);
+        for _ in 0..5 {
+            let run = fx
+                .servers
+                .start_for_preview(fx.path(), Some(&command))
+                .unwrap();
+            fx.wait_for(DevServerStatus::Running);
+            let (claimed, stopped) = std::thread::scope(|scope| {
+                let claim = scope.spawn(|| fx.servers.claim(fx.path()));
+                let stop = scope.spawn(|| fx.servers.stop_preview(fx.path(), run));
+                (claim.join().unwrap(), stop.join().unwrap())
+            });
+            assert!(claimed != stopped, "exactly one wins");
+            let state = fx.servers.state(fx.path());
+            if claimed {
+                assert_eq!(state.status, DevServerStatus::Running);
+                assert!(!state.for_preview);
+            } else {
+                assert_eq!(state.status, DevServerStatus::Stopped);
+            }
+            fx.servers.stop(fx.path());
+        }
     }
 
     #[test]

@@ -4,7 +4,7 @@ The title bar's **Preview** control runs the project's dev server so a writer ca
 
 ## How it fits together
 
-- **Rust (`src-tauri/src/dev_server/`)** owns the processes. `detect.rs` works out what to run and reads the output; `process.rs` starts and stops servers; `mod.rs` holds the types and `DevServers`, the managed state with one server per project path. The commands are in `commands/dev_server.rs`: `devServerStart`, `devServerStop`, `devServerState`, `devServerLogs` and `devServerPrepare`, all taking the project path.
+- **Rust (`src-tauri/src/dev_server/`)** owns the processes. `detect.rs` works out what to run and reads the output; `process.rs` starts and stops servers; `mod.rs` holds the types and `DevServers`, the managed state with one server per project path. The commands are in `commands/dev_server.rs`: `devServerStart`, `devServerStop`, `devServerState`, `devServerLogs`, `devServerPrepare` and `devServerClaim`, all taking the project path.
 - **Every state change emits `dev-server-state`** with the new `DevServerState`. `useDevServer` treats the event as a signal and reads the state again for the open project, so a late event from the previous project's server can't show up in the title bar.
 - **The UI** is `components/dev-server/`: `PreviewButton` (connected to the stores and queries) renders `PreviewControl` (one state, no stores, which the styleguide's `dev-server` section shows in every state) and `DevServerOutput` (the output popover). The actions and the text helpers are plain functions in `lib/dev-server/`.
 
@@ -20,6 +20,10 @@ The title bar's **Preview** control runs the project's dev server so a writer ca
 ## Preparing a project
 
 `devServerPrepare` gets a freshly cloned or opened project ready to edit without starting a server: it installs dependencies when they're needed (status `installing`, stoppable like a start's install), then runs `astro sync` through the package manager (`npx astro sync`, `pnpm exec astro sync`, `yarn astro sync`, `bunx astro sync`) with the same `PATH` and cleaned environment, which writes the collection schemas into `.astro/` so the frontmatter forms have them. It blocks until done and returns `stopped` (clearing an earlier error), or `error` with a plain first line and the last output lines (stored, so the Preview control shows it; Start is available again). With a server installing, starting, running or external, it only syncs and returns the server's state, leaving the server alone. Prepares on one project take turns (a second waits for the first, then runs). The sync's process group is recorded (`sync_pgid`), so Stop and quitting end it like a server, and a sync ended that way comes back `stopped`, not `error`. A project whose `package.json` doesn't list `astro` is left alone. `astro sync` gets 3 minutes before its group is killed.
+
+## Servers started for a site preview
+
+A site preview (`site-previews.md`) may start a server to take its picture: `DevServers::start_for_preview` starts it like Preview does and marks the run `forPreview` in its state, and the preview stops it when it's done with `stop_preview`, which stops only that run and only while it's still marked. The writer makes it theirs by claiming it: Preview or Open site in the Preview control (`devServerClaim`), or starting it (`start` on a running preview server). `claim` clears the mark and emits the state; it's refused once `stop_preview` has decided to stop the run, and both decide under the server's lock. While the mark is on, the Preview control shows "Taking a preview…" with Preview or Open site and a small Stop, which stops the server and cancels the preview. Having the site open in the editor doesn't keep the server.
 
 ## Ready, failed, already running
 

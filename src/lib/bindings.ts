@@ -192,6 +192,11 @@ export const commands = {
 	 *  output. With a server running, it only syncs.
 	 */
 	devServerPrepare: (projectPath: string) => typedError<DevServerState, string>(__TAURI_INVOKE("dev_server_prepare", { projectPath })),
+	/**
+	 *  The writer is using the server (Open site): a server started for a site
+	 *  preview becomes an ordinary one, which the preview won't stop
+	 */
+	devServerClaim: (projectPath: string) => typedError<DevServerState, string>(__TAURI_INVOKE("dev_server_claim", { projectPath })),
 	gitStatus: (projectPath: string) => typedError<GitStatus, string>(__TAURI_INVOKE("git_status", { projectPath })),
 	/**  Working tree vs `HEAD` for one file */
 	gitFileDiff: (projectPath: string, path: string) => typedError<FileDiff, string>(__TAURI_INVOKE("git_file_diff", { projectPath, path })),
@@ -377,6 +382,11 @@ export type DevServerState = {
 	command: string | null,
 	pid: number | null,
 	error: string | null,
+	/**
+	 *  Started to take a site preview (`crate::previews`), which stops it again
+	 *  once the picture is taken, unless the writer starts or opens it meanwhile
+	 */
+	forPreview?: boolean,
 };
 
 export type DevServerStatus = "stopped" | 

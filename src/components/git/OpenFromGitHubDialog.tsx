@@ -184,7 +184,8 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         markSitePrepared(projectPath)
         // Before opening an Astro site, so its forms have their schemas at once
         let prepared = true
-        if (await isAstroSite(projectPath)) {
+        const astro = await isAstroSite(projectPath)
+        if (astro) {
           setPreparing(projectPath)
           prepared = await prepareSite(projectPath)
         }
@@ -196,6 +197,12 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         if (!opened) {
           onDone()
           return
+        }
+        if (astro && prepared && !skipped) {
+          // Its first preview for Home, taken in the background: Rust starts
+          // the dev server, takes the screenshot and stops it again, unless
+          // the writer keeps it with Preview or Open site meanwhile
+          void commands.captureProjectPreview(projectPath)
         }
         if (skipped) {
           toast.info(`Opened ${name}`, {
