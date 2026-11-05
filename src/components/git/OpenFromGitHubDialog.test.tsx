@@ -3,7 +3,6 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/test-utils'
 import { useGitStore } from '@/store/gitStore'
-import { useProjectStore } from '@/store/projectStore'
 import { commands } from '@/lib/bindings'
 import { error as logError } from '@tauri-apps/plugin-log'
 import { OpenFromGitHubDialog } from './OpenFromGitHubDialog'
@@ -19,6 +18,11 @@ vi.mock('@/lib/bindings', () => ({
     projectDependencies: vi.fn(),
   },
 }))
+const { openSite } = vi.hoisted(() => ({
+  openSite: vi.fn(() => Promise.resolve(true)),
+}))
+// Opening a site saves first, reopens its last entry and so on (actions.test.ts)
+vi.mock('@/lib/projects/actions', () => ({ openSite }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
 vi.mock('@tauri-apps/api/path', () => ({
   homeDir: () => Promise.resolve('/Users/k'),
@@ -77,8 +81,7 @@ describe('OpenFromGitHubDialog', () => {
       vi.mocked(commands.devServerPrepare).mockReturnValue(
         new Promise(resolve => (finishPrepare = resolve)) as never
       )
-      const setProject = vi.fn()
-      useProjectStore.setState({ setProject })
+      openSite.mockClear()
       renderWithProviders(<OpenFromGitHubDialog />)
       await userEvent.click(
         await screen.findByRole('option', { name: /kr-site/ })
@@ -92,7 +95,7 @@ describe('OpenFromGitHubDialog', () => {
       expect(commands.devServerPrepare).toHaveBeenCalledWith(
         '/Users/k/Sites/kr-site'
       )
-      expect(setProject).not.toHaveBeenCalled()
+      expect(openSite).not.toHaveBeenCalled()
       finishPrepare(
         ok({
           status: 'stopped',
@@ -103,7 +106,7 @@ describe('OpenFromGitHubDialog', () => {
         })
       )
       await vi.waitFor(() =>
-        expect(setProject).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
+        expect(openSite).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
       )
     })
 
@@ -127,8 +130,7 @@ describe('OpenFromGitHubDialog', () => {
         )
         return Promise.resolve(ok(null)) as never
       })
-      const setProject = vi.fn()
-      useProjectStore.setState({ setProject })
+      openSite.mockClear()
       renderWithProviders(<OpenFromGitHubDialog />)
       await userEvent.click(
         await screen.findByRole('option', { name: /kr-site/ })
@@ -141,15 +143,14 @@ describe('OpenFromGitHubDialog', () => {
         '/Users/k/Sites/kr-site'
       )
       await vi.waitFor(() =>
-        expect(setProject).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
+        expect(openSite).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
       )
     })
 
     it("doesn't prepare a project that isn't an Astro site", async () => {
       vi.mocked(commands.projectDependencies).mockResolvedValue(ok(['vite']))
       vi.mocked(commands.gitClone).mockResolvedValue(ok('/Users/k/Sites/notes'))
-      const setProject = vi.fn()
-      useProjectStore.setState({ setProject })
+      openSite.mockClear()
       renderWithProviders(<OpenFromGitHubDialog />)
       await userEvent.click(
         await screen.findByRole('option', { name: /kr-site/ })
@@ -157,7 +158,7 @@ describe('OpenFromGitHubDialog', () => {
       await userEvent.click(
         screen.getByRole('button', { name: /Download and open/ })
       )
-      await vi.waitFor(() => expect(setProject).toHaveBeenCalled())
+      await vi.waitFor(() => expect(openSite).toHaveBeenCalled())
       expect(commands.devServerPrepare).not.toHaveBeenCalled()
     })
 

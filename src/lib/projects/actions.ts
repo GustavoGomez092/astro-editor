@@ -8,35 +8,74 @@ import { refreshProjectPreview } from './previews'
 import { reopenLastEntry } from './last-entry'
 import { waitForProjectReady } from './ready'
 import { useProjectStore } from '../../store/projectStore'
+import { ask } from '@tauri-apps/plugin-dialog'
 import { saveUnsavedEdits } from '../quit'
+import { waitForSaves } from '../files/pending-saves'
+import { useEditorStore } from '../../store/editorStore'
 import { toast } from '../toast'
+
+let openingSite = false
+
+/**
+ * Gets the open site ready to be left: lets running saves finish, then saves
+ * unsaved edits. If that keeps failing (the edits are kept in the recovery
+ * folder) the writer chooses whether to leave anyway. True when it's fine to go
+ */
+async function readyToLeaveSite(): Promise<boolean> {
+  await waitForSaves()
+  if (await saveUnsavedEdits()) return true
+  const fileName = useEditorStore.getState().currentFile?.name ?? 'this file'
+  try {
+    return await ask(
+      `Your latest changes to “${fileName}” couldn't be saved. If you leave now, they'll be lost.`,
+      {
+        title: 'Leave Without Saving?',
+        kind: 'warning',
+        okLabel: 'Leave Anyway',
+        cancelLabel: 'Stay',
+      }
+    )
+  } catch {
+    return false
+  }
+}
 
 /**
  * Opens a site's editor, back at the entry it had open last (if that file is
- * still there). Unsaved edits in the open site are saved first, and if that
- * fails the site stays open so nothing is lost
+ * still there). The open site's unsaved edits are saved first. Ignored while
+ * another site is opening, so a double click opens it once. True when the site
+ * is open
  */
-export async function openSite(path: string): Promise<void> {
-  if (!(await saveUnsavedEdits())) {
-    toast.error("Couldn't save your changes, so the other site wasn't opened")
-    return
+export async function openSite(path: string): Promise<boolean> {
+  if (openingSite) return false
+  openingSite = true
+  try {
+    if (useProjectStore.getState().projectPath === path) {
+      await reopenLastEntry(path)
+      return true
+    }
+    if (!(await readyToLeaveSite())) return false
+    useProjectStore.getState().setProject(path)
+    // setProject finishes on its own; the entry opens once the site is ready
+    if (!(await waitForProjectReady(path))) {
+      toast.error("Couldn't open the site")
+      return false
+    }
+    await reopenLastEntry(path)
+    return true
+  } finally {
+    openingSite = false
   }
-  useProjectStore.getState().setProject(path)
-  // setProject finishes on its own; the entry opens once the site is ready
-  if (await waitForProjectReady(path)) await reopenLastEntry(path)
 }
 
 /**
  * Goes back to Home: saves unsaved edits first, then closes the open site
- * (its dev server stops, as when another site opens). If saving fails the site
- * stays open
+ * (its dev server stops, as when another site opens). If saving fails the
+ * writer can stay, or leave anyway
  */
 export async function goHome(): Promise<void> {
   if (!useProjectStore.getState().projectPath) return
-  if (!(await saveUnsavedEdits())) {
-    toast.error("Couldn't save your changes, so you're still in this site")
-    return
-  }
+  if (!(await readyToLeaveSite())) return
   await useProjectStore.getState().closeProject()
 }
 
@@ -49,8 +88,8 @@ export async function openProjectViaDialog(): Promise<void> {
     return
   }
   if (result.data) {
-    await openSite(result.data)
-    toast.success('Project opened successfully')
+    if (await openSite(result.data))
+      toast.success('Project opened successfully')
   }
 }
 
