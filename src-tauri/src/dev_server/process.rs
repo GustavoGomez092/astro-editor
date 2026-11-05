@@ -722,7 +722,8 @@ impl Monitor {
 
 /// The program a shell couldn't find, from its message: `sh: npm: command not
 /// found`, `zsh:1: command not found: npm`, `env: node: No such file or
-/// directory` (a `#!/usr/bin/env node` script), or cmd.exe's "is not recognized"
+/// directory` (a `#!/usr/bin/env node` script; GNU env quotes the name), or
+/// cmd.exe's "is not recognized"
 fn missing_program(line: &str) -> Option<String> {
     static PATTERNS: std::sync::OnceLock<Vec<regex::Regex>> = std::sync::OnceLock::new();
     let patterns = PATTERNS.get_or_init(|| {
@@ -730,7 +731,7 @@ fn missing_program(line: &str) -> Option<String> {
             r"command not found: (\S+)",
             r"([^\s:]+): command not found",
             r"([^\s:]+): not found",
-            r"env: ([^\s:]+): No such file or directory",
+            r"env: [‘']?([^\s:‘’']+)[’']?: No such file or directory",
             r"'([^']+)' is not recognized as an internal or external command",
         ]
         .iter()
@@ -1338,6 +1339,9 @@ sleep 30",
             ("/bin/sh: 1: pnpm: not found", "pnpm"),
             ("zsh:1: command not found: yarn", "yarn"),
             ("env: node: No such file or directory", "node"),
+            // GNU env quotes the name: curly in a UTF-8 locale, straight in C
+            ("/usr/bin/env: ‘node’: No such file or directory", "node"),
+            ("/usr/bin/env: 'node': No such file or directory", "node"),
             (
                 "'npx' is not recognized as an internal or external command,",
                 "npx",
