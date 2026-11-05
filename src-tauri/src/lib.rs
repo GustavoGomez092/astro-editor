@@ -112,7 +112,15 @@ pub fn run() {
                 .build()
         })
         .plugin(tauri_plugin_os::init())
-        .plugin(tauri_plugin_window_state::Builder::default().build())
+        // Before the window-state plugin, which reads its file when set up
+        .plugin(previews::window::forget_saved_state_plugin())
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                // The capture window must never come back from a saved state
+                // (shown, white, taking focus) after quitting mid-capture
+                .with_denylist(&[previews::window::LABEL])
+                .build(),
+        )
         .manage(commands::watcher::init_watcher_state())
         .manage(commands::grammar::GrammarState::default())
         .setup(|app| {
@@ -497,10 +505,13 @@ pub fn run() {
             }
             // macOS: Reopen window when dock icon is clicked
             #[cfg(target_os = "macos")]
-            tauri::RunEvent::Reopen {
-                has_visible_windows,
-                ..
-            } if !has_visible_windows => {
+            // The main window's own visibility, not `has_visible_windows`: the
+            // site preview's capture window is on screen (invisibly) while it works
+            tauri::RunEvent::Reopen { .. }
+                if !app_handle
+                    .get_webview_window("main")
+                    .is_some_and(|window| window.is_visible().unwrap_or(false)) =>
+            {
                 if let Some(window) = app_handle.get_webview_window("main") {
                     let _ = window.show();
                     // The window-state plugin only restores at startup, so restore

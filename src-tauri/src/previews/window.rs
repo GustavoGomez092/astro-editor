@@ -42,6 +42,43 @@ const HIDE_DEV_TOOLBAR: &str = r#"
 })();
 "#;
 
+/// The window-state plugin's saved windows (`.window-state.json`) without the
+/// capture window's, or `None` when there's none to remove. The plugin is told
+/// to leave this window alone (`lib.rs`), but a file saved before that would
+/// still bring it back visible.
+pub fn without_saved_state(saved: &str) -> Option<String> {
+    let mut windows: serde_json::Map<String, serde_json::Value> =
+        serde_json::from_str(saved).ok()?;
+    windows.remove(LABEL)?;
+    serde_json::to_string_pretty(&windows).ok()
+}
+
+/// A plugin that only removes the capture window from the window-state
+/// plugin's file. Register it before that plugin, which reads the file once
+/// when it's set up and writes back what it read.
+pub fn forget_saved_state_plugin<R: Runtime>() -> tauri::plugin::TauriPlugin<R> {
+    tauri::plugin::Builder::new("site-preview-window-state")
+        .setup(|app, _| {
+            let Ok(dir) = app.path().app_config_dir() else {
+                return Ok(());
+            };
+            let path = dir.join(tauri_plugin_window_state::DEFAULT_FILENAME);
+            if let Some(cleaned) = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|saved| without_saved_state(&saved))
+            {
+                if let Err(e) = std::fs::write(&path, cleaned) {
+                    log::warn!(
+                        "Astro Editor [PREVIEWS] Couldn't update {}: {e}",
+                        path.display()
+                    );
+                }
+            }
+            Ok(())
+        })
+        .build()
+}
+
 /// Closes the window however the capture ends
 struct CloseOnDrop<R: Runtime>(WebviewWindow<R>);
 
@@ -229,13 +266,19 @@ fn show_without_showing<R: Runtime>(
     app: &AppHandle<R>,
     window: &WebviewWindow<R>,
 ) -> Result<(), String> {
-    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior};
-    let ns_window = window.ns_window().map_err(|e| e.to_string())? as usize;
-    let (done, on_done) = mpsc::channel::<()>();
+    use objc2_app_kit::{NSWindow, NSWindowCollectionBehavior, NSWindowSharingType};
+    let (done, on_done) = mpsc::channel::<Result<(), String>>();
+    let window = window.clone();
     app.run_on_main_thread(move || {
-        // SAFETY: `ns_window` is this window's NSWindow, alive until the
-        // window is destroyed, which happens after this returns; and this
-        // runs on the main thread
+        let ns_window = match window.ns_window() {
+            Ok(ns_window) => ns_window,
+            Err(e) => {
+                let _ = done.send(Err(e.to_string()));
+                return;
+            }
+        };
+        // SAFETY: read on the main thread, where AppKit objects live, and
+        // this window isn't destroyed until the capture is over
         let ns_window = unsafe { &*(ns_window as *const NSWindow) };
         ns_window.setAlphaValue(0.0);
         ns_window.setIgnoresMouseEvents(true);
@@ -246,14 +289,17 @@ fn show_without_showing<R: Runtime>(
                 | NSWindowCollectionBehavior::IgnoresCycle
                 | NSWindowCollectionBehavior::FullScreenNone,
         );
+        // Left out of screenshots and screen sharing
+        ns_window.setSharingType(NSWindowSharingType::None);
         // On screen without becoming key or bringing the app forward
         ns_window.orderFrontRegardless();
-        let _ = done.send(());
+        let _ = done.send(Ok(()));
     })
     .map_err(|e| e.to_string())?;
     on_done
         .recv_timeout(SNAPSHOT_TIMEOUT)
-        .map_err(|_| "Couldn't set up the capture window.".to_string())
+        .map_err(|_| "Couldn't set up the capture window.".to_string())?
+        .map_err(|e| format!("Couldn't set up the capture window: {e}"))
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -323,6 +369,18 @@ mod tests {
             }
         }
         image
+    }
+
+    #[test]
+    fn forgets_a_saved_state_for_the_capture_window_only() {
+        let saved = r#"{"main":{"width":1400,"visible":true},"site-preview":{"width":1440,"visible":true}}"#;
+        let cleaned: serde_json::Value =
+            serde_json::from_str(&without_saved_state(saved).unwrap()).unwrap();
+        assert!(cleaned.get("site-preview").is_none());
+        assert_eq!(cleaned["main"]["width"], 1400);
+        // Nothing to remove, or not readable: left as it is
+        assert_eq!(without_saved_state(r#"{"main":{}}"#), None);
+        assert_eq!(without_saved_state("not json"), None);
     }
 
     #[test]
