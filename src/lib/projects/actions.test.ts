@@ -43,6 +43,9 @@ vi.mock('../toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
 }))
 
+// The store's own closeProject, which the tests below replace with a spy
+const realCloseProject = useProjectStore.getState().closeProject
+
 describe('goHome', () => {
   const order: string[] = []
   const closeProject = vi.fn(() => {
@@ -115,8 +118,63 @@ describe('goHome', () => {
   })
 })
 
+describe('Go Home while a site is opening', () => {
+  // Like the real one, the site is open once it has run
+  const setProject = vi.fn((path: string) =>
+    useProjectStore.setState({ projectPath: path })
+  )
+
+  beforeEach(() => {
+    setProject.mockClear()
+    reopenLastEntry.mockReset()
+    waitForProjectReady.mockReset().mockResolvedValue(true)
+    waitForSaves.mockReset().mockResolvedValue(undefined)
+    flushLastFiles.mockReset().mockResolvedValue(undefined)
+    useEditorStore.setState({ currentFile: null })
+    useProjectStore.setState({
+      setProject,
+      closeProject: realCloseProject,
+      projectPath: null,
+    })
+  })
+
+  it('cancels the open, so the site does not appear after Home', async () => {
+    let saved: (value: boolean) => void = () => {}
+    saveUnsavedEdits.mockReturnValue(
+      new Promise<boolean>(resolve => {
+        saved = resolve
+      })
+    )
+
+    const opening = openSite('/Users/k/a')
+    // Still on Home: nothing is open yet, but an open is under way
+    await goHome()
+    saved(true)
+
+    expect(await opening).toBe(false)
+    expect(setProject).not.toHaveBeenCalled()
+    expect(reopenLastEntry).not.toHaveBeenCalled()
+  })
+
+  it('does not reopen an entry once the site was closed meanwhile', async () => {
+    saveUnsavedEdits.mockResolvedValue(true)
+    waitForProjectReady.mockImplementation(() => {
+      // Home was pressed just as the site finished loading, but the site
+      // is no longer the open one
+      useProjectStore.setState({ projectPath: null })
+      return Promise.resolve(true)
+    })
+
+    expect(await openSite('/Users/k/a')).toBe(false)
+    expect(reopenLastEntry).not.toHaveBeenCalled()
+  })
+})
+
 describe('openSite', () => {
-  const setProject = vi.fn()
+  // Like the real one, the site is open once it has run
+  const setProject = vi.fn((path: string) =>
+    useProjectStore.setState({ projectPath: path })
+  )
 
   beforeEach(() => {
     setProject.mockClear()
@@ -204,7 +262,11 @@ describe('openProjectViaDialog', () => {
     reopenLastEntry.mockReset()
     waitForSaves.mockReset().mockResolvedValue(undefined)
     saveUnsavedEdits.mockReset().mockResolvedValue(true)
-    useProjectStore.setState({ setProject: vi.fn(), projectPath: null })
+    useProjectStore.setState({
+      setProject: (path: string) =>
+        useProjectStore.setState({ projectPath: path }),
+      projectPath: null,
+    })
     globalThis.mockTauri.invoke.mockResolvedValue('/Users/k/picked')
   })
 
@@ -214,6 +276,7 @@ describe('openProjectViaDialog', () => {
     expect(toast.success).toHaveBeenCalledTimes(1)
 
     vi.mocked(toast.success).mockClear()
+    useProjectStore.setState({ projectPath: null })
     waitForProjectReady.mockResolvedValue(false)
     await openProjectViaDialog()
     expect(toast.success).not.toHaveBeenCalled()

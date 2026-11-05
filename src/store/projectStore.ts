@@ -57,6 +57,14 @@ interface ProjectState {
   stopFileWatcher: () => Promise<void>
 }
 
+// Counts opens and closes. An open that finds the number changed (a newer open
+// or a close, such as Go Home, came in while it was still loading) stops, so a
+// site never opens by itself after it was left
+let openGeneration = 0
+
+/** Changes whenever a site starts opening or the open site closes */
+export const getOpenGeneration = () => openGeneration
+
 export const useProjectStore = create<ProjectState>((set, get) => ({
   // Initial state
   projectPath: null,
@@ -73,11 +81,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
 
   // Actions
   setProject: (path: string) => {
+    const generation = ++openGeneration
+    const cancelled = () => generation !== openGeneration
     void (async () => {
       try {
         await info(
           `Astro Editor [PROJECT_SETUP] Starting project setup: ${path}`
         )
+        if (cancelled()) return
 
         // Close any currently open file when switching projects
         useEditorStore.getState().closeCurrentFile()
@@ -85,6 +96,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         // Register the project and get its ID
         await info(`Astro Editor [PROJECT_SETUP] Registering project: ${path}`)
         const projectId = await projectRegistryManager.registerProject(path)
+        if (cancelled()) return
         await debug(
           `Astro Editor [PROJECT_SETUP] Project ID generated: ${projectId}`
         )
@@ -95,11 +107,13 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
         )
         const projectSettings =
           await projectRegistryManager.getEffectiveSettings(projectId)
+        if (cancelled()) return
 
         // Stop the previous project's watcher and listeners first; starting
         // another doesn't, so they'd keep running and every event would be
         // handled once per project opened
         await get().stopFileWatcher()
+        if (cancelled()) return
 
         // The previous project's dev server would keep running unseen. Stopped
         // only once the new project has loaded, so a failed switch leaves it
@@ -144,8 +158,14 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   },
 
   closeProject: async () => {
+    // Also cancels a site that is still opening, when none is open yet
+    openGeneration++
     const { projectPath } = get()
-    if (!projectPath) return
+    if (!projectPath) {
+      // Wakes anything waiting for that site to open (waitForProjectReady)
+      set({})
+      return
+    }
     useEditorStore.getState().closeCurrentFile()
     await get().stopFileWatcher()
     // Left running it would go unseen, as when another project opens
@@ -192,6 +212,7 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
   startFileWatcher: async () => {
     const { projectPath, currentProjectSettings } = get()
     if (!projectPath) return
+    const generation = openGeneration
 
     try {
       // Watch the content directory (or its override) and any collection
@@ -255,6 +276,18 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
             'Changes to files may not be automatically detected. Try reopening the project.',
         })
       })
+
+      // The site closed (or another opened) while this was starting: the
+      // closing found nothing to stop yet, so undo it all here
+      if (generation !== openGeneration) {
+        unlistenFileChanged()
+        unlistenSchemaChanged()
+        unlistenWatcherRescan()
+        unlistenWatcherRebuilt()
+        unlistenWatcherError()
+        await commands.stopWatchingProject(projectPath)
+        return
+      }
 
       // Store the unlisten functions for cleanup
       set({

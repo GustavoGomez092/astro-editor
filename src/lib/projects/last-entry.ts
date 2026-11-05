@@ -78,6 +78,8 @@ export async function reopenLastEntry(projectPath: string): Promise<boolean> {
       getCollectionFolderOverrides(settings)
     )
     if (result.status !== 'ok' || !result.data) return false
+    // The site may have been left while the file was looked up
+    if (useProjectStore.getState().projectPath !== projectPath) return false
     useEditorStore.getState().openFile(result.data)
     return true
   } catch {
