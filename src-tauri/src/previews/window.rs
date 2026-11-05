@@ -22,18 +22,22 @@ pub const LABEL: &str = "site-preview";
 const WIDTH: f64 = 1440.0;
 const HEIGHT: f64 = 900.0;
 /// The whole capture, from opening the window to the finished picture
-const LIMIT: Duration = Duration::from_secs(30);
-/// How long to let the page settle after it loads before taking the
-/// picture anyway (a page that never stops moving)
-const SETTLE_LIMIT: Duration = Duration::from_secs(15);
+const LIMIT: Duration = Duration::from_secs(45);
+/// The page is always given this long after it's ready (its load event, then
+/// its fonts), so intros and preloaders have finished before the picture
+const READY_WAIT: Duration = Duration::from_secs(5);
+/// After `READY_WAIT`, how much longer a page that's still moving is watched
+/// before it's taken as it is
+const MOVING_WAIT: Duration = Duration::from_secs(10);
+/// The longest wait after the load event, for a page whose fonts never say
+/// they've loaded
+const SETTLE_LIMIT: Duration = Duration::from_secs(20);
 /// The snapshots that tell whether the page has stopped moving
 const SAMPLE_EVERY: Duration = Duration::from_millis(400);
 const SAMPLE_WIDTH: f64 = 240.0;
 /// The picture itself, in points; downscaled to `thumb::MAX_WIDTH` pixels
 const PICTURE_WIDTH: f64 = 800.0;
 const SNAPSHOT_TIMEOUT: Duration = Duration::from_secs(5);
-/// The shortest wait after loading, so a page's first frame isn't taken as still
-const MIN_SETTLE: Duration = Duration::from_millis(1500);
 /// How long the home page gets to answer the check before the window opens
 const CHECK_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -59,10 +63,27 @@ impl PageState {
     }
 }
 
-/// The page is ready for its picture: still, with its fonts in, and loaded at
-/// least `MIN_SETTLE` ago
-pub fn settled(still: bool, fonts_loaded: bool, since_load: Duration) -> bool {
-    still && fonts_loaded && since_load >= MIN_SETTLE
+/// What to do after a sample
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Wait {
+    Longer,
+    /// Still, at least `READY_WAIT` after it was ready
+    Settled,
+    /// Waited as long as it gets; taken as it is
+    KeptMoving,
+}
+
+/// Whether to take the picture now. `still` is the snapshots' verdict,
+/// `since_load` the time since the load event and `since_ready` the time since
+/// the fonts were in too (`None` until they are). Never sooner than
+/// `READY_WAIT` after the page is ready.
+pub fn decide(still: bool, since_load: Duration, since_ready: Option<Duration>) -> Wait {
+    match since_ready {
+        Some(ready) if ready >= READY_WAIT + MOVING_WAIT => Wait::KeptMoving,
+        Some(ready) if ready >= READY_WAIT && still => Wait::Settled,
+        _ if since_load >= SETTLE_LIMIT => Wait::KeptMoving,
+        _ => Wait::Longer,
+    }
 }
 
 /// How long the next sample may take, keeping `SNAPSHOT_TIMEOUT` for the
@@ -222,14 +243,18 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
         .recv_timeout(deadline.saturating_duration_since(Instant::now()))
         .map_err(|_| "The site took too long to load.".to_string())?;
 
-    // Fonts, images and intro animations: wait until the page stops changing
+    // Intros, preloaders and fonts: always five seconds after the page is
+    // ready, then until it's still
     let loaded_at = Instant::now();
-    let settle_until = loaded_at + SETTLE_LIMIT;
+    let mut ready_at: Option<Instant> = None;
     let mut settle = Settle::default();
     let mut page_state = PageState::parse("");
     loop {
         std::thread::sleep(SAMPLE_EVERY);
         let Some(timeout) = sample_timeout(Instant::now(), deadline) else {
+            if !ready_at.is_some_and(|ready| ready.elapsed() >= READY_WAIT) {
+                return Err("The site took too long to be ready.".into());
+            }
             log::info!("Astro Editor [PREVIEWS] Out of time to wait; taking the page as it is");
             break;
         };
@@ -239,21 +264,31 @@ pub fn capture_page<R: Runtime>(app: &AppHandle<R>, url: &str) -> Result<Vec<u8>
         if page_state.error_overlay {
             break;
         }
+        if page_state.fonts_loaded && ready_at.is_none() {
+            ready_at = Some(Instant::now());
+        }
         let sample = snapshot::take(&window.0, Some(SAMPLE_WIDTH), timeout)?;
         let frame = image::load_from_memory(&sample.png)
             .map_err(|e| format!("Couldn't read the snapshot: {e}"))?
             .to_luma8();
         let still = settle.observe(frame);
-        if settled(still, page_state.fonts_loaded, loaded_at.elapsed()) {
-            log::info!(
-                "Astro Editor [PREVIEWS] The page settled {:.1} s after loading",
-                loaded_at.elapsed().as_secs_f32()
-            );
-            break;
-        }
-        if Instant::now() >= settle_until {
-            log::info!("Astro Editor [PREVIEWS] The page kept moving; taking it as it is");
-            break;
+        match decide(
+            still,
+            loaded_at.elapsed(),
+            ready_at.map(|ready| ready.elapsed()),
+        ) {
+            Wait::Longer => {}
+            Wait::Settled => {
+                log::info!(
+                    "Astro Editor [PREVIEWS] The page settled {:.1} s after loading",
+                    loaded_at.elapsed().as_secs_f32()
+                );
+                break;
+            }
+            Wait::KeptMoving => {
+                log::info!("Astro Editor [PREVIEWS] The page kept moving; taking it as it is");
+                break;
+            }
         }
     }
     if page_state.error_overlay {
@@ -514,21 +549,35 @@ mod tests {
     }
 
     #[test]
-    fn settles_only_when_still_with_fonts_loaded_after_a_moment() {
-        let moment = Duration::from_millis(1500);
-        assert!(settled(true, true, moment));
-        assert!(!settled(false, true, moment * 2), "still moving");
-        assert!(!settled(true, false, moment * 2), "fonts still loading");
-        assert!(
-            !settled(true, true, moment - Duration::from_millis(1)),
-            "too soon"
-        );
+    fn never_shoots_sooner_than_five_seconds_after_the_page_is_ready() {
+        let s = Duration::from_secs;
+        let ms = Duration::from_millis;
+        // Loaded but fonts not in yet: wait, however still
+        assert_eq!(decide(true, s(8), None), Wait::Longer);
+        // Ready, still, but not five seconds yet
+        assert_eq!(decide(true, s(6), Some(ms(4999))), Wait::Longer);
+        assert_eq!(decide(true, s(6), Some(s(5))), Wait::Settled);
+        // Five seconds, still moving: keep watching for a while, then take it
+        assert_eq!(decide(false, s(7), Some(s(5))), Wait::Longer);
+        assert_eq!(decide(false, s(19), Some(s(14))), Wait::Longer);
+        assert_eq!(decide(false, s(20), Some(s(15))), Wait::KeptMoving);
+        // Fonts that never report loaded: taken at the limit, well past five seconds
+        assert_eq!(decide(false, SETTLE_LIMIT - ms(1), None), Wait::Longer);
+        assert_eq!(decide(false, SETTLE_LIMIT, None), Wait::KeptMoving);
+        assert!(SETTLE_LIMIT >= READY_WAIT);
+    }
+
+    #[test]
+    fn the_whole_capture_has_45_seconds() {
+        assert_eq!(LIMIT, Duration::from_secs(45));
+        // Room for loading, the five seconds, the longest settle and the picture
+        assert!(LIMIT > SETTLE_LIMIT + SNAPSHOT_TIMEOUT);
     }
 
     #[test]
     fn keeps_time_for_the_picture() {
         let now = Instant::now();
-        let deadline = now + Duration::from_secs(30);
+        let deadline = now + LIMIT;
         assert_eq!(sample_timeout(now, deadline), Some(SNAPSHOT_TIMEOUT));
         let late = deadline - SNAPSHOT_TIMEOUT - Duration::from_secs(2);
         assert_eq!(sample_timeout(late, deadline), Some(Duration::from_secs(2)));
