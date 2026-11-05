@@ -45,6 +45,7 @@ vi.mock('../toast', () => ({
 
 // The store's own closeProject, which the tests below replace with a spy
 const realCloseProject = useProjectStore.getState().closeProject
+const realSetProject = useProjectStore.getState().setProject
 
 describe('goHome', () => {
   const order: string[] = []
@@ -154,6 +155,46 @@ describe('Go Home while a site is opening', () => {
     expect(await opening).toBe(false)
     expect(setProject).not.toHaveBeenCalled()
     expect(reopenLastEntry).not.toHaveBeenCalled()
+  })
+
+  it('says nothing when Go Home cancels the open while the site is loading', async () => {
+    saveUnsavedEdits.mockResolvedValue(true)
+    vi.mocked(toast.error).mockClear()
+    waitForProjectReady.mockImplementation(async () => {
+      // Home pressed while the site loads: the wait ends, but nothing failed
+      await useProjectStore.getState().closeProject()
+      return false
+    })
+
+    expect(await openSite('/Users/k/a')).toBe(false)
+    expect(toast.error).not.toHaveBeenCalled()
+
+    // The guard is released: the next open works
+    waitForProjectReady.mockResolvedValue(true)
+    expect(await openSite('/Users/k/b')).toBe(true)
+    expect(setProject).toHaveBeenLastCalledWith('/Users/k/b')
+  })
+
+  it('does not blame the site when a newer open took over', async () => {
+    saveUnsavedEdits.mockResolvedValue(true)
+    vi.mocked(toast.error).mockClear()
+    waitForProjectReady.mockImplementation(() => {
+      // Something else (a deep link) started opening another site
+      realSetProject('/Users/k/other')
+      return Promise.resolve(false)
+    })
+
+    expect(await openSite('/Users/k/a')).toBe(false)
+    expect(toast.error).not.toHaveBeenCalled()
+  })
+
+  it('still says so when the site really did not load in time', async () => {
+    saveUnsavedEdits.mockResolvedValue(true)
+    vi.mocked(toast.error).mockClear()
+    waitForProjectReady.mockResolvedValue(false)
+
+    expect(await openSite('/Users/k/a')).toBe(false)
+    expect(toast.error).toHaveBeenCalledWith("Couldn't open the site")
   })
 
   it('does not reopen an entry once the site was closed meanwhile', async () => {

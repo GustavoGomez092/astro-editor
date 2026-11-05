@@ -64,9 +64,14 @@ export async function openSite(path: string): Promise<boolean> {
     if (!(await readyToLeaveSite())) return false
     if (generation !== getOpenGeneration()) return false
     useProjectStore.getState().setProject(path)
+    // This open's own generation: if it changes, Go Home or a newer open
+    // cancelled this one, which isn't a failure to report
+    const openedGeneration = getOpenGeneration()
     // setProject finishes on its own; the entry opens once the site is ready
     if (!(await waitForProjectReady(path))) {
-      toast.error("Couldn't open the site")
+      if (openedGeneration === getOpenGeneration()) {
+        toast.error("Couldn't open the site")
+      }
       return false
     }
     // Home may have been pressed just as it finished loading

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { projectRegistryManager } from '@/lib/project-registry'
 import { waitForProjectReady } from '@/lib/projects/ready'
+import { toast } from '@/lib/toast'
 import { useProjectStore } from './projectStore'
 
 /** A promise the test settles by hand */
@@ -32,7 +33,9 @@ describe('opening and closing a site at the same time', () => {
       projectPath: null,
       currentProjectId: null,
       currentProjectSettings: null,
+      _watcherId: null,
     })
+    vi.spyOn(toast, 'warning').mockImplementation(() => 0)
   })
 
   it('does not open a site that was closed (Home) while it was opening', async () => {
@@ -93,13 +96,14 @@ describe('opening and closing a site at the same time', () => {
         ? started.promise
         : Promise.resolve(null)
     )
+    vi.mocked(toast.warning).mockClear()
 
     useProjectStore.getState().setProject('/s/a')
     await vi.waitFor(() =>
       expect(calls('start_watching_project_with_content_dir')).toHaveLength(1)
     )
     await useProjectStore.getState().closeProject()
-    started.resolve(null)
+    started.resolve(5)
     await settle()
 
     // Everything it registered is undone, and Rust is told to stop after it started
@@ -110,6 +114,80 @@ describe('opening and closing a site at the same time', () => {
       order.indexOf('start_watching_project_with_content_dir')
     )
     expect(useProjectStore.getState()._unlistenFileChanged).toBeNull()
+    // Closing before anything was registered, and the undo, raise no alarm
+    expect(toast.warning).not.toHaveBeenCalled()
+  })
+
+  it('a late undo of an older start leaves the watcher of the same site opened again', async () => {
+    const firstStart = deferred<unknown>()
+    let starts = 0
+    globalThis.mockTauri.invoke.mockImplementation((command: string) => {
+      if (command === 'start_watching_project_with_content_dir') {
+        starts++
+        return starts === 1 ? firstStart.promise : Promise.resolve(6)
+      }
+      return Promise.resolve(null)
+    })
+
+    useProjectStore.getState().setProject('/s/a')
+    await vi.waitFor(() => expect(starts).toBe(1))
+    await useProjectStore.getState().closeProject()
+    useProjectStore.getState().setProject('/s/a')
+    await vi.waitFor(() =>
+      expect(useProjectStore.getState()._watcherId).toBe(6)
+    )
+    const liveListeners = unlisteners.length
+    firstStart.resolve(5)
+    await settle()
+
+    // Only the first start was stopped, named by its id
+    const stops = calls('stop_watching_project')
+    expect(
+      stops.filter(c => (c[1] as { watcherId: number | null }).watcherId === 5)
+    ).toHaveLength(1)
+    expect(
+      stops.every(c => (c[1] as { projectPath: string }).projectPath === '/s/a')
+    ).toBe(true)
+    expect(
+      stops.some(c => (c[1] as { watcherId: unknown }).watcherId === 6)
+    ).toBe(false)
+    // The second site's watcher is registered and still listening
+    expect(useProjectStore.getState()._watcherId).toBe(6)
+    expect(useProjectStore.getState().projectPath).toBe('/s/a')
+    for (const unlisten of unlisteners.slice(0, liveListeners)) {
+      expect(unlisten).not.toHaveBeenCalled()
+    }
+  })
+
+  it('starts only one watcher when the same site is opened twice in a row', async () => {
+    useProjectStore.getState().setProject('/s/b')
+    useProjectStore.getState().setProject('/s/b')
+    await settle()
+
+    expect(calls('start_watching_project_with_content_dir')).toHaveLength(1)
+    expect(useProjectStore.getState().projectPath).toBe('/s/b')
+  })
+
+  it('does not warn about a watcher failing to start for an open that was cancelled', async () => {
+    const started = deferred<never>()
+    globalThis.mockTauri.invoke.mockImplementation((command: string) =>
+      command === 'start_watching_project_with_content_dir'
+        ? started.promise
+        : Promise.resolve(null)
+    )
+    vi.mocked(toast.warning).mockClear()
+
+    useProjectStore.getState().setProject('/s/a')
+    await vi.waitFor(() =>
+      expect(calls('start_watching_project_with_content_dir')).toHaveLength(1)
+    )
+    await useProjectStore.getState().closeProject()
+    started.promise.catch(() => {})
+    globalThis.mockTauri.invoke.mockImplementation(() => Promise.resolve(null))
+    started.resolve(undefined as never)
+    await settle()
+
+    expect(toast.warning).not.toHaveBeenCalled()
   })
 
   it('waitForProjectReady gives up when the open is cancelled', async () => {
