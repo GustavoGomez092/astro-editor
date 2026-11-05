@@ -1,30 +1,46 @@
-//! Webview snapshots for the agent bridge.
+//! Webview snapshots, for the site previews and the debug-only agent bridge.
 //!
 //! On macOS this uses `WKWebView.takeSnapshot`, which needs no Screen Recording
-//! permission and doesn't raise or focus the window. It only captures the webview,
-//! so the vibrancy behind transparent areas comes out transparent.
+//! permission, doesn't raise or focus the window, and works for a hidden one.
+//! It only captures the webview, so the vibrancy behind transparent areas comes
+//! out transparent. Never call it on the main thread: it waits for WebKit,
+//! which answers there.
 
-use std::path::Path;
-use tauri::WebviewWindow;
+use std::time::Duration;
+use tauri::{Runtime, WebviewWindow};
 
-/// Writes a PNG of the webview to `path` and returns its size in pixels.
+/// A PNG of the webview and its size in pixels
+pub struct Snapshot {
+    pub png: Vec<u8>,
+    pub width: isize,
+    pub height: isize,
+}
+
+/// Snapshots the webview. `width` is in points (the image is that times the
+/// screen's scale); `None` takes it at its own size.
 #[cfg(target_os = "macos")]
-pub fn capture(window: &WebviewWindow, path: &Path) -> Result<(isize, isize), String> {
+pub fn take<R: Runtime>(
+    window: &WebviewWindow<R>,
+    width: Option<f64>,
+    timeout: Duration,
+) -> Result<Snapshot, String> {
     use block2::RcBlock;
     use objc2::MainThreadMarker;
     use objc2_app_kit::NSImage;
-    use objc2_foundation::NSError;
+    use objc2_foundation::{NSError, NSNumber};
     use objc2_web_kit::{WKSnapshotConfiguration, WKWebView};
     use std::sync::mpsc;
-    use std::time::Duration;
 
-    let (tx, rx) = mpsc::channel::<Result<(Vec<u8>, isize, isize), String>>();
+    let (tx, rx) = mpsc::channel::<Result<Snapshot, String>>();
     window
         .with_webview(move |webview| {
             let mtm = MainThreadMarker::new().expect("with_webview runs on the main thread");
             // SAFETY: on macOS, `inner()` is the WKWebView that wry created for this window
             let wk_webview: &WKWebView = unsafe { &*webview.inner().cast() };
             let config = unsafe { WKSnapshotConfiguration::new(mtm) };
+            if let Some(width) = width {
+                unsafe { config.setSnapshotWidth(Some(&NSNumber::new_f64(width))) };
+            }
             let handler = RcBlock::new(move |image: *mut NSImage, error: *mut NSError| {
                 // SAFETY: WebKit passes either a valid image or a valid error
                 let result = match unsafe { image.as_ref() } {
@@ -41,18 +57,12 @@ pub fn capture(window: &WebviewWindow, path: &Path) -> Result<(isize, isize), St
         })
         .map_err(|e| e.to_string())?;
 
-    let (png, width, height) = rx
-        .recv_timeout(Duration::from_secs(10))
-        .map_err(|_| "snapshot timed out")??;
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    std::fs::write(path, png).map_err(|e| e.to_string())?;
-    Ok((width, height))
+    rx.recv_timeout(timeout)
+        .map_err(|_| "snapshot timed out".to_string())?
 }
 
 #[cfg(target_os = "macos")]
-fn png_data(image: &objc2_app_kit::NSImage) -> Result<(Vec<u8>, isize, isize), String> {
+fn png_data(image: &objc2_app_kit::NSImage) -> Result<Snapshot, String> {
     use objc2_app_kit::{NSBitmapImageFileType, NSBitmapImageRep};
     use objc2_foundation::NSDictionary;
 
@@ -65,10 +75,18 @@ fn png_data(image: &objc2_app_kit::NSImage) -> Result<(Vec<u8>, isize, isize), S
         rep.representationUsingType_properties(NSBitmapImageFileType::PNG, &NSDictionary::new())
     }
     .ok_or("couldn't encode PNG")?;
-    Ok((png.to_vec(), rep.pixelsWide(), rep.pixelsHigh()))
+    Ok(Snapshot {
+        png: png.to_vec(),
+        width: rep.pixelsWide(),
+        height: rep.pixelsHigh(),
+    })
 }
 
 #[cfg(not(target_os = "macos"))]
-pub fn capture(_window: &WebviewWindow, _path: &Path) -> Result<(isize, isize), String> {
+pub fn take<R: Runtime>(
+    _window: &WebviewWindow<R>,
+    _width: Option<f64>,
+    _timeout: Duration,
+) -> Result<Snapshot, String> {
     Err("snapshots are only implemented on macOS".to_string())
 }

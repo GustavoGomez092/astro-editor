@@ -12,6 +12,7 @@ mod models;
 mod parser;
 mod previews;
 mod schema_merger;
+mod snapshot;
 // Fork: kept for upstream merges but never called (telemetry is disabled).
 #[allow(dead_code)]
 mod telemetry;
@@ -148,10 +149,14 @@ pub fn run() {
             // Dev servers report each state change to the frontend
             let event_handle = app.handle().clone();
             app.manage(dev_server::DevServers::new(std::sync::Arc::new(
-                move |_project_path, state| {
+                move |project_path, state| {
                     let _ = event_handle.emit(commands::dev_server::STATE_EVENT, state);
+                    // A server that's ready gets its site's preview taken
+                    previews::on_server_state(&event_handle, project_path, state);
                 },
             )));
+            app.manage(previews::capture::CaptureGuard::default());
+            previews::prune_in_background(app.handle());
 
             // Fix PATH environment variable for production builds
             // This ensures shell commands can find executables like 'code', 'cursor', etc.
@@ -450,7 +455,18 @@ pub fn run() {
 
             Ok(())
         })
-        .invoke_handler(builder.invoke_handler())
+        .invoke_handler({
+            let handler = builder.invoke_handler();
+            move |invoke| {
+                // The site preview window shows a local site, which must never
+                // reach the app's commands
+                if invoke.message.webview_ref().label() == previews::window::LABEL {
+                    invoke.resolver.reject("Not allowed");
+                    return true;
+                }
+                handler(invoke)
+            }
+        })
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(|app_handle, event| match event {

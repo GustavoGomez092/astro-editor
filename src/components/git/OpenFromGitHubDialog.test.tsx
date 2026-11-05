@@ -17,6 +17,7 @@ vi.mock('@/lib/bindings', () => ({
     devServerPrepare: vi.fn(),
     devServerStop: vi.fn(),
     projectDependencies: vi.fn(),
+    captureProjectPreview: vi.fn(() => new Promise(() => {})),
   },
 }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
@@ -27,6 +28,7 @@ vi.mock('@tauri-apps/api/path', () => ({
 describe('OpenFromGitHubDialog', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.mocked(commands.captureProjectPreview).mockClear()
     useGitStore.setState({ openFromGitHubOpen: true, cloneInProgress: false })
   })
 
@@ -105,6 +107,10 @@ describe('OpenFromGitHubDialog', () => {
       await vi.waitFor(() =>
         expect(setProject).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
       )
+      // Its first preview for Home, taken in the background
+      expect(commands.captureProjectPreview).toHaveBeenCalledWith(
+        '/Users/k/Sites/kr-site'
+      )
     })
 
     it('lets the writer skip a preparation that hangs, then opens the site', async () => {
@@ -143,6 +149,8 @@ describe('OpenFromGitHubDialog', () => {
       await vi.waitFor(() =>
         expect(setProject).toHaveBeenCalledWith('/Users/k/Sites/kr-site')
       )
+      // Skipped because it hung: no server is started for a preview either
+      expect(commands.captureProjectPreview).not.toHaveBeenCalled()
     })
 
     it("doesn't prepare a project that isn't an Astro site", async () => {
@@ -159,6 +167,7 @@ describe('OpenFromGitHubDialog', () => {
       )
       await vi.waitFor(() => expect(setProject).toHaveBeenCalled())
       expect(commands.devServerPrepare).not.toHaveBeenCalled()
+      expect(commands.captureProjectPreview).not.toHaveBeenCalled()
     })
 
     it('shortens a long Save in folder in the middle, with the full path in its tooltip', async () => {

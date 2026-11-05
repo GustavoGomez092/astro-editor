@@ -184,7 +184,8 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         markSitePrepared(projectPath)
         // Before opening an Astro site, so its forms have their schemas at once
         let prepared = true
-        if (await isAstroSite(projectPath)) {
+        const astro = await isAstroSite(projectPath)
+        if (astro) {
           setPreparing(projectPath)
           prepared = await prepareSite(projectPath)
         }
@@ -192,6 +193,11 @@ function OpenFromGitHubForm({ onDone }: { onDone: () => void }) {
         setPreparing(null)
         setCloning(false)
         useProjectStore.getState().setProject(projectPath)
+        if (astro && prepared && !skipped) {
+          // Its first preview for Home, taken in the background: Rust starts
+          // the dev server, takes the screenshot and stops it again
+          void commands.captureProjectPreview(projectPath)
+        }
         if (skipped) {
           toast.info(`Opened ${name}`, {
             description:

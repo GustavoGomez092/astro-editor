@@ -753,7 +753,12 @@ pub async fn write_app_data_file(
     }
 
     write_atomically(&validated_path, content.as_bytes())
-        .map_err(|e| format!("Failed to write app data file: {e}"))
+        .map_err(|e| format!("Failed to write app data file: {e}"))?;
+    // A site removed from the list takes its preview with it
+    if validated_path.ends_with("preferences/project-registry.json") {
+        crate::previews::prune_in_background(&app);
+    }
+    Ok(())
 }
 
 /// Writes a file so that a crash or a full disk never leaves it half written: the new

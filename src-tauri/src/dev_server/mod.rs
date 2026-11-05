@@ -163,6 +163,14 @@ impl DevServers {
             .unwrap_or_else(DevServerState::stopped)
     }
 
+    /// Counts the project's starts, so a caller that started a server can
+    /// tell whether it's still that run (the site previews stop only their own)
+    pub fn run(&self, project_path: &str) -> u64 {
+        self.server(project_path)
+            .map(|server| lock(&server.inner).run)
+            .unwrap_or(0)
+    }
+
     pub fn logs(&self, project_path: &str) -> Vec<String> {
         self.server(project_path)
             .map(|server| lock(&server.inner).logs.iter().cloned().collect())
