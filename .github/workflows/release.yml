@@ -13,6 +13,10 @@ name: 'Release Astro Editor+'
 #      notarisation), and people approve it once under System Settings ->
 #      Privacy & Security -> Open Anyway. See scripts/make-self-signed-cert.sh.
 #
+# The fork's Developer ID key is kept on one Mac rather than in secrets, so
+# releases are built with draft=true (self-signed) and then re-signed,
+# notarised and published there by scripts/sign-release-local.sh.
+#
 # Secrets, Developer ID: APPLE_CERTIFICATE (base64 .p12),
 #   APPLE_CERTIFICATE_PASSWORD, optional APPLE_SIGNING_IDENTITY (detected from
 #   the keychain if unset); notarisation with either APPLE_ID, APPLE_PASSWORD
@@ -39,6 +43,11 @@ on:
         options:
           - macos-15
           - macos-15-intel
+      draft:
+        description: 'Leave the release as a draft, for scripts/sign-release-local.sh to sign with the Developer ID on the Mac that holds it and then publish'
+        required: false
+        default: false
+        type: boolean
 
 env:
   CARGO_TERM_COLOR: always
@@ -228,7 +237,7 @@ jobs:
           tagName: ${{ env.RELEASE_TAG }}
           releaseName: 'Astro Editor+ ${{ env.RELEASE_TAG }}'
           releaseBody: ${{ env.RELEASE_NOTES }}
-          releaseDraft: false
+          releaseDraft: ${{ inputs.draft == true }}
           prerelease: false
           uploadUpdaterJson: true
           args: --target universal-apple-darwin --bundles app,dmg

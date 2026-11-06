@@ -71,8 +71,8 @@ This is a fork of Astro Editor, published as **Astro Editor+**. It adds git and 
 **Install:**
 
 1. Download the latest `.dmg` from the [Releases page](https://github.com/GustavoGomez092/astro-editor-plus/releases) and drag **Astro Editor+** into Applications.
-2. Releases signed with an Apple Developer ID are notarised by Apple and open normally, with no "Open Anyway" step. Releases built without the Apple secrets fall back to a self-signed certificate, which macOS blocks on first launch: try to open the app once, then go to **System Settings -> Privacy & Security**, scroll to the message about "Astro Editor+" and click **Open Anyway**. Later updates install from inside the app.
-3. When updating from a self-signed build to a Developer ID build, the signing identity changes, so macOS may ask for Keychain access once (for example, for the saved GitHub token). Choose Always Allow; it does not ask again for later Developer ID releases.
+2. Open it. From 1.0.20-plus.9 on, releases are signed with a Developer ID and notarised by Apple, so it opens normally. Later updates install from inside the app.
+3. Updating from 1.0.20-plus.8 or earlier (self-signed) changes the app's signature, so macOS may ask once for Keychain access (for the saved GitHub sign-in). Choose Always Allow; it doesn't ask again.
 
 ## Installation
 

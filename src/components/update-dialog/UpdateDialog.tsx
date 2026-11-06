@@ -129,10 +129,6 @@ function AvailableContent() {
         </DialogDescription>
       </DialogHeader>
       <ReleaseNotesArea />
-      <p className="text-xs text-muted-foreground">
-        If macOS says it can’t check the app after updating, open System
-        Settings → Privacy &amp; Security and click Open Anyway.
-      </p>
       <DialogFooter className="gap-2">
         <Button variant="ghost" onClick={closeDialog}>
           Remind Me Later
